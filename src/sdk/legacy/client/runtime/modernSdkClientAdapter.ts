@@ -8,6 +8,7 @@ import {
 
 import { randomUUID } from 'node:crypto';
 
+import { trackTelemetryConnection } from '@src/core/server/runtimeTelemetryMeasurements.js';
 import { captureJson } from '@src/core/validation/schemaPolicy.js';
 import { LegacyOutboundEraAdapter } from '@src/gateway/adapters/legacy/legacyOutboundEraAdapter.js';
 import { ModernOutboundEraAdapter } from '@src/gateway/adapters/modern/modernOutboundEraAdapter.js';
@@ -23,6 +24,7 @@ import {
   validateInteractionResponse,
 } from '@src/gateway/interactions/validateInteractionResponse.js';
 import type { OutboundEraAdapter } from '@src/gateway/ports/outboundEraAdapter.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { injectTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 import { reportCatalogCoverageLoss } from '@src/sdk/contracts/catalogCoverageInvalidation.js';
 import {
@@ -98,6 +100,7 @@ function toProtocolError(error: unknown): OneMcpProtocolError {
 /** Plain-data compatibility boundary around one v2 Client and its negotiated era. */
 export class ModernSdkClientAdapter implements LegacySdkAdapter {
   readonly connectionId = randomUUID() as LegacyConnectionId;
+  private releaseTelemetryConnection?: () => void;
   private lifecycleState: LegacySdkLifecycleState = 'running';
   private readonly controllers = new Map<LegacyRequestId, AbortController>();
   private readonly events: LegacySdkEvent[] = [];
@@ -181,6 +184,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
   async start(): Promise<void> {
     if (this.lifecycleState === 'stopped') throw new Error('Modern SDK adapter is stopped');
     this.lifecycleState = 'running';
+    this.releaseTelemetryConnection ??= trackTelemetryConnection();
     if (this.protocol.era === 'modern') await this.ensureCatalogSubscription();
   }
 
@@ -329,6 +333,22 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
       inputResponses?: Record<string, unknown>;
       requestState?: string;
     },
+  ): Promise<JsonValue> {
+    return withProtocolTelemetry(
+      {
+        kind: 'client',
+        method: request.method,
+        outboundEra: this.protocol.era,
+        transport: this.handles.transport.telemetryTransport,
+      },
+      () => this.requestDirectOperation(request, continuation),
+      currentLegacyInteractionSignal(),
+    );
+  }
+
+  private async requestDirectOperation(
+    request: LegacySdkRequest,
+    continuation?: { inputResponses?: Record<string, unknown>; requestState?: string },
   ): Promise<JsonValue> {
     if (this.lifecycleState === 'stopped' || this.lifecycleState === 'stopping') {
       throw new OneMcpProtocolError(-32_603, 'Modern SDK adapter is closed');
@@ -498,6 +518,8 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
       } catch (error) {
         throw toProtocolError(error);
       } finally {
+        this.releaseTelemetryConnection?.();
+        this.releaseTelemetryConnection = undefined;
         this.lifecycleState = 'stopped';
         this.publish({ type: 'closed' });
       }

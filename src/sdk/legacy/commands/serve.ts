@@ -29,12 +29,21 @@ import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { getBackgroundLaunchConfigPath, readBackgroundLaunchConfig } from '@src/core/server/backgroundLaunchConfig.js';
 import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
+import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import type { RuntimeLaunchBootstrap } from '@src/core/server/runtimeLaunchIpc.js';
 import {
   claimRuntimeScope,
   type RuntimeScopeOwnership,
   verifyRuntimeScopeOwnership,
 } from '@src/core/server/runtimeScopeOwnership.js';
+import {
+  beginRuntimeTelemetryShutdown,
+  exitRuntime,
+  finishRuntimeTelemetry,
+  installTelemetryCompletionHandlers,
+  startForegroundTelemetryStatus,
+  startRuntimeTelemetry,
+} from '@src/core/server/runtimeTelemetry.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { resetBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
 import { GlobalOptions } from '@src/globalOptions.js';
@@ -226,6 +235,8 @@ export function setupGracefulShutdown(
     }
 
     shutdownPromise = (async () => {
+      beginRuntimeTelemetryShutdown();
+      runtimeAdmission.close();
       logger.info('serve.shutting.down.server.7bd0e75c');
 
       // Stop the configuration reload service
@@ -307,10 +318,11 @@ export function setupGracefulShutdown(
         }
       }
 
+      await finishRuntimeTelemetry();
       runtimeOwnership?.release();
 
       logger.info('serve.server.shutdown.complete.fad6a0b9');
-      process.exit(0);
+      exitRuntime(0);
     })();
 
     return shutdownPromise;
@@ -639,6 +651,10 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     // Backend log history is scoped to this Aggregated Runtime invocation.
     resetBackendLogBroker();
 
+    await startRuntimeTelemetry('runtime');
+    installTelemetryCompletionHandlers();
+    if (runtimeOwnership) await startForegroundTelemetryStatus(runtimeScope, runtimeOwnership.record.claimId);
+
     // Initialize server and get server manager with custom config path if provided
     const setup = cooperativeLaunch
       ? await setupServer(configFilePath, undefined, asyncLoading.loadingPolicy, 'cooperative-activation')
@@ -767,6 +783,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       });
     });
   } catch (_error) {
+    await finishRuntimeTelemetry(true);
     runtimeOwnership?.release();
     if (parsedArgv.background || parsedArgv.restart)
       process.stderr.write(`Error: ${describeServeLifecycleFailure(_error)}\n`);

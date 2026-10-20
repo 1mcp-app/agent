@@ -11,6 +11,7 @@ import type { BackgroundSupervisorState } from '@src/core/server/backgroundRunti
 import { getPidFilePath, ServerPidInfo, writePidFile } from '@src/core/server/pidFileManager.js';
 import { readProcessIdentity } from '@src/core/server/processIdentity.js';
 import { RuntimeScopeOwnedError, type RuntimeScopeOwnershipRecord } from '@src/core/server/runtimeScopeOwnership.js';
+import { getTelemetryStatus } from '@src/observability/telemetry.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -59,6 +60,33 @@ describe('serveStatus', () => {
     if (fs.existsSync(testConfigDir)) {
       fs.rmdirSync(testConfigDir);
     }
+  });
+
+  it('renders bounded per-signal telemetry facts from the worker report', () => {
+    const telemetry = getTelemetryStatus();
+    const output = formatRuntimeStatusReport({
+      status: 'not-running',
+      configDir: '/tmp/status',
+      info: null,
+      telemetry: {
+        ...telemetry,
+        state: 'degraded',
+        traces: {
+          ...telemetry.traces,
+          state: 'degraded',
+          dropped: 2,
+          overflow: 1,
+          successAgeMs: 250,
+          failureAgeMs: 100,
+          shutdown: 'timeout',
+        },
+      },
+    });
+    expect(output).toContain('Telemetry: degraded');
+    expect(output).toContain(
+      'Telemetry traces: degraded; exporter=none; queue=empty; dropped=2; overflow=1; success-age-ms=250; failure-age-ms=100; shutdown=timeout',
+    );
+    expect(output).toContain('Telemetry metrics: disabled');
   });
 
   describe('getRuntimeStatusReport', () => {

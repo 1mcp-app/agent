@@ -72,7 +72,7 @@ A tracing-aware MCP client can supply W3C context in request metadata:
 
 1MCP forwards valid `traceparent` and optional `tracestate` metadata to the selected backend. Related server-to-client requests and continuation requests retain the operation's context. Invalid context is ignored; it does not change authorization or server selection. HTTP trace headers do not substitute for MCP request metadata.
 
-This support carries existing context; 1MCP does not generate spans, collect metrics, or export telemetry to a collector. Setting an OTLP endpoint does not enable export, and `OTEL_SDK_DISABLED=true` does not turn off message context propagation. A backend's own tracing and export settings remain under that backend's control.
+Context propagation works independently of optional [operational telemetry](/guide/advanced/operational-telemetry). Enable its signal selectors to generate and export traces or metrics. Setting an OTLP endpoint does not enable export, and `OTEL_SDK_DISABLED=true` does not turn off message context propagation. A backend's own tracing and export settings remain under that backend's control.
 
 ## Privacy and backend diagnostics
 
@@ -84,5 +84,5 @@ Managed backend stderr is available separately in the Admin Console's [Backend L
 
 - **No runtime logs with stdio:** set `--log-file`; runtime console logging is suppressed in this mode.
 - **No trace IDs in logs:** check that the MCP client sends valid `params._meta.traceparent`. An HTTP header alone is insufficient.
-- **No traces in your collector:** context propagation does not enable telemetry export. Check the tracing configuration of the client or backend that creates spans.
+- **No traces in your collector:** context propagation does not enable telemetry export. Check the signal selectors and receiver configuration in [operational telemetry](/guide/advanced/operational-telemetry).
 - **An error lacks upstream details:** inspect the managed server's Backend Logs in the Admin Console, or the remote backend's own logs. Typed events report bounded error facts; local diagnostics retain sanitized connection and tool failure details.

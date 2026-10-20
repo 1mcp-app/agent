@@ -125,6 +125,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'Windows: Task Scheduler', link: '/guide/advanced/windows-task-scheduler' },
           { text: 'Backend Logs', link: '/guide/advanced/backend-logs' },
           { text: 'Logging and Trace Context', link: '/guide/advanced/observability' },
+          { text: 'Operational telemetry', link: '/guide/advanced/operational-telemetry' },
           { text: 'Server Filtering', link: '/guide/advanced/server-filtering' },
         ],
       },

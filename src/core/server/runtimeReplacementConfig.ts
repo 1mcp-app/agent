@@ -12,6 +12,8 @@ import {
   releaseFrozenRuntimeBootstrap,
 } from '@src/config/runtimeBootstrap.js';
 import { loadRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
+import { parseTelemetryConfig } from '@src/config/telemetryConfig.js';
+import { selectTelemetryEnvironment } from '@src/config/telemetryEnvironment.js';
 import { applicationConfigSchema, mcpServerConfigSchema, transportConfigSchema } from '@src/core/types/transport.js';
 import { globalOptions } from '@src/globalOptions.js';
 
@@ -178,6 +180,7 @@ export function prepareRuntimeReplacementConfig(input: {
         ),
       ),
     });
+    parseTelemetryConfig(selectTelemetryEnvironment(snapshot.parentEnvironment, snapshot.runtimeEnvironment));
     return {
       snapshot,
       digest: digestRuntimeReplacementConfig(snapshot),

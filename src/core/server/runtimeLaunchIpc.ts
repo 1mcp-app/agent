@@ -115,7 +115,10 @@ const replySchema = z.object({
   value: z.unknown(),
   error: z.string().optional(),
 });
-export function requestWorker(child: ChildProcess, action: 'close' | 'resume' | 'commit'): Promise<unknown> {
+export function requestWorker(
+  child: ChildProcess,
+  action: 'close' | 'resume' | 'commit' | 'telemetry',
+): Promise<unknown> {
   const id = randomUUID();
   return new Promise((resolve, reject) => {
     const finish = (error?: Error, value?: unknown) => {

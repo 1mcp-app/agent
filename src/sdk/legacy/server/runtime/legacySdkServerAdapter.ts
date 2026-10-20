@@ -1,4 +1,14 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import type { InboundConnectionAdapter } from '@src/core/types/server.js';
+import {
+  getTelemetryStatus,
+  recordTelemetryDrop,
+  recordTelemetryMeasurement,
+  startTelemetryOperation,
+} from '@src/observability/telemetry.js';
+import { runWithProtocolTelemetryOutcome, runWithTelemetryEras } from '@src/observability/telemetryOperation.js';
+import { telemetryResultOutcome } from '@src/observability/telemetryOutcome.js';
 import { injectTraceContext, stripBaggage, withMcpTraceContext } from '@src/observability/tracing/context.js';
 import { type JsonObject, toJsonValue } from '@src/sdk/contracts/jsonValue.js';
 import type {
@@ -8,12 +18,17 @@ import type {
 } from '@src/sdk/contracts/legacySdkAdapter.js';
 import { OneMcpProtocolError } from '@src/sdk/contracts/oneMcpProtocolError.js';
 import type { Server } from '@src/sdk/legacy/server/index.js';
+import { SSEServerTransport } from '@src/sdk/legacy/server/sse.js';
+import { StreamableHTTPServerTransport } from '@src/sdk/legacy/server/streamableHttp.js';
 import type { Transport } from '@src/sdk/legacy/shared/transport.js';
 
 interface LegacyServerHandles {
   readonly server: Server;
   readonly transport: Transport;
 }
+
+const wireTraceOwner = new AsyncLocalStorage<Server | undefined>();
+const tracedServers = new WeakSet<Server>();
 
 const serverHandles = new WeakMap<LegacySdkServerAdapter, LegacyServerHandles>();
 
@@ -127,7 +142,22 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
     const receive = transport.onmessage;
     const send = transport.send.bind(transport);
     const onclose = transport.onclose;
+    const tracing = tracedServers.has(getHandles(this).server);
+    interface Pending {
+      operation: ReturnType<typeof startTelemetryOperation>;
+      outcome: { outcome?: Parameters<ReturnType<typeof startTelemetryOperation>['end']>[0] };
+      finish: () => void;
+    }
+    const pending = new Map<string | number, Pending>();
+    const finish = (id: string | number, outcome: Parameters<Pending['operation']['end']>[0]) => {
+      const entry = pending.get(id);
+      if (!entry) return;
+      pending.delete(id);
+      entry.operation.end(outcome);
+      entry.finish();
+    };
     transport.onclose = () => {
+      for (const id of pending.keys()) finish(id, 'aborted');
       this.admittedInteractions.clear();
       this.lifecycleState = 'stopped';
       this.resolveDrain?.();
@@ -161,10 +191,55 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
         }
         if (interaction) this.admittedInteractions.add(message.id);
       }
-      receive?.(message, extra);
+      if (
+        tracing &&
+        getTelemetryStatus().state !== 'disabled' &&
+        'method' in message &&
+        'id' in message &&
+        !pending.has(message.id) &&
+        pending.size < 1024
+      ) {
+        const operation = startTelemetryOperation({
+          kind: 'server',
+          method: message.method,
+          inboundEra: 'legacy',
+          transport:
+            transport instanceof SSEServerTransport
+              ? 'sse'
+              : transport instanceof StreamableHTTPServerTransport
+                ? 'streamable-http'
+                : 'stdio',
+          remoteParams: message.params,
+        });
+        void operation
+          .run(() =>
+            wireTraceOwner.run(getHandles(this).server, () =>
+              runWithTelemetryEras({ inboundEra: 'legacy' }, () =>
+                runWithProtocolTelemetryOutcome(
+                  (outcome) =>
+                    new Promise<void>((resolve) => {
+                      pending.set(message.id, { operation, finish: resolve, outcome });
+                      receive?.(message, extra);
+                    }),
+                ),
+              ),
+            ),
+          )
+          .catch(() => finish(message.id, 'internal-error'));
+      } else {
+        if (tracing && 'method' in message && 'id' in message && pending.size >= 1024) {
+          recordTelemetryDrop('traces');
+          recordTelemetryDrop('metrics');
+          recordTelemetryMeasurement('gateway.queue.overflow', 1, { queue: 'admission' });
+        }
+        wireTraceOwner.run(undefined, () => receive?.(message, extra));
+      }
       if ('method' in message && message.method === 'notifications/cancelled') {
         const id = message.params?.requestId;
-        if (typeof id === 'string' || typeof id === 'number') this.admittedInteractions.delete(id);
+        if (typeof id === 'string' || typeof id === 'number') {
+          this.admittedInteractions.delete(id);
+          finish(id, 'cancelled');
+        }
         if (this.retiring && !this.admittedInteractions.size) void this.close().catch(() => {});
       }
     };
@@ -178,6 +253,12 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
           outgoing = { ...message, result: stripBaggage(message.result) };
         }
         await send(outgoing, options);
+        if ('id' in message && !('method' in message) && message.id !== undefined && message.id !== null) {
+          finish(message.id, pending.get(message.id)?.outcome.outcome ?? telemetryResultOutcome(message));
+        }
+      } catch (error) {
+        if ('id' in message && message.id !== undefined && message.id !== null) finish(message.id, 'transport-error');
+        throw error;
       } finally {
         if ('id' in message && !('method' in message) && message.id !== undefined) {
           this.admittedInteractions.delete(message.id);
@@ -208,9 +289,15 @@ export function isLegacyServerConnected(adapter: LegacySdkServerAdapter): boolea
 
 /** Install before registering runtime handlers so each request owns its async context. */
 export function installLegacyRequestTracing(server: Server): void {
+  // The adapter owns the wire response lifetime, including SDK built-in methods.
+  tracedServers.add(server);
   const register = server.setRequestHandler.bind(server);
   server.setRequestHandler = (schema, handler) =>
-    register(schema, (request, extra) =>
-      withMcpTraceContext(request.params, async () => handler(request, extra), extra.signal),
-    );
+    register(schema, (request, extra) => {
+      if (wireTraceOwner.getStore() === server) return handler(request, extra);
+      // Disabled or saturated recording still owns the exact #488 propagation/lifetime boundary.
+      return runWithTelemetryEras({ inboundEra: 'legacy' }, () =>
+        withMcpTraceContext(request.params, async () => handler(request, extra), extra.signal),
+      );
+    });
 }

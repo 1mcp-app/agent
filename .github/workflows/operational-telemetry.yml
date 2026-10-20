@@ -1,0 +1,211 @@
+name: Operational telemetry
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'test/telemetry/**'
+      - 'scripts/telemetry/**'
+      - '.node-version'
+      - '.github/actions/setup-node-pnpm/**'
+      - 'patches/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/operational-telemetry.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: operational-telemetry-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: 0
+  CI: true
+
+jobs:
+  acceptance-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select telemetry acceptance changes
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only "$BASE_SHA...$HEAD_SHA" -- \
+              'src/observability/**' 'src/config/telemetry*' \
+              'scripts/telemetry/**' 'test/telemetry/**' \
+              '.github/workflows/operational-telemetry.yml' \
+              '.github/actions/setup-node-pnpm/**' '.node-version' \
+              'package.json' 'pnpm-lock.yaml' 'pnpm-workspace.yaml' 'patches/**' > "$RUNNER_TEMP/telemetry-changes"
+            if [[ -s "$RUNNER_TEMP/telemetry-changes" ]]; then
+              echo 'run=true' >> "$GITHUB_OUTPUT"
+            else
+              echo 'run=false' >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  collector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Build runtime
+        run: pnpm build
+      - name: Install checksum-verified fixture Collector
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/telemetry-collector"
+          cd "$RUNNER_TEMP/telemetry-collector"
+          archive=otelcol_0.163.1_linux_amd64.tar.gz
+          release=https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.163.1
+          curl --fail --silent --show-error --location "$release/$archive" -o "$archive"
+          curl --fail --silent --show-error --location "$release/$archive.sha256" -o checksum
+          expected=$(awk '{print $1}' checksum)
+          printf '%s  %s\n' "$expected" "$archive" | sha256sum --check
+          tar -xzf "$archive"
+          echo "OTELCOL_BINARY=$RUNNER_TEMP/telemetry-collector/otelcol" >> "$GITHUB_ENV"
+      - name: Verify fake and real Collector fixtures
+        run: node --test test/telemetry/collector.test.mjs test/telemetry/real-collector.test.mjs test/telemetry/capacity-startup.test.mjs test/telemetry/capacity-owners.test.mjs
+      - name: Verify runtime export and privacy
+        run: pnpm exec vitest run --config test/telemetry/vitest.config.ts
+
+  capacity-and-performance:
+    needs: acceptance-scope
+    if: needs.acceptance-scope.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [capacity, performance]
+    steps:
+      - name: Initialize evidence directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/telemetry-acceptance"
+          echo "EVIDENCE=$RUNNER_TEMP/telemetry-acceptance" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Record exact source and build once
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE"
+          node -e 'if (process.versions.node.split(".")[0] !== "24") process.exit(1)'
+          git rev-parse HEAD > "$EVIDENCE/source-sha.log"
+          pnpm build > "$EVIDENCE/build.log" 2>&1
+          test -z "$(git status --porcelain)"
+      - name: Install checksum-verified fixture Collector
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/telemetry-collector"
+          cd "$RUNNER_TEMP/telemetry-collector"
+          archive=otelcol_0.163.1_linux_amd64.tar.gz
+          release=https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.163.1
+          curl --fail --silent --show-error --location "$release/$archive" -o "$archive"
+          curl --fail --silent --show-error --location "$release/$archive.sha256" -o checksum
+          expected=$(awk '{print $1}' checksum)
+          printf '%s  %s\n' "$expected" "$archive" | sha256sum --check
+          tar -xzf "$archive"
+          echo "OTELCOL_BINARY=$RUNNER_TEMP/telemetry-collector/otelcol" >> "$GITHUB_ENV"
+      - name: Capacity acceptance and owned-process cleanup
+        id: capacity
+        if: matrix.mode == 'capacity'
+        continue-on-error: true
+        run: |
+          timeout --kill-after=15s 15m node scripts/telemetry/capacity.mjs \
+            "$EVIDENCE/capacity.json" > "$EVIDENCE/capacity.log" 2>&1
+      - name: Prepare matched baseline from the same build
+        id: preparation
+        if: matrix.mode == 'performance'
+        continue-on-error: true
+        run: |
+          node scripts/telemetry/prepare-performance.mjs "$RUNNER_TEMP/telemetry-performance" 3 \
+            > "$EVIDENCE/preparation.log" 2>&1
+      - name: Matched performance acceptance
+        id: performance
+        if: ${{ !cancelled() && matrix.mode == 'performance' && steps.preparation.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          timeout --kill-after=15s 45m node scripts/telemetry/measure.mjs \
+            "$RUNNER_TEMP/telemetry-performance/run.json" "$EVIDENCE/performance.json" \
+            > "$EVIDENCE/performance.log" 2>&1
+      - name: Require selected acceptance verdict
+        if: ${{ !cancelled() }}
+        env:
+          MODE: ${{ matrix.mode }}
+          CAPACITY_OUTCOME: ${{ steps.capacity.outcome }}
+          PERFORMANCE_OUTCOME: ${{ steps.performance.outcome }}
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const name = process.env.MODE;
+          const outcome = name === 'capacity' ? process.env.CAPACITY_OUTCOME : process.env.PERFORMANCE_OUTCOME;
+          assert.equal(outcome, 'success', `${name} execution failed or did not complete`);
+          const report = JSON.parse(readFileSync(`${process.env.EVIDENCE}/${name}.json`, 'utf8'));
+          assert.equal(report.verdict, 'pass', `${name} failed or was inconclusive`);
+          if (name === 'capacity') assert.deepEqual(report.cleanupErrors, [], 'Capacity cleanup unconfirmed or failed');
+          JS
+      - name: Collect bounded evidence only
+        if: always()
+        run: |
+          node --input-type=module <<'JS'
+          import { mkdirSync, readdirSync, writeFileSync, statSync, existsSync, openSync, readSync, closeSync } from 'node:fs';
+          const root = process.env.EVIDENCE;
+          const target = `${process.env.RUNNER_TEMP}/telemetry-upload`;
+          mkdirSync(target, { recursive: true });
+          const manifest = [];
+          // No run.json, runtime config, environment dump, credentials, or build tree.
+          const names = existsSync(root) ? readdirSync(root) : [];
+          for (const name of names.sort().filter(n => /\.(json|jsonl|log)$/.test(n)).slice(0, 64)) {
+            const file = `${root}/${name}`;
+            const size = statSync(file).size;
+            const limit = name.endsWith('.json') ? 8 * 1024 * 1024 : 1024 * 1024;
+            if (name.endsWith('.json') && size > limit) {
+              manifest.push({ name, size, omitted: 'JSON exceeds 8 MiB; never truncate structured reports' });
+              continue;
+            }
+            const data = Buffer.alloc(Math.min(size, limit));
+            const fd = openSync(file, 'r');
+            try {
+              readSync(fd, data, 0, data.length, Math.max(0, size - limit));
+            } finally {
+              closeSync(fd);
+            }
+            writeFileSync(`${target}/${name}`, data);
+            manifest.push({ name, size, retainedBytes: Math.min(size, limit) });
+          }
+          writeFileSync(`${target}/evidence-manifest.json`, JSON.stringify(manifest, null, 2));
+          JS
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: telemetry-acceptance-${{ matrix.mode }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/telemetry-upload/
+          if-no-files-found: error
+          retention-days: 14

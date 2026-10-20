@@ -1,0 +1,466 @@
+import {
+  type Context,
+  diag,
+  DiagLogLevel,
+  ROOT_CONTEXT,
+  type Span,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+} from '@opentelemetry/api';
+import type { Counter, Gauge, Histogram, UpDownCounter } from '@opentelemetry/api';
+import { resourceFromAttributes } from '@opentelemetry/resources';
+import {
+  AggregationType,
+  createAllowListAttributesProcessor,
+  InstrumentType,
+  MeterProvider,
+  MetricReader,
+  type ViewOptions,
+} from '@opentelemetry/sdk-metrics';
+import {
+  AlwaysOffSampler,
+  AlwaysOnSampler,
+  BasicTracerProvider,
+  ParentBasedSampler,
+  type ReadableSpan,
+  type SpanProcessor,
+  TraceIdRatioBasedSampler,
+} from '@opentelemetry/sdk-trace-base';
+
+import { randomUUID } from 'node:crypto';
+
+import type { TelemetryConfig } from '../../config/telemetryConfig.js';
+import { exportableSpan, metricExporter, type SecureExporter, traceExporter } from './export.js';
+import {
+  aggregateState,
+  type ShutdownOutcome,
+  SignalHealth,
+  type TelemetryDiagnostic,
+  type TelemetryStatus,
+} from './health.js';
+import { type MeasurementDimensions, type MeasurementName, METRIC_ATTRIBUTE_KEYS, METRIC_REGISTRY } from './schema.js';
+
+const instanceId = randomUUID();
+const BOUNDARIES = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60, 120, 300];
+/** All promises started here are observed, including work that outlives a shutdown deadline. */
+async function bounded(work: Promise<unknown>, timeout: number): Promise<ShutdownOutcome> {
+  if (timeout <= 0) {
+    void work.catch(() => undefined);
+    return 'timeout';
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work.then(
+        () => 'success' as const,
+        () => 'failed' as const,
+      ),
+      new Promise<'timeout'>((resolve) => {
+        timer = setTimeout(() => resolve('timeout'), timeout);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+/** One reschedulable owner budget shared by every signal cleanup. */
+class ShutdownDeadline {
+  private deadline = Infinity;
+  private closed = false;
+  private timer?: ReturnType<typeof setTimeout>;
+  private expire!: (outcome: 'timeout') => void;
+  readonly expired = new Promise<'timeout'>((resolve) => {
+    this.expire = resolve;
+  });
+  shorten(deadline: number): void {
+    if (this.closed || deadline >= this.deadline) return;
+    this.deadline = deadline;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.expire('timeout'), Math.max(0, deadline - Date.now()));
+  }
+  close(): void {
+    this.closed = true;
+    if (this.timer) clearTimeout(this.timer);
+  }
+}
+class TraceQueue implements SpanProcessor {
+  private queue: ReadableSpan[] = [];
+  private inFlight?: Promise<void>;
+  private stopped = false;
+  private timer: ReturnType<typeof setInterval>;
+  private failures = 0;
+  constructor(
+    private config: TelemetryConfig['batch'],
+    private exporter: SecureExporter<ReadableSpan[]>,
+    private health: SignalHealth,
+  ) {
+    this.timer = setInterval(() => {
+      void this.send();
+    }, config.delayMs);
+    this.timer.unref();
+  }
+  onStart(): void {}
+  onEnd(span: ReadableSpan): void {
+    if (this.stopped) return;
+    if (this.queue.length >= this.config.queueSize) {
+      this.health.drop();
+      return;
+    }
+    this.queue.push(span);
+    this.health.queue(this.queue.length);
+    if (this.queue.length >= this.config.batchSize) void this.send();
+  }
+  private send(): Promise<void> {
+    if (this.inFlight) return this.inFlight;
+    if (!this.queue.length) return Promise.resolve();
+    const batch = this.queue.splice(0, this.config.batchSize).map(exportableSpan);
+    this.health.queue(this.queue.length);
+    this.inFlight = (async () => {
+      const result = await bounded(
+        this.exporter.export(batch).then((success) => {
+          if (!success) throw new Error('export-failed');
+        }),
+        this.config.timeoutMs,
+      );
+      if (result === 'success') this.health.success();
+      else {
+        this.failures++;
+        this.health.fail();
+      }
+    })().finally(() => {
+      this.inFlight = undefined;
+    });
+    return this.inFlight;
+  }
+  async forceFlush(): Promise<void> {
+    const before = this.failures;
+    await this.inFlight;
+    while (this.queue.length) await this.send();
+    if (this.failures > before) throw new Error('telemetry-flush-failed');
+  }
+  async shutdown(): Promise<void> {
+    this.stopped = true;
+    clearInterval(this.timer);
+    try {
+      await this.forceFlush();
+    } finally {
+      await this.exporter.shutdown();
+    }
+  }
+  stop(): void {
+    this.stopped = true;
+    clearInterval(this.timer);
+  }
+  destroy(): void {
+    this.stop();
+    this.queue = [];
+    this.health.queue(0);
+    this.exporter.destroy();
+  }
+}
+class BoundedMetricReader extends MetricReader {
+  private timer?: ReturnType<typeof setInterval>;
+  private inFlight?: Promise<void>;
+  private stopped = false;
+  private failures = 0;
+  constructor(
+    private config: TelemetryConfig['metricReader'],
+    private exporter: ReturnType<typeof metricExporter>,
+    private health: SignalHealth,
+  ) {
+    super({
+      cardinalitySelector: (type) =>
+        type === InstrumentType.HISTOGRAM ? 1024 : type === InstrumentType.COUNTER ? 512 : 256,
+    });
+  }
+  protected onInitialized(): void {
+    this.timer = setInterval(() => {
+      void this.send();
+    }, this.config.intervalMs);
+    this.timer.unref();
+  }
+  private send(): Promise<void> {
+    if (this.inFlight) return this.inFlight;
+    this.health.queue(1);
+    this.inFlight = (async () => {
+      try {
+        const collected = await this.collect({ timeoutMillis: this.config.timeoutMs });
+        if (collected.errors.length) {
+          this.failures++;
+          this.health.fail();
+          return;
+        }
+
+        const result = await bounded(
+          this.exporter.export(collected.resourceMetrics).then((success) => {
+            if (!success) throw new Error('export-failed');
+          }),
+          this.config.timeoutMs,
+        );
+        // Metric export has no queued work after completion.
+        this.health.queue(0);
+        if (result === 'success') this.health.success();
+        else {
+          this.failures++;
+          this.health.fail();
+        }
+      } catch {
+        this.failures++;
+        this.health.fail();
+      } finally {
+        this.health.queue(0);
+      }
+    })().finally(() => {
+      this.inFlight = undefined;
+    });
+    return this.inFlight;
+  }
+  protected async onForceFlush(): Promise<void> {
+    const before = this.failures;
+    await this.inFlight;
+    await this.send();
+    if (this.failures > before) throw new Error('telemetry-flush-failed');
+  }
+  protected async onShutdown(): Promise<void> {
+    this.stop();
+    await this.inFlight;
+    await this.exporter.shutdown();
+  }
+  stop(): void {
+    this.stopped = true;
+    if (this.timer) clearInterval(this.timer);
+  }
+  destroy(): void {
+    this.stop();
+    this.exporter.destroy();
+  }
+}
+export class TelemetrySdk {
+  readonly traces: SignalHealth;
+  readonly metrics: SignalHealth;
+  private tracer?: ReturnType<BasicTracerProvider['getTracer']>;
+  private traceProvider?: BasicTracerProvider;
+  private meterProvider?: MeterProvider;
+  private traceQueue?: TraceQueue;
+  private metricReader?: BoundedMetricReader;
+  private instruments = new Map<MeasurementName, Counter | Histogram | UpDownCounter | Gauge>();
+  private series = new Map<MeasurementName, Map<string, MeasurementDimensions>>();
+  private ticker: ReturnType<typeof setInterval>;
+  private stopping?: Promise<void>;
+  private shutdownDeadline?: ShutdownDeadline;
+  constructor(
+    readonly config: TelemetryConfig,
+    version: string,
+    diagnostic?: (event: TelemetryDiagnostic) => void,
+  ) {
+    this.traces = new SignalHealth('traces', config.batch.delayMs, config.batch.queueSize, config.traces, diagnostic);
+    this.metrics = new SignalHealth('metrics', config.metricReader.intervalMs, 2, config.metrics, diagnostic);
+    // The SDK computes environment defaults before applying explicit options. Its
+    // diagnostic prose can contain raw values even when those defaults are unused.
+    // Active runtime telemetry owns this diagnostic channel; never forward args.
+    let configuring = true;
+    const diagnosticHealth = config.traces.exporter === 'otlp' ? this.traces : this.metrics;
+    const diagnose = () => diagnosticHealth.warn(configuring ? 'configuration' : 'export');
+    diag.setLogger(
+      { warn: diagnose, error: diagnose, info: () => undefined, debug: () => undefined, verbose: () => undefined },
+      { logLevel: DiagLogLevel.WARN, suppressOverrideMessage: true },
+    );
+    // Resource is independently closed. No defaults/detectors or environment resource parser.
+    const resource = resourceFromAttributes({
+      'service.name': config.serviceName,
+      'service.version': version,
+      'service.instance.id': instanceId,
+    });
+    try {
+      if (config.traces.exporter === 'otlp') {
+        const name = config.sampler.name;
+        let root;
+        if (name.endsWith('always_on')) root = new AlwaysOnSampler();
+        else if (name.endsWith('always_off')) root = new AlwaysOffSampler();
+        else if (config.sampler.ratio === 0) root = new AlwaysOffSampler();
+        else if (config.sampler.ratio === 1) root = new AlwaysOnSampler();
+        else root = new TraceIdRatioBasedSampler(config.sampler.ratio);
+        const sampler = name.startsWith('parentbased_') ? new ParentBasedSampler({ root }) : root;
+        this.traceQueue = new TraceQueue(config.batch, traceExporter(config.traces), this.traces);
+        this.traceProvider = new BasicTracerProvider({
+          resource,
+          sampler,
+          spanProcessors: [this.traceQueue],
+          forceFlushTimeoutMillis: config.batch.timeoutMs,
+          generalLimits: {
+            attributeCountLimit: config.limits.attributes,
+            attributeValueLengthLimit: config.limits.attributeBytes,
+          },
+          spanLimits: {
+            attributeCountLimit: config.limits.attributes,
+            attributeValueLengthLimit: config.limits.attributeBytes,
+            eventCountLimit: config.limits.events,
+            linkCountLimit: config.limits.links,
+            attributePerEventCountLimit: config.limits.eventAttributes,
+            attributePerLinkCountLimit: config.limits.linkAttributes,
+          },
+        });
+        this.tracer = this.traceProvider.getTracer('1mcp.operational', version);
+      }
+      if (config.metrics.exporter === 'otlp') {
+        this.metricReader = new BoundedMetricReader(config.metricReader, metricExporter(config.metrics), this.metrics);
+        const views: ViewOptions[] = Object.entries(METRIC_REGISTRY).map(([instrumentName, spec]) => ({
+          instrumentName,
+          attributesProcessors: [
+            createAllowListAttributesProcessor([...METRIC_ATTRIBUTE_KEYS, 'otel.metric.overflow']),
+          ],
+          aggregationCardinalityLimit: spec.cap,
+          ...(spec.kind === 'histogram'
+            ? { aggregation: { type: AggregationType.EXPLICIT_BUCKET_HISTOGRAM, options: { boundaries: BOUNDARIES } } }
+            : {}),
+        }));
+        this.meterProvider = new MeterProvider({
+          resource,
+          readers: [this.metricReader],
+          views,
+          sdkMetricsEnabled: false,
+        });
+        const meter = this.meterProvider.getMeter('1mcp.operational', version);
+        for (const [name, spec] of Object.entries(METRIC_REGISTRY)) {
+          let instrument: Counter | Histogram | UpDownCounter | Gauge;
+          if (spec.kind === 'histogram') instrument = meter.createHistogram(name, { unit: spec.unit });
+          else if (spec.kind === 'counter') instrument = meter.createCounter(name, { unit: spec.unit });
+          else if (spec.kind === 'updown') instrument = meter.createUpDownCounter(name, { unit: spec.unit });
+          else instrument = meter.createGauge(name, { unit: spec.unit });
+          this.instruments.set(name as MeasurementName, instrument);
+        }
+      }
+    } catch (error) {
+      this.traceQueue?.destroy();
+      this.metricReader?.destroy();
+      diag.disable();
+      throw error;
+    }
+    configuring = false;
+    this.ticker = setInterval(
+      () => {
+        this.traces.tick();
+        this.metrics.tick();
+      },
+      Math.min(1000, config.batch.delayMs, config.metricReader.intervalMs),
+    );
+    this.ticker.unref();
+  }
+  span(
+    name: string,
+    kind: SpanKind,
+    attributes: MeasurementDimensions,
+    parent: Context,
+    transportLink?: Context,
+  ): Span | undefined {
+    if (this.stopping || !this.tracer) return undefined;
+    const link = transportLink ? trace.getSpanContext(transportLink) : undefined;
+    const links = link ? [{ context: link, attributes: {} }] : [];
+    const limited = Object.fromEntries(
+      Object.entries(attributes)
+        .filter(([, value]) => value !== undefined && Buffer.byteLength(value) <= this.config.limits.attributeBytes)
+        .slice(0, this.config.limits.attributes),
+    );
+    return this.tracer.startSpan(name, { kind, attributes: limited, links }, parent);
+  }
+  finish(span: Span | undefined, attributes: MeasurementDimensions, error: boolean): void {
+    if (!span) return;
+    if (span.isRecording()) {
+      for (const [key, value] of Object.entries(attributes))
+        if (value !== undefined && Buffer.byteLength(value) <= this.config.limits.attributeBytes)
+          span.setAttribute(key, value);
+      if (error) span.setStatus({ code: SpanStatusCode.ERROR, message: 'Operation failed' });
+    }
+    span.end();
+  }
+  measure(name: MeasurementName, value: number, attributes: MeasurementDimensions): void {
+    if (this.stopping) return;
+    const instrument = this.instruments.get(name);
+    if (!instrument) return;
+    const spec = METRIC_REGISTRY[name];
+    // Closed enum values never contain NUL or empty strings. Fixed positions
+    // distinguish omitted fields without sort/serialization or per-field strings.
+    const key = METRIC_ATTRIBUTE_KEYS.map((field) => attributes[field as keyof MeasurementDimensions] ?? '').join('\0');
+    let seen = this.series.get(name);
+    if (!seen) {
+      seen = new Map();
+      this.series.set(name, seen);
+    }
+    let canonical = seen.get(key);
+    // Retain only cap-1 immutable copies; the final SDK series is overflow.
+    if (!canonical) {
+      if (seen.size < spec.cap - 1) {
+        canonical = Object.freeze(Object.fromEntries(Object.entries(attributes).filter(([, v]) => v !== undefined)));
+        seen.set(key, canonical);
+      } else {
+        this.metrics.cardinality();
+        canonical = { 'otel.metric.overflow': true } as MeasurementDimensions;
+      }
+    }
+    attributes = canonical;
+    if ('record' in instrument) instrument.record(value, attributes, ROOT_CONTEXT);
+    else instrument.add(value, attributes, ROOT_CONTEXT);
+  }
+  status(): TelemetryStatus {
+    const traces = this.traces.status();
+    const metrics = this.metrics.status();
+    return { state: aggregateState([traces, metrics]), traces, metrics };
+  }
+  recordDrop(signal: 'traces' | 'metrics'): void {
+    if (this.stopping) return;
+    const health = this[signal];
+    if (health.state === 'disabled' || health.state === 'stopped') return;
+    health.drop();
+  }
+  markStopping(): void {
+    for (const health of [this.traces, this.metrics]) {
+      if (['starting', 'healthy', 'degraded'].includes(health.state)) health.state = 'stopping';
+    }
+  }
+  stop(deadlineMs: number, fatal = false): Promise<void> {
+    this.shutdownDeadline ??= new ShutdownDeadline();
+    this.shutdownDeadline.shorten(Math.min(deadlineMs, Date.now() + (fatal ? 1000 : 5000)));
+    this.stopping ??= this.shutdown(this.shutdownDeadline);
+    return this.stopping;
+  }
+  private async shutdown(deadline: ShutdownDeadline): Promise<void> {
+    clearInterval(this.ticker);
+    const active = [this.traces, this.metrics].filter((health) => health.state !== 'disabled');
+    for (const health of active) health.state = 'stopping';
+    this.traceQueue?.stop();
+    this.metricReader?.stop();
+    const clean = async (health: SignalHealth, provider: BasicTracerProvider | MeterProvider | undefined) => {
+      if (!provider) return;
+      const outcome = await Promise.race([
+        (async () => {
+          let failed = false;
+          try {
+            await provider.forceFlush();
+          } catch {
+            failed = true;
+          }
+          try {
+            await provider.shutdown();
+          } catch {
+            failed = true;
+          }
+          if (failed) throw new Error('telemetry-shutdown-failed');
+        })().then(
+          () => 'success' as const,
+          () => 'failed' as const,
+        ),
+        deadline.expired,
+      ]);
+      health.state = 'stopped';
+      health.shutdown = outcome;
+      if (outcome !== 'success') health.warn('shutdown');
+    };
+    await Promise.all([clean(this.traces, this.traceProvider), clean(this.metrics, this.meterProvider)]);
+    deadline.close();
+    // Destroy agents on deadlines too: no long-lived export sockets may extend runtime stop.
+    this.traceQueue?.destroy();
+    this.metricReader?.destroy();
+    diag.disable();
+  }
+}

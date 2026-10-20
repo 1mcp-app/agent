@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { HealthService } from '@src/application/services/healthService.js';
 import type { BackendOAuthDashboardResult } from '@src/auth/oauthAuthorizationFlow.js';
 import { safeOAuthDiagnosticMessage } from '@src/auth/oauthDiagnostics.js';
 import { MCP_PROJECT_METADATA } from '@src/constants.js';
@@ -51,6 +52,7 @@ import type {
   BackendLogSourceUpdate,
 } from '@src/domains/backend-logs/backendLogTypes.js';
 import type { InstructionTemplateMutationResult } from '@src/domains/instruction-template/instructionTemplateManager.js';
+import { getTelemetryStatus } from '@src/observability/telemetry.js';
 import {
   createSensitiveOperationLimiter,
   DEFAULT_SENSITIVE_OPERATION_RATE_LIMIT_POLICY,
@@ -511,6 +513,11 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     options.adminService.revokeSession(getAdminSessionCookie(req));
     clearAdminSessionCookie(res, options.getRuntimeIdentity().externalUrl);
     res.status(200).json({ ok: true });
+  });
+
+  router.get('/api/runtime/health', statusLimiter, async (_req, res) => {
+    const health = await HealthService.getInstance().performHealthCheck();
+    res.status(200).json({ ...health, telemetry: getTelemetryStatus() });
   });
 
   router.get('/api/status', statusLimiter, (req, res) => {

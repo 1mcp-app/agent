@@ -5,8 +5,11 @@ import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeC
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { filterConnectionsForSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { resolveResourceRoute } from '@src/core/protocol/resourceTemplateRouting.js';
+import { changeTelemetryQueueDepth } from '@src/core/server/runtimeTelemetryMeasurements.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type InboundConnectionConfig, type OutboundConnection } from '@src/core/types/index.js';
+import { recordTelemetryMeasurement } from '@src/observability/telemetry.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { getAuthInfo, revalidateAuthInfo } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 
 import type { Request, Response } from 'express';
@@ -298,11 +301,13 @@ class ModernSubscription {
     if (this.stopped) return;
     const bytes = Buffer.byteLength(JSON.stringify(notification));
     if (this.queue.length >= MAX_EVENTS || this.bytes + bytes > MAX_BYTES) {
+      recordTelemetryMeasurement('gateway.queue.overflow', 1, { queue: 'subscription' });
       this.close(false);
       return;
     }
     // Capture upstream plain data so later mutations cannot change queued delivery.
     this.queue.push({ notification: structuredClone(notification), bytes });
+    changeTelemetryQueueDepth('subscription', 1);
     this.bytes += bytes;
     if (this.ready) void this.pump();
   }
@@ -325,6 +330,7 @@ class ModernSubscription {
     try {
       while (this.queue.length && !this.stopped) {
         const item = this.queue.shift()!;
+        changeTelemetryQueueDepth('subscription', -1);
         this.bytes -= item.bytes;
         if (!this.accepts(item.notification)) continue;
         if (!(await this.authorized())) {
@@ -375,6 +381,7 @@ class ModernSubscription {
     clearInterval(this.timer);
     this.signal.removeEventListener('abort', this.onAbort);
     this.controller.abort();
+    changeTelemetryQueueDepth('subscription', -this.queue.length);
     this.queue = [];
     this.bytes = 0;
     if (graceful && this.ready && !this.res.destroyed && this.res.writableLength < MAX_BYTES) {
@@ -430,11 +437,25 @@ export async function serveModernSubscription(
   const owner = new ModernSubscription(manager, parsed.data.id, res, config, signal, resourceOwner);
   setups++;
   try {
-    await owner.setup(parsed.data.params.notifications, createBridge);
+    await withProtocolTelemetry(
+      {
+        kind: 'server',
+        method: 'subscriptions/listen',
+        inboundEra: 'modern',
+        transport: 'streamable-http',
+        remoteParams: parsed.data.params,
+      },
+      () => owner.setup(parsed.data.params.notifications, createBridge),
+      signal,
+    );
+    recordTelemetryMeasurement('gateway.subscription.lifecycle', 1, { lifecycle: 'started' });
   } finally {
     setups--;
   }
   await owner.done;
+  recordTelemetryMeasurement('gateway.subscription.lifecycle', 1, {
+    lifecycle: signal.aborted ? 'cancelled' : 'completed',
+  });
 }
 export function cancelModernSubscription(
   req: Request,

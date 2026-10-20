@@ -1,0 +1,64 @@
+{
+  "name": "issue489-matched-mcp-http-v1",
+  "recordedBeforeRuns": true,
+  "topology": {
+    "inboundEra": "legacy",
+    "inboundTransport": "streamable-http",
+    "upstreamEra": "modern",
+    "upstreamProtocolVersion": "2026-07-28",
+    "upstreamTransport": "streamable-http",
+    "upstreamProcess": "owned child with IPC readiness and OS-assigned loopback port",
+    "reason": "Parallel workloads require modern HTTP upstream; the legacy upstream connection intentionally admits one operation"
+  },
+  "operations": ["tools/list", "tools/call:echo-4KiB", "tools/call:error"],
+  "mix": [80, 19, 1],
+  "concurrency": 16,
+  "warmupRequests": 1000,
+  "measuredRequests": 10000,
+  "sampling": 0.1,
+  "order": ["baseline", "propagation", "healthy", "outage"],
+  "rotation": "rotate modes by repetition to reduce thermal and order bias",
+  "collectorOutage": "HTTP 503 from a loopback Collector; separately exercise slow responses and queue saturation",
+  "noisePolicy": "at least three paired repetitions; extend until 95 percent paired confidence intervals resolve each budget; unresolved intervals are inconclusive",
+  "budgets": {
+    "propagation": {
+      "relativeTo": "baseline",
+      "p95Regression": 0.02,
+      "throughputRegression": 0.02,
+      "rssMiB": 16
+    },
+    "healthy": {
+      "relativeTo": "baseline",
+      "p95Regression": 0.05,
+      "throughputRegression": 0.05,
+      "rssMiB": 64,
+      "eventLoopP99Ms": 5
+    },
+    "outage": {
+      "relativeTo": "healthy",
+      "p95Regression": 0.02,
+      "throughputRegression": 0.02
+    }
+  },
+  "capacity": {
+    "traceQueue": [2048, 8192],
+    "batch": [512, 2048],
+    "uniqueRejectedIdentities": 10000,
+    "seriesCaps": {
+      "histogram": 1024,
+      "counter": 512,
+      "other": 256
+    },
+    "checks": [
+      "unchanged MCP results and readiness",
+      "queue drops and recovery",
+      "idle failure timers",
+      "bounded RSS plateau",
+      "standard overflow series",
+      "two-success recovery below 50 percent queue"
+    ]
+  },
+  "minimumMeasuredSeconds": 60,
+  "settleMs": 65000,
+  "settleReason": "All four modes settle equally after the same warmup to match process age, background JIT and timer activity before measurement"
+}

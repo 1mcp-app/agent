@@ -1,4 +1,11 @@
 import { attachFreshClientSurface } from '@src/commands/shared/clientSurfaceAttachment.js';
+import {
+  beginRuntimeTelemetryShutdown,
+  exitRuntime,
+  finishRuntimeTelemetry,
+  installTelemetryCompletionHandlers,
+  startRuntimeTelemetry,
+} from '@src/core/server/runtimeTelemetry.js';
 import logger from '@src/logger/logger.js';
 import { StdioProxyTransport } from '@src/transport/stdioProxyTransport.js';
 
@@ -9,6 +16,8 @@ import { ProxyOptions } from './index.js';
  */
 export async function proxyCommand(options: ProxyOptions): Promise<void> {
   try {
+    await startRuntimeTelemetry('proxy');
+    installTelemetryCompletionHandlers();
     const attachment = await attachFreshClientSurface({
       clientSurface: 'stdio-proxy',
       version: 'proxy',
@@ -47,6 +56,7 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
 
     const proxyTransport = new StdioProxyTransport({
       serverUrl: discoveredUrl,
+      onclose: () => finishRuntimeTelemetry(),
       bearerToken: attachment.bearerToken,
       context: attachment.context,
       contextProof: attachment.contextProof,
@@ -58,17 +68,23 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     logger.info('proxy.stdio.proxy.running.forwarding.to.b084a797');
 
     // Set up graceful shutdown
-    const shutdown = async () => {
-      logger.info('proxy.shutting.down.stdio.proxy.0fa99376');
-      await proxyTransport.close();
-      logger.info('proxy.stdio.proxy.shutdown.complete.eb154c73');
-      process.exit(0);
+    let shutdownPromise: Promise<void> | undefined;
+    const shutdown = () => {
+      shutdownPromise ??= (async () => {
+        beginRuntimeTelemetryShutdown();
+        logger.info('proxy.shutting.down.stdio.proxy.0fa99376');
+        await proxyTransport.close();
+        logger.info('proxy.stdio.proxy.shutdown.complete.eb154c73');
+        exitRuntime(0);
+      })();
+      return shutdownPromise;
     };
 
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
     process.on('SIGHUP', shutdown);
   } catch (error) {
+    await finishRuntimeTelemetry(true);
     if (error instanceof Error) {
       logger.error('proxy.proxycommand.diagnostic.de43c663', { error: error });
     } else {

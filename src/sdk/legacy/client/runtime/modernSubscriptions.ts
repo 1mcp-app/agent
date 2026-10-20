@@ -1,6 +1,8 @@
 import type { Client } from '@modelcontextprotocol/client';
 
 import type { OutboundConnection } from '@src/core/types/client.js';
+import { recordTelemetryMeasurement } from '@src/observability/telemetry.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
 import type { AuthProviderTransport } from './legacyTransport.js';
@@ -137,6 +139,10 @@ export async function openModernSubscription(
     entry.pending.length = 0;
     if (entry.id !== undefined) state.entries.delete(entry.id);
     activeSubscriptions--;
+    recordTelemetryMeasurement('gateway.subscription.lifecycle', 1, {
+      direction: 'outbound',
+      lifecycle: signal?.aborted ? 'cancelled' : 'completed',
+    });
     signal?.removeEventListener('abort', abort);
     controller.abort();
     if (!localClose) {
@@ -170,7 +176,17 @@ export async function openModernSubscription(
   try {
     // The pinned SDK dispatches the listen request synchronously before its first await.
     state.opening = entry;
-    const opening = state.client.listen(filter, { signal: controller.signal, timeout: 10_000 });
+    const opening = withProtocolTelemetry(
+      {
+        kind: 'client',
+        method: 'subscriptions/listen',
+        phase: 'subscription',
+        transport: 'streamable-http',
+        outboundEra: 'modern',
+      },
+      () => state.client.listen(filter, { signal: controller.signal, timeout: 10_000 }),
+      controller.signal,
+    );
     state.opening = undefined;
     handle = await opening;
     if (entry.id === undefined) throw new OneMcpProtocolError(-32603, 'Subscription stream id was not captured');
@@ -181,6 +197,7 @@ export async function openModernSubscription(
     void handle.closed.then(finish, finish);
     entry.filter = handle.honoredFilter;
     entry.ready = true;
+    recordTelemetryMeasurement('gateway.subscription.lifecycle', 1, { direction: 'outbound', lifecycle: 'started' });
     for (const note of entry.pending.splice(0)) {
       if (entry.stopped) break;
       if (accepts(entry.filter, note.method, note.params?.uri)) entry.notify(note);

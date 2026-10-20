@@ -42,6 +42,22 @@ afterEach(async () => {
 });
 
 describe('authenticated runtime control', () => {
+  it('exposes foreground telemetry through an authenticated read-only channel without enabling cooperative control', async () => {
+    const ownerFile = path.join(dir, 'runtime.owner', 'owner.json');
+    fs.writeFileSync(
+      ownerFile,
+      JSON.stringify({ ...JSON.parse(fs.readFileSync(ownerFile, 'utf8')), kind: 'foreground-http' }),
+    );
+    const handler = vi.fn(() => ({ state: 'disabled' }));
+    const server = await startRuntimeControl(dir, claimId, handler, { statusOnly: true });
+    closers.push(server.close);
+    expect(await connectRuntimeControl(dir)).toBeNull();
+    const client = await connectRuntimeControl(dir, { statusOnly: true });
+    await expect(client!.request('telemetry')).resolves.toEqual({ state: 'disabled' });
+    await expect(client!.request('stop')).rejects.toThrow('Runtime control request rejected');
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it('authenticates requests and responses without process inspection or transmitting the credential', async () => {
     const kill = vi.spyOn(process, 'kill').mockImplementation(() => {
       throw new Error('inspection denied');
