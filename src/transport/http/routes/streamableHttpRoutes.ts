@@ -3,6 +3,7 @@ import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrc
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { withProjectBinding } from '@src/domains/project-selection/projectBindingScope.js';
 import logger from '@src/logger/logger.js';
+import { withHttpProjectAdmission } from '@src/transport/http/middlewares/projectAdmission.js';
 import {
   getPresetName,
   getTagExpression,
@@ -185,7 +186,7 @@ export function setupStreamableHttpRoutes(
   const lifecycle =
     injectedLifecycle || new StreamableSessionLifecycle(serverManager, sessionRepository, asyncOrchestrator);
 
-  router.post(STREAMABLE_HTTP_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
+  const handleProjectPost = withHttpProjectAdmission(serverManager, async (req: Request, res: Response) => {
     try {
       const headerSessionId = req.headers['mcp-session-id'] as string | undefined;
       const isInitialize = isInitializeRequest(req.body);
@@ -273,6 +274,7 @@ export function setupStreamableHttpRoutes(
       });
     }
   });
+  router.post(STREAMABLE_HTTP_ENDPOINT, ...middlewares, handleProjectPost);
 
   router.get(STREAMABLE_HTTP_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
     try {

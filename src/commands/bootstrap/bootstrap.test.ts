@@ -3,6 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 
+import {
+  createHookProjectOwner,
+  readProjectOwnerTargets,
+  recordProjectOwnerSelection,
+} from '@src/commands/shared/projectOwnerStore.js';
 import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -19,6 +24,63 @@ import {
 } from './bootstrap.js';
 
 describe('worker bootstrap client contracts', () => {
+  it('runs SessionEnd cleanup once with the immutable native-set selector', async () => {
+    const storage = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-selection-'));
+    const owner = await createHookProjectOwner(storage, { client: 'codex', sessionId: 'parent' });
+    await recordProjectOwnerSelection(owner, { 'config-dir': storage, context: 'local', runtimeScopeId: 'scope-a' }, [
+      { label: 'a', path: '/selected/a' },
+      { label: 'b', path: '/selected/b' },
+    ]);
+    const target = (await readProjectOwnerTargets(owner))[0];
+    const output = path.join(storage, 'args.json');
+    const runner = path.join(storage, 'runner.cjs');
+    await fs.writeFile(
+      runner,
+      `require('node:fs').writeFileSync(${JSON.stringify(output)}, JSON.stringify(process.argv.slice(2)), { mode: 0o600 });`,
+      { mode: 0o600 },
+    );
+    const previousEntry = process.argv[1];
+    const stdin = vi
+      .spyOn(process, 'stdin', 'get')
+      .mockReturnValue(
+        Readable.from([
+          JSON.stringify({ hook_event_name: 'SessionEnd', session_id: 'parent' }),
+        ]) as typeof process.stdin,
+      );
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    try {
+      process.argv[1] = runner;
+      await bootstrapCommand({ client: 'codex', event: 'SessionEnd', 'config-dir': storage });
+      const args = JSON.parse(await fs.readFile(output, 'utf8')) as string[];
+      expect(args).toContain(`--project-set=${target['project-set']}`);
+      expect(args.filter((arg) => arg.startsWith('--project='))).toEqual([]);
+      expect(args).toContain('--expected-runtime-scope=scope-a');
+    } finally {
+      process.argv[1] = previousEntry;
+      stdin.mockRestore();
+      stdout.mockRestore();
+      await fs.rm(storage, { recursive: true, force: true });
+    }
+  });
+  it('emits sanitized SessionEnd failure diagnostics on stderr for clients that discard JSON', async () => {
+    const stdin = vi
+      .spyOn(process, 'stdin', 'get')
+      .mockReturnValue(Readable.from(['{"hook_event_name":"SessionEnd"}']) as typeof process.stdin);
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const previousExitCode = process.exitCode;
+    try {
+      await bootstrapCommand({ client: 'claude', event: 'SessionEnd' });
+      expect(process.exitCode).toBe(1);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('Ownership cleanup coverage gap'));
+      expect(JSON.parse(String(stdout.mock.calls[0][0]))).toHaveProperty('systemMessage');
+    } finally {
+      process.exitCode = previousExitCode;
+      stdin.mockRestore();
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
+  });
   it.each([
     ['codex', 'SessionStart'],
     ['codex', 'SubagentStart'],
@@ -40,8 +102,8 @@ describe('worker bootstrap client contracts', () => {
             return instructions;
           },
         );
-        expect(output).toContain('1mcp prepare inspect <backend>');
-        expect(output).toContain('1mcp prepare start <backend>');
+        expect(output).toContain('1mcp project prepare inspect <backend>');
+        expect(output).toContain('1mcp project prepare start <backend>');
         expect(output).toContain('never executes or replays the original tool call');
         expect(output).toContain('do not run `1mcp instructions` again');
         if (scenario === 'unavailable') {
@@ -75,7 +137,7 @@ describe('worker bootstrap client contracts', () => {
     expect(output).not.toContain('/parent');
     expect(output).not.toContain('/invented');
     expect(output).toContain('inspect <server>/<tool>');
-    expect(output).toContain('1mcp prepare inspect <backend>');
+    expect(output).toContain('1mcp project prepare inspect <backend>');
     expect(output).toContain('assigned --project/--project-set');
   });
 
@@ -217,13 +279,19 @@ describe('worker bootstrap client contracts', () => {
     const instructions = 'Server instructions: 工具 🚀\n'.repeat(2000) + 'END OF INSTRUCTIONS';
     const project = `/${Array(16).fill('"'.repeat(250)).join('/')}`;
     await fs.writeFile(entry, `process.stdout.write(${JSON.stringify(instructions)});`);
-    const input = Readable.from([JSON.stringify({ hook_event_name: event })]);
+    const input = Readable.from([
+      JSON.stringify({
+        hook_event_name: event,
+        session_id: 'test-session',
+        ...(event === 'SubagentStart' ? { agent_id: 'test-worker' } : {}),
+      }),
+    ]);
     const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(input as typeof process.stdin);
     const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const previousEntry = process.argv[1];
     process.argv[1] = entry;
     try {
-      await bootstrapCommand({ client, event, project: [project] });
+      await bootstrapCommand({ client, event, project: [project], 'config-dir': directory });
       expect(stdout).toHaveBeenCalledTimes(1);
       const envelope = JSON.parse(String(stdout.mock.calls[0][0]));
       expect(envelope.hookSpecificOutput.hookEventName).toBe(event);
@@ -231,6 +299,7 @@ describe('worker bootstrap client contracts', () => {
       expect(context).toContain(instructions);
       expect(context).toContain(`Explicit Worker Project Assignment: ${JSON.stringify([project])}`);
       expect(context.split('=== PRESET ADVISORY FOR THE AGENT ===')).toHaveLength(2);
+      expect(context).toContain('--project-owner');
       expect(context).not.toContain('coverage gap');
     } finally {
       process.argv[1] = previousEntry;

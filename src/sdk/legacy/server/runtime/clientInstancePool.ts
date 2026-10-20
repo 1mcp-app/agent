@@ -1,3 +1,5 @@
+import { setTimeout } from 'node:timers/promises';
+
 import { getRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { createRuntimeTargetFingerprint } from '@src/config/runtimeTargetFingerprint.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -36,6 +38,10 @@ class StaleRuntimeEnvironmentError extends Error {}
  * - Cleaning up idle instances to free resources
  */
 export class ClientInstancePool {
+  private readonly failedRemovals = new WeakSet<PooledClientInstance>();
+  private readonly projectReleases = new WeakSet<PooledClientInstance>();
+  private readonly processIdentities = new WeakMap<PooledClientInstance, Map<AuthProviderTransport, number>>();
+  private readonly gracefulStops = new WeakSet<AuthProviderTransport>();
   private instances = new Map<string, PooledClientInstance>();
   private templateToInstances = new Map<string, Set<string>>();
   private options: ClientPoolOptions;
@@ -111,7 +117,11 @@ export class ClientInstancePool {
     while (true) {
       const runtimeFingerprint = this.createRuntimeFingerprint(renderedConfig);
       const existingInstance = this.instances.get(instanceKey);
-      if (existingInstance && existingInstance.status !== 'terminating') {
+      if (existingInstance?.status === 'terminating') {
+        await this.removeInstance(instanceKey);
+        continue;
+      }
+      if (existingInstance) {
         if (existingInstance.runtimeFingerprint !== runtimeFingerprint) {
           await this.removeInstance(instanceKey);
           continue;
@@ -169,6 +179,7 @@ export class ClientInstancePool {
             throw new StaleRuntimeEnvironmentError();
           }
           this.configureInstanceSupervision(instance);
+          this.captureProcessIdentity(instance);
           this.instances.set(instanceKey, instance);
           this.addToTemplateIndex(templateName, instanceKey);
 
@@ -249,7 +260,11 @@ export class ClientInstancePool {
       const supervisionState = instance.supervisor?.snapshot().state;
       if (supervisionState === 'restarting' || supervisionState === 'crash-loop') {
         instance.status = 'terminating';
-        void this.removeInstance(instance.instanceKey);
+        void this.removeInstance(instance.instanceKey).catch((error) => {
+          logger.warn('clientInstancePool.failed.to.remove.idle.template.instance.after.child.exit.ab6feca9', {
+            error,
+          });
+        });
         return;
       }
       instance.status = 'idle';
@@ -331,6 +346,76 @@ export class ClientInstancePool {
   /**
    * Manually removes an instance from the pool
    */
+  /** Explicit checkout release requires positive close evidence before forgetting the owned process. */
+  async releaseInstance(instanceKey: string): Promise<void> {
+    const instance = this.instances.get(instanceKey);
+    if (!instance) return;
+    if (instance.referenceCount > 0) throw new Error('Backend instance is still shared');
+    this.projectReleases.add(instance);
+    return this.removeInstance(instanceKey);
+  }
+
+  private captureProcessIdentity(instance: PooledClientInstance): void {
+    const pid = instance.transport.pid;
+    if (!pid) return;
+    const known = this.processIdentities.get(instance) ?? new Map<AuthProviderTransport, number>();
+    const exit = instance.transport.stdioSupervision?.getLastExit();
+    if (exit?.pid === pid) return;
+    known.set(instance.transport, pid);
+    this.processIdentities.set(instance, known);
+  }
+
+  private processAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      if ((error as { code?: string }).code === 'ESRCH') return false;
+      throw error;
+    }
+  }
+
+  private trackedProcesses(instance: PooledClientInstance): Map<AuthProviderTransport, number> {
+    const identities = this.processIdentities.get(instance) ?? new Map<AuthProviderTransport, number>();
+    for (const [transport, pid] of identities) {
+      // A recorded child exit is authoritative even if the OS has reused its PID.
+      if (transport.stdioSupervision?.getLastExit()?.pid === pid) identities.delete(transport);
+    }
+    return identities;
+  }
+
+  private async waitForProcessExit(instance: PooledClientInstance): Promise<void> {
+    const deadline = Date.now() + 500;
+    while ([...this.trackedProcesses(instance).values()].some((pid) => this.processAlive(pid))) {
+      if (Date.now() >= deadline) throw new Error('Owned backend process exit is not confirmed');
+      await setTimeout(10);
+    }
+  }
+
+  private async closeProjectInstance(instance: PooledClientInstance): Promise<void> {
+    const pid = this.trackedProcesses(instance).get(instance.transport);
+    if (instance.processedConfig.type === 'stdio' && instance.transport.pid === undefined)
+      throw new Error('Owned backend process identity is unavailable');
+    // SDK close escalates to SIGKILL. Request graceful termination before calling it.
+    if (pid && this.processAlive(pid)) {
+      if (instance.transport.pid !== pid) throw new Error('Owned backend process handle was cleared before exit');
+      if (process.platform === 'win32') throw new Error('Graceful backend shutdown is unavailable on this platform');
+      if (!this.gracefulStops.has(instance.transport)) {
+        this.gracefulStops.add(instance.transport);
+        try {
+          process.kill(pid, 'SIGTERM');
+        } catch (error) {
+          if ((error as { code?: string }).code !== 'ESRCH') throw error;
+        }
+      }
+      const deadline = Date.now() + 500;
+      while (this.processAlive(pid) && Date.now() < deadline) await setTimeout(10);
+      if (this.processAlive(pid)) throw new Error('Owned backend process exit is not confirmed');
+    }
+    await instance.client.close();
+    await instance.transport.close();
+  }
+
   async removeInstance(instanceKey: string): Promise<void> {
     const instance = this.instances.get(instanceKey);
     if (!instance) {
@@ -339,6 +424,7 @@ export class ClientInstancePool {
 
     // Make the removal visible before yielding so concurrent lookups cannot
     // attach new memberships to an instance that is already being closed.
+    this.captureProcessIdentity(instance);
     instance.status = 'terminating';
     return this.scheduleRemoval(instanceKey, instance);
   }
@@ -347,7 +433,11 @@ export class ClientInstancePool {
     const previousRemoval = this.removalOperations.get(instanceKey) ?? Promise.resolve();
     const removal = previousRemoval
       .catch(() => undefined)
-      .then(() => this.removeCapturedInstance(instanceKey, instance));
+      .then(() => this.removeCapturedInstance(instanceKey, instance))
+      .catch((error) => {
+        this.failedRemovals.add(instance);
+        throw error;
+      });
     this.removalOperations.set(instanceKey, removal);
     void removal.then(
       () => {
@@ -372,7 +462,9 @@ export class ClientInstancePool {
     instance.status = 'terminating';
     await instance.supervisor?.stop();
 
-    await this.disposeInstance(instance);
+    if (this.projectReleases.has(instance)) await this.closeProjectInstance(instance);
+    else if (!(await this.disposeInstance(instance))) throw new Error('Owned backend close is not confirmed');
+    await this.waitForProcessExit(instance);
 
     if (this.instances.get(instanceKey) === instance) {
       this.instances.delete(instanceKey);
@@ -383,6 +475,10 @@ export class ClientInstancePool {
       message: 'clientInstancePool.removed.client.instance.from.pool.0595d1e2',
       meta: { clientCount: instance.referenceCount },
     }));
+  }
+
+  canRetryRemoval(instance: PooledClientInstance): boolean {
+    return this.failedRemovals.has(instance) && instance.referenceCount === 0;
   }
 
   /**
@@ -398,6 +494,10 @@ export class ClientInstancePool {
       // Use instance-specific timeout if available, otherwise use pool-wide timeout
       const timeoutThreshold = instance.idleTimeout ?? this.options.idleTimeout!;
 
+      if (this.canRetryRemoval(instance)) {
+        instancesToRemove.push(instanceKey);
+        continue;
+      }
       if (instance.status === 'idle' && idleTime >= timeoutThreshold) {
         instancesToRemove.push(instanceKey);
       }
@@ -458,17 +558,21 @@ export class ClientInstancePool {
     );
   }
 
-  private async disposeInstance(instance: PooledClientInstance): Promise<void> {
+  private async disposeInstance(instance: PooledClientInstance): Promise<boolean> {
+    let confirmed = true;
     try {
       await instance.client.close();
     } catch (_error) {
+      confirmed = false;
       logger.warn('clientInstancePool.error.closing.client.for.instance.55a390b9', { error: _error });
     }
     try {
       await instance.transport.close();
     } catch (_error) {
+      confirmed = false;
       logger.warn('clientInstancePool.error.closing.transport.for.instance.312c23b4', { error: _error });
     }
+    return confirmed;
   }
 
   async restartInstance(instance: PooledClientInstance): Promise<BackendSupervisionSnapshot> {
@@ -524,6 +628,7 @@ export class ClientInstancePool {
             activate: () => {
               instance.client = candidate.client;
               instance.transport = candidate.transport;
+              this.captureProcessIdentity(instance);
               this.configureInstanceSupervision(instance);
             },
             dispose,

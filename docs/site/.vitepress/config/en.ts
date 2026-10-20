@@ -206,7 +206,17 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'inspect', link: '/commands/inspect' },
           { text: 'run', link: '/commands/run' },
           { text: 'wait', link: '/commands/wait' },
-          { text: 'prepare', link: '/commands/prepare' },
+          {
+            text: 'project',
+            link: '/commands/project/',
+            items: [
+              { text: 'prepare', link: '/commands/project/prepare' },
+              { text: 'release', link: '/commands/project/release' },
+              { text: 'status', link: '/commands/project/status' },
+              { text: 'drain', link: '/commands/project/drain' },
+              { text: 'resume', link: '/commands/project/resume' },
+            ],
+          },
           { text: 'cli-setup', link: '/commands/cli-setup' },
           { text: 'auth', link: '/commands/auth' },
           { text: 'Runtime Target Contexts', link: '/commands/target' },

@@ -31,6 +31,7 @@ If you are still trying to get a first setup working, use [Quick Start](/guide/q
 - **`inspect`** - List exposed servers or inspect a tool schema
 - **`run`** - Call a tool through a running 1MCP server
 - **`cli-setup`** - Install Codex or Claude bootstrap hooks and startup docs
+- **`project`** - Prepare backends and release, drain, inspect, or resume checkout admission
 - **`auth`** - Manage authentication profiles for secured servers
 - **`target`** - Manage verified Runtime Target Contexts
 - **`admin`** - Manage CLI Admin sessions for Runtime Target Contexts
@@ -82,7 +83,8 @@ npx -y @1mcp/agent run context7/query-docs --args '{"libraryId":"/mongodb/docs",
 - **[inspect](/commands/inspect)** - Discover tools and inspect schemas
 - **[run](/commands/run)** - Execute a tool call
 - **[wait](/commands/wait)** - Wait for configured static servers to become connected and available
-- **[prepare](/commands/prepare)** - Inspect readiness and manage checkout preparation jobs
+- **[project prepare](/commands/project/prepare)** - Inspect readiness and manage checkout preparation jobs
+- **[project lifecycle](/commands/project/)** - Release caller bindings, inspect blockers, drain and resume checkout admission
 - **[cli-setup](/commands/cli-setup)** - Install Codex or Claude bootstrap files
 - **[auth](/commands/auth)** - Manage authentication profiles for secured servers
 

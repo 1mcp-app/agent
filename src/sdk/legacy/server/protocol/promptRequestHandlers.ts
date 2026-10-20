@@ -13,10 +13,13 @@ import { CompleteRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
+import { withInboundProjectAdmission } from './projectAdmission.js';
 import { withProviderRequestProgress } from './requestProviderProgress.js';
 import { bindOwnedCatalogConnections, bindOwnedNotificationAuthorization } from './resourceSubscriptions.js';
 
 export function registerPromptHandlers(outboundConns: LegacyOutboundConnections, inboundConn: InboundConnection): void {
+  const handle = <T, Args extends readonly unknown[]>(work: (...args: Args) => Promise<T>, message: string) =>
+    withErrorHandling(withInboundProjectAdmission(inboundConn, work), message);
   const acquire = (cursor?: string) =>
     acquireRuntimeCapabilityCatalog(
       outboundConns,
@@ -30,7 +33,7 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
   const server = getLegacyInboundServer(inboundConn);
   server.setRequestHandler(
     ListPromptsRequestSchema,
-    withErrorHandling(async (request, extra) => {
+    handle(async (request, extra) => {
       bindOwnedCatalogConnections(outboundConns, inboundConn, 'prompts');
       if (extra?.authInfo)
         bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
@@ -52,7 +55,7 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
   );
   server.setRequestHandler(
     GetPromptRequestSchema,
-    withErrorHandling(async (request, extra) => {
+    handle(async (request, extra) => {
       const route = (await acquire()).resolve('prompts', request.params.name);
       if (!route?.connection) throw new Error(`Unknown prompt: ${request.params.name}`);
       const { _meta: _callerMeta, ...params } = request.params;
@@ -82,9 +85,11 @@ export function registerCompletionHandlers(
   outboundConns: LegacyOutboundConnections,
   inboundConn: InboundConnection,
 ): void {
+  const handle = <T, Args extends readonly unknown[]>(work: (...args: Args) => Promise<T>, message: string) =>
+    withErrorHandling(withInboundProjectAdmission(inboundConn, work), message);
   getLegacyInboundServer(inboundConn).setRequestHandler(
     CompleteRequestSchema,
-    withErrorHandling(async (request) => {
+    handle(async (request) => {
       const ref = request.params.ref;
       const prompt = ref.type === 'ref/prompt';
       const snapshot = await acquireRuntimeCapabilityCatalog(

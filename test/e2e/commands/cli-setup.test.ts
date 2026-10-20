@@ -40,7 +40,7 @@ describe('cli-setup command E2E', () => {
     expect(codexManagedDoc).toContain(
       'If this session already received the current 1MCP instructions content from hooks',
     );
-    expect(codexManagedDoc).toContain('1mcp prepare inspect <backend>');
+    expect(codexManagedDoc).toContain('1mcp project prepare inspect <backend>');
     expect(codexManagedDoc).toContain('never executes or replays the original tool call');
     const hooks = JSON.parse(codexHooks).hooks;
     expect(hooks.SessionStart).toEqual([
@@ -49,6 +49,11 @@ describe('cli-setup command E2E', () => {
     expect(hooks.SubagentStart).toEqual([
       { hooks: [{ type: 'command', command: '1mcp bootstrap --client codex --event SubagentStart', timeout: 10 }] },
     ]);
+    expect(hooks.SessionEnd).toEqual([
+      { hooks: [{ type: 'command', command: '1mcp bootstrap --client codex --event SessionEnd', timeout: 3 }] },
+    ]);
+    expect(hooks.Stop).toBeUndefined();
+    expect(hooks.SubagentStop).toBeUndefined();
     expect(agents).toBe(`@${path.join(homeDir, '.codex', '1MCP.md').replace(/\\/g, '/')}\n`);
   });
 
@@ -67,7 +72,7 @@ describe('cli-setup command E2E', () => {
     const claude = await readFile(claudePath, 'utf8');
 
     expect(claudeManagedDoc).toContain('Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.');
-    expect(claudeManagedDoc).toContain('1mcp prepare start <backend>');
+    expect(claudeManagedDoc).toContain('1mcp project prepare start <backend>');
     expect(claudeManagedDoc).toContain('never an automatic retry loop');
     expect(claude).toContain('# Existing Notes');
     expect(claude).toContain('Keep this section.');

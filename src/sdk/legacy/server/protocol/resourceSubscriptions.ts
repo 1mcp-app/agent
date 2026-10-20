@@ -1,3 +1,4 @@
+import { getProjectLifecycle, projectPaths } from '@src/application/projectLifecycle.js';
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
 import {
@@ -31,6 +32,7 @@ import {
 } from '@src/sdk/legacy/client/runtime/modernSubscriptions.js';
 import { resolveResourceRoute } from '@src/sdk/legacy/shared/resourceTemplateRouting.js';
 import { ResourceUpdatedNotificationSchema } from '@src/sdk/legacy/types.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { z } from 'zod';
 
@@ -61,6 +63,8 @@ interface Watch {
   upstreamUri?: string;
   active: boolean;
   ready: Promise<void>;
+  teardown?: Promise<void>;
+  cleanupFailed?: boolean;
   authorize?: () => Promise<boolean>;
 }
 interface CatalogSource {
@@ -71,11 +75,13 @@ interface CatalogSource {
   preparationIdentity?: string;
 }
 interface Owner {
+  releaseProjectSubscription?: () => void;
   readonly binding?: ReturnType<typeof getProjectBinding>;
   readonly bindingId?: string;
   readonly inbound: InboundConnection;
   readonly connections: LegacyOutboundConnections;
   readonly watches: Map<string, Watch>;
+  readonly teardowns: Set<Watch>;
   readonly catalogs: Map<string, CatalogSource>;
   readonly catalogKinds: Set<'tools' | 'resources' | 'prompts'>;
   refreshCatalog?: () => Promise<void>;
@@ -184,14 +190,23 @@ function removeReservation(watch: Watch): void {
 }
 
 async function detach(watch: Watch): Promise<void> {
+  if (watch.teardown) return watch.teardown;
+  watch.owner.teardowns.add(watch);
   removeReservation(watch);
   watch.abort.abort();
-  try {
-    await closeUpstreamWatch(watch);
-  } catch (error) {
-    logger.warn('resourceSubscriptions.resource.subscription.cleanup.incomplete.0640deca', { error: error });
-    throw error;
-  }
+  watch.teardown = (async () => {
+    try {
+      await closeUpstreamWatch(watch);
+      watch.owner.teardowns.delete(watch);
+      releaseIdleProjectSubscription(watch.owner);
+    } catch (error) {
+      watch.cleanupFailed = true;
+      monitorOwner(watch.owner);
+      logger.warn('resourceSubscriptions.resource.subscription.cleanup.incomplete.0640deca', { error: error });
+      throw error;
+    }
+  })();
+  return watch.teardown;
 }
 
 async function closeUpstreamWatch(watch: Watch): Promise<void> {
@@ -247,13 +262,16 @@ async function cleanupOwner(owner: Owner): Promise<void> {
   ownerCount--;
   owner.abort.abort();
   clearInterval(owner.monitor);
+  owner.monitor = undefined;
   for (const { connection } of owner.catalogs.values()) catalogOwners.get(connection)?.delete(owner);
   owner.catalogs.clear();
   const results = await Promise.allSettled(Array.from(owner.watches.values(), detach));
   const failedWatches = results.filter((result) => result.status === 'rejected').length;
+  if (owner.teardowns.size) monitorOwner(owner);
   if (failedWatches) {
     throw new Error('Resource subscription cleanup incomplete');
   }
+  releaseIdleProjectSubscription(owner);
 }
 
 function terminate(owner: Owner): void {
@@ -288,6 +306,7 @@ function getOwner(connections: LegacyOutboundConnections, inbound: InboundConnec
       binding: getProjectBinding() ?? (bindingId ? { bindingId } : undefined),
       connections,
       watches: new Map(),
+      teardowns: new Set(),
       catalogs: new Map(),
       catalogKinds: new Set(),
       abort: new AbortController(),
@@ -300,9 +319,24 @@ function getOwner(connections: LegacyOutboundConnections, inbound: InboundConnec
       requiresAuthorization: existingOwner?.requiresAuthorization,
       authorize: existingOwner?.authorize,
     };
+
     byBinding.set(bindingId ?? '', owner);
   }
   return owner;
+}
+
+function retainProjectSubscription(owner: Owner): void {
+  owner.releaseProjectSubscription ??= getProjectLifecycle()?.block(
+    projectPaths(owner.binding?.context ?? (owner.inbound.context as ContextData | undefined)),
+    'subscription',
+    owner.bindingId ?? 'legacy',
+  );
+}
+
+function releaseIdleProjectSubscription(owner: Owner): void {
+  if (owner.watches.size || owner.catalogs.size || owner.setups || owner.pending || owner.teardowns.size) return;
+  owner.releaseProjectSubscription?.();
+  owner.releaseProjectSubscription = undefined;
 }
 
 async function assertWatchCurrent(watch: Watch, snapshot?: RuntimeCapabilitySnapshot): Promise<void> {
@@ -430,6 +464,21 @@ export function bindOwnedCatalogRefresh(
 function monitorOwner(owner: Owner): void {
   if (owner.monitor) return;
   owner.monitor = setInterval(() => {
+    // Failed cleanup remains owned even after the inbound connection is gone.
+    for (const watch of owner.teardowns) {
+      if (!watch.cleanupFailed || watch.adapter?.state !== 'stopped') continue;
+      owner.teardowns.delete(watch);
+    }
+    releaseClosedUpstreamReservations();
+    releaseIdleProjectSubscription(owner);
+    if (
+      !owner.teardowns.size &&
+      (owner.closed || (!owner.watches.size && !owner.authorize && !owner.catalogKinds.size))
+    ) {
+      clearInterval(owner.monitor);
+      owner.monitor = undefined;
+      return;
+    }
     if (owner.closed || owner.checking) return;
     owner.checking = true;
     void deliverBounded(owner, async () => {
@@ -488,6 +537,7 @@ function enqueue(owner: Owner, bytes: number, delivery: () => Promise<void>): vo
     terminate(owner);
     return;
   }
+  retainProjectSubscription(owner);
   owner.pending++;
   pendingUpdates++;
   pendingBytes += bytes;
@@ -512,6 +562,7 @@ function enqueue(owner: Owner, bytes: number, delivery: () => Promise<void>): vo
       pendingUpdates--;
       pendingBytes -= bytes;
       owner.bytes -= bytes;
+      releaseIdleProjectSubscription(owner);
     });
 }
 
@@ -553,6 +604,7 @@ export function registerOwnedCatalogConnection(
     terminate(owner);
     throw new Error('Catalog subscription source limit exceeded');
   }
+  retainProjectSubscription(owner);
   owner.catalogs.set(coverageKey, {
     connection,
     adapter: connection.adapter,
@@ -731,6 +783,10 @@ export async function subscribeOwnedResource(
   ) {
     throw new Error('Resource subscription admission limit exceeded');
   }
+  getProjectLifecycle()?.assertAdmission(
+    projectPaths(owner.binding?.context ?? (inbound.context as ContextData | undefined)),
+  );
+  retainProjectSubscription(owner);
   const watch: Watch = { owner, uri, abort: new AbortController(), active: true, ready: Promise.resolve(), authorize };
   owner.watches.set(uri, watch);
   watchCount++;
@@ -813,6 +869,7 @@ export async function subscribeOwnedResource(
       signal?.removeEventListener('abort', cancel);
       setupCount--;
       owner.setups--;
+      releaseIdleProjectSubscription(owner);
     }
   })();
   return watch.ready;

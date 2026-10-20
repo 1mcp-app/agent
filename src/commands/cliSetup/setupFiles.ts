@@ -61,6 +61,7 @@ interface HookConfig {
   hooks?: {
     SessionStart?: HookEntry[];
     SubagentStart?: HookEntry[];
+    SessionEnd?: HookEntry[];
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -230,7 +231,7 @@ async function writeManagedFile(
 export function upsertHooks(existing: Record<string, unknown>, target: CliSetupTarget): Record<string, unknown> {
   const config = cloneHookConfig(existing);
   config.hooks ??= {};
-  for (const event of ['SessionStart', 'SubagentStart'] as const) {
+  for (const event of ['SessionStart', 'SubagentStart', 'SessionEnd'] as const) {
     const entries = config.hooks[event] ?? [];
     if (!Array.isArray(entries)) throw new Error(`Expected hooks.${event} to be an array`);
     config.hooks[event] = composeBootstrapHooks(entries, target, event);
@@ -251,7 +252,11 @@ function composeBootstrapHooks(entries: HookEntry[], target: CliSetupTarget, eve
     }
   }
   // Always use an unconditional entry: migrating a restrictive legacy matcher must not exclude workers.
-  preserved.push({ hooks: [{ type: 'command', command: managedBootstrapCommand(target, event), timeout: 10 }] });
+  preserved.push({
+    hooks: [
+      { type: 'command', command: managedBootstrapCommand(target, event), timeout: event === 'SessionEnd' ? 3 : 10 },
+    ],
+  });
   return preserved;
 }
 

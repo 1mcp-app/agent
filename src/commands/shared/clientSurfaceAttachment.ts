@@ -3,6 +3,12 @@ import path from 'node:path';
 import { type AuthProfile, loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
 import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
 import {
+  projectOwnerId,
+  readProjectOwner,
+  recordProjectOwnerSelection,
+  recordProjectOwnerTarget,
+} from '@src/commands/shared/projectOwnerStore.js';
+import {
   type CliSessionCache,
   deleteCliSessionCache,
   getCliSessionCachePath,
@@ -16,6 +22,7 @@ import {
   resolveServeTarget,
 } from '@src/commands/shared/serveTargetResolver.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
+import { createProjectOwnerCredential } from '@src/core/context/projectOwner.js';
 import {
   createTemplateContextProof,
   type TemplateContextCapability,
@@ -24,6 +31,7 @@ import {
 } from '@src/core/context/templateContextTrust.js';
 import { isProcessAlive, readPidFile } from '@src/core/server/pidFileManager.js';
 import { connectRuntimeControl, type RuntimeControlDescription } from '@src/core/server/runtimeControl.js';
+import { resolveProjectSelection } from '@src/domains/project-selection/projectSelection.js';
 import type { RuntimeIdentityWarning } from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
 import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import logger from '@src/logger/logger.js';
@@ -193,6 +201,10 @@ export interface AttachReusableClientSurfaceOptions<TOptions extends ResolvableS
   version: string;
   options: TOptions;
   alwaysTryRest?: boolean;
+  /** Only lifecycle controls request operator authority; ordinary tool calls never do. */
+  projectOperator?: boolean;
+  expectedRuntimeScope?: string;
+  requireProjectOwner?: boolean;
   ports?: Partial<ClientSurfaceAttachmentPorts<TOptions>>;
   rest: (context: ClientSurfaceAttachmentContext<TOptions>) => Promise<ClientSurfaceRestResponse<TValue>>;
   mcp: (
@@ -227,6 +239,7 @@ export async function attachFreshClientSurface<TOptions extends ResolvableServeT
     version: input.version,
     sessionId: freshSessionId,
   });
+  await attachProjectOwner(target, options, baseContext);
   const contextHash = getCliSessionContextHash(baseContext);
   const baseUrl = stripMcpSuffix(target.discoveredUrl);
   const bearerToken = await loadBearerToken(ports, target, options, baseUrl);
@@ -263,6 +276,11 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
     projectSet: target.projectSet,
     transportType: input.clientSurface,
     version: input.version,
+  });
+  await attachProjectOwner(target, options, baseContext, {
+    operator: input.projectOperator,
+    expectedRuntimeScope: input.expectedRuntimeScope,
+    required: input.requireProjectOwner,
   });
   const contextHash = getCliSessionContextHash(baseContext);
   const cachePath = getCliSessionCachePath({
@@ -452,6 +470,60 @@ async function createLocalTemplateContextProof<TOptions extends ResolvableServeT
   target: ResolvedAttachmentTarget<TOptions>,
   context: ContextData,
 ): Promise<TemplateContextProof | undefined> {
+  const capability = await readLiveLocalCapability(target);
+  return capability ? createTemplateContextProof(context, capability) : undefined;
+}
+
+async function attachProjectOwner<TOptions extends ResolvableServeTargetOptions>(
+  target: ResolvedAttachmentTarget<TOptions>,
+  options: TOptions,
+  context: ContextData,
+  policy: { operator?: boolean; expectedRuntimeScope?: string; required?: boolean } = {},
+): Promise<void> {
+  const { operator, expectedRuntimeScope } = policy;
+  const file = options['project-owner'];
+  if (!file && !operator) {
+    if (policy.required) throw new Error('A project owner credential is required');
+    return;
+  }
+  const capability = await readLiveLocalCapability(target);
+  if (!capability) {
+    if (operator || policy.required || expectedRuntimeScope) {
+      throw new Error('Project ownership requires verified local runtime authority');
+    }
+    process.stderr.write(
+      'Ownership coverage gap: this runtime cannot verify a local project owner. Continuing without local ownership.\n',
+    );
+    return;
+  }
+  const token = file ? await readProjectOwner(file) : undefined;
+  if (expectedRuntimeScope && capability.runtimeScopeId !== expectedRuntimeScope) {
+    throw new Error('Recorded project owner runtime identity changed; cleanup was not attempted');
+  }
+  context.owner = createProjectOwnerCredential(
+    capability,
+    token ? projectOwnerId(token) : undefined,
+    operator ? 'operator' : 'owner',
+  );
+  if (!file || !target.localRuntimeScope) return;
+  const selection = resolveProjectSelection(context);
+  if (selection.kind === 'unresolved') return;
+  const recordedTarget = {
+    'config-dir': path.resolve(target.localRuntimeScope.storagePath),
+    runtimeScopeId: capability.runtimeScopeId,
+    ...(options.config ? { config: path.resolve(options.config) } : {}),
+    ...(options.url ? { url: target.discoveredUrl } : { context: 'local' }),
+  };
+  if (selection.kind === 'native-set') {
+    await recordProjectOwnerSelection(file, recordedTarget, selection.projects);
+    return;
+  }
+  await recordProjectOwnerTarget(file, { ...recordedTarget, project: [selection.projects[0].path] });
+}
+
+async function readLiveLocalCapability<TOptions extends ResolvableServeTargetOptions>(
+  target: ResolvedAttachmentTarget<TOptions>,
+): Promise<TemplateContextCapability | undefined> {
   const localScope = target.localRuntimeScope;
   if (!localScope) {
     return undefined;
@@ -502,7 +574,7 @@ async function createLocalTemplateContextProof<TOptions extends ResolvableServeT
     return undefined;
   }
 
-  return capability ? createTemplateContextProof(context, capability) : undefined;
+  return capability ?? undefined;
 }
 
 function isProtectedTemplateContextProofTransport(url: URL): boolean {
@@ -530,13 +602,20 @@ async function loadBearerToken<TOptions extends ResolvableServeTargetOptions>(
   const runtimeTargetContext = target.runtimeTargetContext;
   if (runtimeTargetContext) {
     if (!runtimeTargetContext.runtimeScopeId) {
+      if (runtimeTargetContext.kind === 'local' && options['project-owner']) {
+        return (await ports.loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl)))?.token;
+      }
       return undefined;
     }
     const reference = await ports.getOAuthTokenReference(
       runtimeTargetContext.name,
       runtimeTargetContext.runtimeScopeId,
     );
-    return toOAuthTokenReference(reference)?.token;
+    const token = toOAuthTokenReference(reference)?.token;
+    if (token) return token;
+    if (runtimeTargetContext.kind !== 'local' || !options['project-owner']) return undefined;
+    // Hook cleanup pins the local target; retain the implicit-local credential lookup.
+    return (await ports.loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl)))?.token;
   }
 
   const authProfile = await ports.loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));

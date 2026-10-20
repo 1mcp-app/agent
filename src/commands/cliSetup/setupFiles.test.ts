@@ -38,6 +38,20 @@ describe('cli setup file writers', () => {
     expect(() => resolveCliSetupScope('workspace')).toThrow('Invalid cli-setup scope: workspace');
   });
 
+  it.each(['codex', 'claude'] as const)(
+    'installs bounded %s SessionEnd cleanup without treating Stop as termination',
+    (target) => {
+      const stop = [{ hooks: [{ type: 'command', command: 'existing-turn-check' }] }];
+      const output = upsertHooks({ hooks: { Stop: stop } }, target) as { hooks: Record<string, unknown> };
+      expect(output.hooks.Stop).toEqual(stop);
+      expect(output.hooks.SubagentStop).toBeUndefined();
+      expect(output.hooks.SessionEnd).toEqual([
+        { hooks: [{ type: 'command', command: `1mcp bootstrap --client ${target} --event SessionEnd`, timeout: 3 }] },
+      ]);
+      expect(upsertHooks(output, target)).toEqual(output);
+    },
+  );
+
   it.each(['codex', 'claude'] as const)('composes both %s events without consuming unrelated mixed hooks', (target) => {
     const custom = { type: 'command', command: 'echo unrelated', timeout: 42 };
     const assigned = {

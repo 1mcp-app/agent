@@ -161,6 +161,31 @@ describe('cooperative restart drain deadline', () => {
     }
   });
 
+  it('accepts retirement between the ownership existence check and record read', async () => {
+    const f = await fixture({ retainOwner: true });
+    const ownerDirectory = path.join(f.scope, 'runtime.owner');
+    const exists = fs.existsSync.bind(fs);
+    let retired = false;
+    vi.spyOn(fs, 'existsSync').mockImplementation((target) => {
+      const present = exists(target);
+      if (target === ownerDirectory && present && !retired && f.calls.includes('stop')) {
+        retired = true;
+        fs.rmSync(ownerDirectory, { recursive: true });
+        fs.rmSync(path.join(f.scope, 'runtime-control.json'));
+      }
+      return present;
+    });
+    try {
+      await expect(restartCooperativeRuntime({ 'config-dir': f.scope } as ServeOptions)).rejects.toThrow(
+        'fixture activation failure',
+      );
+      expect(retired).toBe(true);
+      expect(spawn).toHaveBeenCalledTimes(1);
+    } finally {
+      await f.close();
+    }
+  });
+
   it('does not launch over a competing owner after stopping the original generation', async () => {
     const f = await fixture({ competingOwner: true });
     try {

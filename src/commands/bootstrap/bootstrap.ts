@@ -9,13 +9,15 @@ import type { GlobalOptions } from '@src/globalOptions.js';
 import { isSea } from 'node:sea';
 import { z } from 'zod';
 
+import { bootstrapOwner, releaseSessionOwner } from './bootstrapOwnership.js';
+
 export const BOOTSTRAP_INPUT_LIMIT = 64 * 1024;
 export const BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD = 9000;
 export const BOOTSTRAP_DEADLINE_MS = 5000;
 export const bootstrapOptionsSchema = z
   .object({
     client: z.enum(['codex', 'claude']),
-    event: z.enum(['SessionStart', 'SubagentStart']),
+    event: z.enum(['SessionStart', 'SubagentStart', 'SessionEnd']),
     project: z.array(z.string().min(1).max(4096)).min(1).max(32).optional(),
     'project-set': z
       .string()
@@ -43,7 +45,7 @@ export const bootstrapOptionsSchema = z
 
 export interface BootstrapCommandOptions extends GlobalOptions {
   client: 'codex' | 'claude';
-  event: 'SessionStart' | 'SubagentStart';
+  event: 'SessionStart' | 'SubagentStart' | 'SessionEnd';
   project?: string[];
   'project-set'?: string;
   url?: string;
@@ -102,7 +104,16 @@ export async function readBootstrapInput(input: Readable, deadlineMs = 1000): Pr
 export function buildInstructionsArguments(options: BootstrapCommandOptions): string[] {
   const args = ['instructions'];
   for (const project of options.project ?? []) args.push(`--project=${project}`);
-  for (const key of ['project-set', 'url', 'context', 'preset', 'tag-filter', 'config', 'config-dir'] as const) {
+  for (const key of [
+    'project-set',
+    'project-owner',
+    'url',
+    'context',
+    'preset',
+    'tag-filter',
+    'config',
+    'config-dir',
+  ] as const) {
     const value = options[key];
     if (typeof value === 'string') args.push(`--${key}=${value}`);
   }
@@ -188,12 +199,48 @@ export async function bootstrapCommand(options: BootstrapCommandOptions): Promis
   } catch {
     input = '!invalid-hook-input';
   }
-  const context = await renderBootstrapContext(options, input, async (selected) => {
+  if (options.event === 'SessionEnd') {
+    try {
+      await releaseSessionOwner(options, input, async (ownerFile, target) => {
+        const args = ['project', 'release', '--format=json', `--project-owner=${ownerFile}`];
+        if (target['project-set']) args.push(`--project-set=${target['project-set']}`);
+        else for (const project of target.project) args.push(`--project=${project}`);
+        for (const key of ['config-dir', 'config', 'context', 'url'] as const) {
+          if (target[key]) args.push(`--${key}=${target[key]}`);
+        }
+        args.push(`--expected-runtime-scope=${target.runtimeScopeId}`);
+        await runInstructionsProcess(process.execPath, isSea() ? args : [process.argv[1], ...args], 2000);
+      });
+      process.stdout.write(`${JSON.stringify({ suppressOutput: true })}\n`);
+    } catch {
+      process.exitCode = 1;
+      process.stderr.write(
+        'Ownership cleanup coverage gap: session identity, recorded target, or runtime release could not be verified. Inspect project status before removal.\n',
+      );
+      process.stdout.write(
+        `${JSON.stringify({ systemMessage: 'Ownership cleanup coverage gap: session identity, recorded targets, or runtime release could not be verified. Idle expiry remains recovery; inspect project status before removal.' })}\n`,
+      );
+    }
+    return;
+  }
+  let ownerMessage = '';
+  let ownedOptions = options;
+  if (input.trim()) {
+    try {
+      const ownerFile = await bootstrapOwner(options, input);
+      ownedOptions = { ...options, 'project-owner': ownerFile };
+      ownerMessage = `\nCaller ownership: retain --project-owner ${JSON.stringify(ownerFile)} on every 1MCP call in this session or worker, including project release. Do not pass this credential reference to parent, sibling, or child workers; each worker receives its own at bootstrap. Turn completion does not end ownership. Remote runtimes do not support this local ownership credential; remote instruction and tool calls remain available without local release coverage.\n`;
+    } catch {
+      ownerMessage =
+        '\nOwnership coverage gap: a verified session/worker identity was unavailable. No caller credential was created; do not release another caller.\n';
+    }
+  }
+  const context = await renderBootstrapContext(ownedOptions, input, async (selected) => {
     const args = buildInstructionsArguments(selected);
     const cliArgs = isSea() ? args : [process.argv[1], ...args];
     return runInstructionsProcess(process.execPath, cliArgs);
   });
   process.stdout.write(
-    `${JSON.stringify({ hookSpecificOutput: { hookEventName: options.event, additionalContext: context } })}\n`,
+    `${JSON.stringify({ hookSpecificOutput: { hookEventName: options.event, additionalContext: context + ownerMessage } })}\n`,
   );
 }

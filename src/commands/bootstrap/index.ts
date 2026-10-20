@@ -11,7 +11,11 @@ export function setupBootstrapCommand(yargs: Argv): Argv {
         .env(false)
 
         .option('client', { type: 'string', choices: ['codex', 'claude'], demandOption: true })
-        .option('event', { type: 'string', choices: ['SessionStart', 'SubagentStart'], demandOption: true })
+        .option('event', {
+          type: 'string',
+          choices: ['SessionStart', 'SubagentStart', 'SessionEnd'],
+          demandOption: true,
+        })
         .option('project', {
           type: 'array',
           string: true,

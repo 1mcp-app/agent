@@ -28,7 +28,7 @@ npx -y @1mcp/agent cli-setup (--codex | --claude) [options]
 The `cli-setup` command installs lightweight bootstrap files that point Codex or Claude at the 1MCP CLI workflow. It writes:
 
 - A managed `1MCP.md` bootstrap document
-- Managed `SessionStart` and `SubagentStart` bootstrap command hooks
+- Managed `SessionStart` and `SubagentStart` bootstrap command hooks, plus `SessionEnd` caller cleanup
 - A startup file reference from `AGENTS.md` or `CLAUDE.md`
 
 `cli-setup` does not replace [`instructions`](./instructions.md). It makes sure the session is prepared to use `instructions`, `inspect`, and `run` in the right order.
@@ -147,6 +147,10 @@ Writing hook configuration does not establish that the client enabled or trusted
 
 ## Preparation guidance
 
-The managed `SessionStart` and `SubagentStart` hooks invoke `1mcp bootstrap`. Bootstrap delivers the managed playbook and, when selection is resolved, runtime instructions. The playbook teaches the [prepare workflow](/commands/prepare): inspect readiness, request authorized work, monitor its job, verify readiness, refresh discovery, and make a fresh tool call. An unresolved worker assignment must be recovered before project-specific preparation.
+The managed `SessionStart` and `SubagentStart` hooks invoke `1mcp bootstrap`. Bootstrap delivers the managed playbook and, when selection is resolved, runtime instructions. The playbook teaches the [project prepare workflow](/commands/project/prepare): inspect readiness, request authorized work, monitor its job, verify readiness, refresh discovery, and make a fresh tool call. An unresolved worker assignment must be recovered before project-specific preparation.
 
 Setup installs this guidance; it does not start preparation, enable automatic preparation, or change action permissions. Keep the bootstrap hooks. If current instructions were already delivered by hooks, do not fetch them again; otherwise use the standalone `1mcp instructions` entrypoint. Rerun `cli-setup` to refresh managed guidance in the selected scope.
+
+Startup hooks create a private owner credential for each verified host session or worker. Retain the injected `--project-owner` file reference on every CLI call, including manual bootstrap retries with an explicit assignment. `SessionEnd` releases only that session's recorded selections within a bounded hook deadline. See [Project lifecycle](/commands/project/) for blockers, operator drain, and manager removal.
+
+Worker terminal events are not currently supported. `SubagentStop` means a worker has stopped responding for now and can continue later; it is not verified session termination and must not release its ownership. Workers must use `1mcp project release` explicitly when finished. Idle expiry remains the fallback for missed end events and crashes.

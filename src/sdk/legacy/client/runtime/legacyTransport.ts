@@ -8,6 +8,8 @@ export interface RecreateTransportOptions {
 }
 
 export interface AuthProviderTransport extends Transport {
+  /** Observed child process identity for runtime-owned stdio backends. */
+  readonly pid?: number | null;
   /** 1MCP-owned outbound mode; absent transports retain legacy compatibility. */
   outboundProtocolVersion?: OutboundProtocolVersion;
   /** Captured from the SDK transport negotiation callback, never inferred from schema keywords. */

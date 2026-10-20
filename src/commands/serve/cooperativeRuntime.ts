@@ -380,7 +380,8 @@ export async function restartCooperativeRuntime(options: ServeOptions): Promise<
   }
   const until = Date.now() + 30_000;
   while (fs.existsSync(getRuntimeScopeOwnershipPath(runtimeScope)) && Date.now() < until) {
-    if (readRuntimeScopeOwnership(runtimeScope)?.claimId !== client.descriptor.claimId)
+    const currentOwner = readRuntimeScopeOwnership(runtimeScope);
+    if (currentOwner && currentOwner.claimId !== client.descriptor.claimId)
       throw markServeLifecycleFailure(
         'ownership',
         new Error(`Another runtime won ownership; replacement not started. Inspect: ${recoveryCommand} --status`),

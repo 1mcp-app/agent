@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { getVerifiedProjectOwner } from '@src/application/projectLifecycle.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
@@ -107,6 +108,7 @@ export function createPreparationOwnerIdentity(
   runtimeScopeId: string | undefined,
   authentication: readonly unknown[] | undefined,
   filter: InboundConnectionConfig,
+  projectOwnerId?: string,
 ): string {
   filter = normalizePreparationFilterConfig(filter);
   const selection = {
@@ -118,7 +120,14 @@ export function createPreparationOwnerIdentity(
     projectFilterMode: filter.projectFilterMode ?? filter.tagFilterMode,
   };
   return createHash('sha256')
-    .update(JSON.stringify([runtimeScopeId, authentication ?? 'verified-local-owner', selection]))
+    .update(
+      JSON.stringify([
+        runtimeScopeId,
+        authentication ?? 'verified-local-owner',
+        selection,
+        ...(projectOwnerId ? [projectOwnerId] : []),
+      ]),
+    )
     .digest('hex');
 }
 
@@ -367,7 +376,12 @@ async function admitScopedPreparationTool(
     coordinator.resolveGrant({
       backendName: target.backendName,
       checkoutPath,
-      owner: createPreparationOwnerIdentity(runtimeScopeId, authentication, filterConfig),
+      owner: createPreparationOwnerIdentity(
+        runtimeScopeId,
+        authentication,
+        filterConfig,
+        context ? getVerifiedProjectOwner(context)?.ownerId : undefined,
+      ),
       filterConfig,
     }),
   );

@@ -30,41 +30,31 @@ export function setupPreparationCommands(yargs: Argv): Argv {
   const controls = ['inspect', 'status', 'wait', 'cancel', 'retry'] as const;
   const jobOptions = (command: Argv) =>
     options(command)
-      .positional('id', { type: 'string', describe: 'Preparation job id returned by prepare or status' })
+      .positional('id', { type: 'string', describe: 'Preparation job id returned by project prepare or status' })
       .option('wait-ms', {
         type: 'number',
         describe: 'Bounded wait in milliseconds (wait only; runtime default when omitted)',
       });
-  return withGlobalOptions(yargs)
-    .command('prepare', 'Prepare backends and manage jobs', (command) => {
-      let family = command
-        .command('$0 <backend>', 'Request preparation using runtime-owned permissions', options, start)
-        .command(
-          'start <backend>',
-          'Request preparation, including for a backend named after a subcommand',
-          options,
-          start,
-        );
-      for (const action of controls) {
-        let id = '[id]';
-        if (action === 'inspect') id = '';
-        if (action === 'wait' || action === 'cancel') id = '<id>';
-        family = family.command(
-          `${action} <backend> ${id}`.trim(),
-          `${action} a runtime-owned preparation operation`,
-          jobOptions,
-          (argv) => invoke({ ...argv, action }),
-        );
-      }
-      return family;
-    })
-    .command(
-      'preparation <action> <backend> [id]',
-      false,
-      (command) =>
-        jobOptions(command)
-          .positional('action', { type: 'string', choices: controls })
-          .epilogue('Legacy compatibility alias. Use 1mcp prepare <action> <backend> [id] instead.'),
-      invoke,
-    );
+  return withGlobalOptions(yargs).command('prepare', 'Prepare backends and manage jobs', (command) => {
+    let family = command
+      .command('$0 <backend>', 'Request preparation using runtime-owned permissions', options, start)
+      .command(
+        'start <backend>',
+        'Request preparation, including for a backend named after a subcommand',
+        options,
+        start,
+      );
+    for (const action of controls) {
+      let id = '[id]';
+      if (action === 'inspect') id = '';
+      if (action === 'wait' || action === 'cancel') id = '<id>';
+      family = family.command(
+        `${action} <backend> ${id}`.trim(),
+        `${action} a runtime-owned preparation operation`,
+        jobOptions,
+        (argv) => invoke({ ...argv, action }),
+      );
+    }
+    return family;
+  });
 }
