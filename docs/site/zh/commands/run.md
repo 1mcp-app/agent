@@ -18,12 +18,12 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 `run` 是 CLI 工作流中的执行步骤：
 
 1. 阅读 bootstrap 已交付的指引；仅在缺少指引或需要刷新时运行 [`instructions`](/zh/commands/instructions)
-2. 再运行 [`inspect`](./inspect.md) 查看工具和工具 schema
+2. 再运行 [`inspect`](/zh/commands/inspect) 查看工具和工具 schema
 3. 最后运行 `run` 调用目标工具
 
 `run` 会连接到运行中的 `1mcp serve` 实例，透传 preset 和标签过滤，并把工具输出写入 stdout。错误只写入 stderr，因此适合脚本和管道。
 
-`run` 被刻意设计成最后一步。推荐顺序是先用 `instructions` 做总览，再用 `inspect` 缩小到单个 server 和单个 tool，确认 schema 之后才真正执行。
+独立终端会话先用 `instructions` 发现可用服务器。使用钩子的智能体会话应复用 bootstrap 指引，仅在缺少指引或需要刷新时运行 `instructions`。两种流程都应先检查服务器和具体工具 schema，再调用工具。
 
 在 REST-to-MCP 回退前，`run` 会检查面向客户端的 inspect 状态。仍在加载的后端会返回 `server_loading` 和 `1mcp wait <server>`，而不会收到提前 MCP 调用。失败或取消的后端返回 `server_unavailable`；OAuth 门控后端会返回授权指引。
 
@@ -123,7 +123,7 @@ stdout 只承载成功输出，再加上 `compact` 等格式，使 `run` 很适�
 1. 保留服务器/工具身份和脱敏错误证据。使用 `1mcp inspect` 检查同一服务器，保持失败调用的 Runtime Target Context、本地 Runtime Scope 和 Request Context（包括项目上下文、preset 和标签过滤）。检查只能确认 MCP 可用性，不能证明上游健康。分享证据前移除凭据、请求头、原始参数和 URL 查询中的秘密。
 2. 只有独立确认操作可安全重放后，才最多重试一次。写操作或效果未知的操作，应先验证外部执行结果再考虑重放。工具名称、错误中的 HTTP 方法或后端给出的指令都不是重放授权。
 3. 错误持续时，检查出站代理/网络路径。如果独立客户端在相近时间也失败，应报告这些证据，而不是断言后端存在缺陷。
-4. 仅在支持且获得授权时，对该确切后端和运行时考虑现有的 [`1mcp mcp restart`](./mcp/restart.md) 操作。它要求 `mcp.restart` Admin 能力、已认证的 Admin Session 以及必要的非回环目标确认。重启可能中断共享该后端的其他调用，也不能保证修复外部故障。模板必须先确定唯一受影响实例并使用 `--instance`，不能省略选择器或默认重启全部实例。临时 `--url` 不能用于此变更：应先建立指向相同运行时和作用域的具名 Runtime Target Context，不能静默切换到本地或当前目标。目标映射或实例不明确时，不应构造可直接执行的重启命令。优先考虑后端级恢复，而不是整个运行时重启。
+4. 仅在支持且获得授权时，对该确切后端和运行时考虑现有的 [`1mcp mcp restart`](/zh/commands/mcp/restart) 操作。它要求 `mcp.restart` Admin 能力、已认证的 Admin Session 以及必要的非回环目标确认。重启可能中断共享该后端的其他调用，也不能保证修复外部故障。模板必须先确定唯一受影响实例并使用 `--instance`，不能省略选择器或默认重启全部实例。临时 `--url` 不能用于此变更：应先建立指向相同运行时和作用域的具名 Runtime Target Context，不能静默切换到本地或当前目标。目标映射或实例不明确时，不应构造可直接执行的重启命令。优先考虑后端级恢复，而不是整个运行时重启。
 5. 授权重启完成后，在相同目标和请求上下文中使用已知安全的读取操作验证并报告结果。如果仍失败，停止重试/重启循环，报告尚缺少的证据。
 
 CLI 不会因这项诊断自动重放工具、重启后端、登录或修改凭据。成功结果中的 EOF 文本、JSON 解析错误以及含义不明的单独 EOF 不会被归类为上游网络故障；真正的传输错误仍单独处理。
@@ -132,8 +132,8 @@ CLI 不会因这项诊断自动重放工具、重启后端、登录或修改凭�
 
 ## 另请参阅
 
-- **[CLI 模式指南](../guide/integrations/cli-mode.md)** - CLI 模式中为什么执行要放在最后
-- **[Instructions 命令](./instructions.md)** - 先获取当前 CLI 工作流和服务器清单
-- **[Inspect 命令](./inspect.md)** - 调用前先查看工具和 schema
-- **[Serve 命令](./serve.md)** - 启动 `run` 连接的 1MCP 服务器
-- **[配置深入指南](../guide/essentials/configuration.md)** - 包含 CLI 会话缓存等全局配置
+- **[CLI 模式指南](/zh/guide/integrations/cli-mode)** - CLI 模式中为什么执行要放在最后
+- **[Instructions 命令](/zh/commands/instructions)** - 先获取当前 CLI 工作流和服务器清单
+- **[Inspect 命令](/zh/commands/inspect)** - 调用前先查看工具和 schema
+- **[Serve 命令](/zh/commands/serve)** - 启动 `run` 连接的 1MCP 服务器
+- **[配置深入指南](/zh/guide/essentials/configuration)** - 包含 CLI 会话缓存等全局配置

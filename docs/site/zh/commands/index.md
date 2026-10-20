@@ -66,7 +66,7 @@ npx -y @1mcp/agent inspect --help
 
 ### CLI 工作流命令
 
-当你希望 agent 或终端会话通过运行中的 `1mcp serve` 实例发现并调用工具时，请按以下命令顺序使用：
+独立终端会话可按以下命令通过运行中的 `1mcp serve` 实例发现并调用工具。使用钩子的智能体会话应复用 bootstrap 交付的指引，仅在缺少指引或需要刷新时运行 `instructions`，并保留会话的所有者凭证和已分配的项目选择参数。
 
 ```bash
 npx -y @1mcp/agent instructions

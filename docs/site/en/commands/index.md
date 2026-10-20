@@ -72,7 +72,7 @@ npx -y @1mcp/agent inspect --help
 
 ### CLI Workflow Commands
 
-Use these commands together when you want an agent or terminal session to discover and call tools through a running `1mcp serve` instance.
+For a standalone terminal session, use these commands to discover and call tools through a running `1mcp serve` instance. In a hooked agent session, use the guidance delivered by bootstrap and run `instructions` only when guidance is missing or needs refreshing; retain the session’s owner credential and assigned project selectors.
 
 ```bash
 npx -y @1mcp/agent instructions

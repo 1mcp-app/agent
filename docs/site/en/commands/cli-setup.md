@@ -35,7 +35,7 @@ The `cli-setup` command installs lightweight bootstrap files that point Codex or
 - Managed `SessionStart` and `SubagentStart` bootstrap command hooks, plus `SessionEnd` caller cleanup
 - A startup file reference from `AGENTS.md` or `CLAUDE.md`
 
-`cli-setup` does not replace [`instructions`](./instructions.md). It makes sure the session is prepared to use `instructions`, `inspect`, and `run` in the right order.
+`cli-setup` does not replace [`instructions`](/commands/instructions). It makes sure the session is prepared to use `instructions`, `inspect`, and `run` in the right order.
 
 Think of `cli-setup` as the bridge from an existing agent workflow to 1MCP CLI mode. It teaches the client how to start, but the live discovery and execution flow still happens through `instructions`, `inspect`, and `run`.
 
@@ -145,11 +145,11 @@ Writing hook configuration does not establish that the client enabled or trusted
 
 ## See Also
 
-- **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Conceptual overview of the agent-facing CLI workflow
-- **[Instructions Command](./instructions.md)** - Fetch or refresh runtime guidance directly when hooks have not delivered it
-- **[Inspect Command](./inspect.md)** - Discover tools and schemas
-- **[Run Command](./run.md)** - Invoke a selected tool
-- **[Codex Integration Guide](../guide/integrations/codex.md)** - End-to-end setup for Codex
+- **[CLI Mode Guide](/guide/integrations/cli-mode)** - Conceptual overview of the agent-facing CLI workflow
+- **[Instructions Command](/commands/instructions)** - Fetch or refresh runtime guidance directly when hooks have not delivered it
+- **[Inspect Command](/commands/inspect)** - Discover tools and schemas
+- **[Run Command](/commands/run)** - Invoke a selected tool
+- **[Codex Integration Guide](/guide/integrations/codex)** - End-to-end setup for Codex
 
 ## Preparation guidance
 

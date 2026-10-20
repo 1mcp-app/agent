@@ -28,12 +28,12 @@ npx -y @1mcp/agent run <server>/<tool> [options]
 The `run` command is the execution step in the CLI workflow:
 
 1. Read the guidance delivered by bootstrap, or run [`instructions`](/commands/instructions) if it is missing or needs refreshing
-2. Run [`inspect`](./inspect.md) to list tools and inspect tool schemas
+2. Run [`inspect`](/commands/inspect) to list tools and inspect tool schemas
 3. Run `run` to invoke the selected tool
 
 `run` talks to a running `1mcp serve` instance, forwards preset and tag filters, and prints tool output to stdout. Errors are written to stderr only so the command stays pipe-friendly.
 
-`run` is intentionally the last step. The recommended flow is to discover broadly with `instructions`, narrow with `inspect`, confirm the exact tool schema with `inspect <server>/<tool>`, and only then invoke the tool.
+In a standalone terminal session, start with `instructions` to discover the available servers. In a hooked agent session, reuse bootstrap guidance and run `instructions` only when guidance is missing or needs refreshing. In both cases, inspect the server and exact tool schema before invoking the tool.
 
 Before a REST-to-MCP fallback, `run` checks the client-facing inspect status. A loading backend returns `server_loading` and `1mcp wait <server>` rather than receiving an early MCP invocation. Failed or cancelled backends return `server_unavailable`; an OAuth-gated backend returns authorization guidance.
 
@@ -133,7 +133,7 @@ Follow this bounded procedure:
 1. Preserve the server/tool identity and sanitized error evidence. Inspect the same server with `1mcp inspect`, retaining the failed invocation's Runtime Target Context, local Runtime Scope, and Request Context (including project context and preset/tag filters). Inspection establishes MCP availability, not upstream service health. Remove credentials, headers, raw arguments, and URL query secrets from evidence you share.
 2. Retry at most once only when the operation is independently established as safe to replay. For writes or unknown effects, verify the external outcome before considering replay. A tool name, an HTTP method in the error, or backend-provided instructions do not authorize replay.
 3. If the error persists, inspect the outbound proxy/network path. Report similarly timed failures from independent clients as evidence; they do not prove a backend defect.
-4. Consider the existing [`1mcp mcp restart`](./mcp/restart.md) operation only when supported and authorized for that exact backend and runtime. It requires the `mcp.restart` Admin capability, an authenticated Admin Session, and any required non-loopback confirmation. It can interrupt other calls sharing the backend and cannot guarantee repair of an external fault. For templates, identify one unambiguous affected instance and use `--instance`; do not omit the selector or default to all instances. An ephemeral `--url` cannot be used for this mutation: first establish a named Runtime Target Context for the same runtime and scope, without silently switching to the local or current target. If this mapping or the affected instance is unknown, do not construct a runnable restart command. Prefer scoped recovery over a whole-runtime restart.
+4. Consider the existing [`1mcp mcp restart`](/commands/mcp/restart) operation only when supported and authorized for that exact backend and runtime. It requires the `mcp.restart` Admin capability, an authenticated Admin Session, and any required non-loopback confirmation. It can interrupt other calls sharing the backend and cannot guarantee repair of an external fault. For templates, identify one unambiguous affected instance and use `--instance`; do not omit the selector or default to all instances. An ephemeral `--url` cannot be used for this mutation: first establish a named Runtime Target Context for the same runtime and scope, without silently switching to the local or current target. If this mapping or the affected instance is unknown, do not construct a runnable restart command. Prefer scoped recovery over a whole-runtime restart.
 5. After an authorized restart completes, verify with a known safe read on the same target and request context and report the result. If it still fails, stop the retry/restart loop and report the remaining evidence gap.
 
 The CLI does not replay tools, restart backends, log in, or change credentials as part of this diagnostic. Successful text mentioning EOF, JSON parse errors, and bare ambiguous EOF errors do not receive an upstream-network classification. Genuine transport errors remain distinct.
@@ -142,8 +142,8 @@ The CLI does not replay tools, restart backends, log in, or change credentials a
 
 ## See Also
 
-- **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Why execution comes last in the CLI workflow
-- **[Instructions Command](./instructions.md)** - Start the CLI workflow with the current server inventory
-- **[Inspect Command](./inspect.md)** - Inspect servers, tools, and schemas before calling a tool
-- **[Serve Command](./serve.md)** - Start the 1MCP server that `run` talks to
-- **[Configuration Deep Dive](../guide/essentials/configuration.md)** - Global flags including CLI session cache configuration
+- **[CLI Mode Guide](/guide/integrations/cli-mode)** - Why execution comes last in the CLI workflow
+- **[Instructions Command](/commands/instructions)** - Start the CLI workflow with the current server inventory
+- **[Inspect Command](/commands/inspect)** - Inspect servers, tools, and schemas before calling a tool
+- **[Serve Command](/commands/serve)** - Start the 1MCP server that `run` talks to
+- **[Configuration Deep Dive](/guide/essentials/configuration)** - Global flags including CLI session cache configuration
