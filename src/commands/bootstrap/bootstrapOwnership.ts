@@ -1,13 +1,17 @@
 import path from 'node:path';
 
 import {
+  assertNoProjectOwnerCalls,
+  assertProjectOwnerAbsent,
   createHookProjectOwner,
   hookProjectOwnerPath,
   isProjectOwnerEnded,
   markProjectOwnerEnded,
+  markProjectOwnerReleased,
   type ProjectOwnerTarget,
   readProjectOwner,
   readProjectOwnerTargets,
+  readProjectOwnerTerminal,
   recordHookThreadLocator,
   recordProjectOwnerAssignment,
   removeProjectOwner,
@@ -77,11 +81,18 @@ export async function releaseSessionOwner(
   if (options.event !== 'SessionEnd') throw new Error('Only verified SessionEnd may release ownership');
   const file = hookProjectOwnerPath(getConfigDir(options['config-dir']), identity(options, input));
   await withProjectOwnerLock(file, async () => {
+    if ((await readProjectOwnerTerminal(file))?.released) {
+      await removeProjectOwner(file);
+      return;
+    }
     let targets: ProjectOwnerTarget[];
     try {
       targets = await readProjectOwnerTargets(file);
     } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return;
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        await assertProjectOwnerAbsent(file, identity(options, input));
+        return;
+      }
       throw error;
     }
     await markProjectOwnerEnded(file, identity(options, input));
@@ -95,6 +106,10 @@ export async function recoverEndedSessionOwner(
   release: (ownerFile: string, target: ProjectOwnerTarget) => Promise<void>,
 ): Promise<void> {
   await withProjectOwnerLock(file, async () => {
+    if ((await readProjectOwnerTerminal(file))?.released) {
+      await removeProjectOwner(file);
+      return;
+    }
     if (!(await isProjectOwnerEnded(file)))
       throw new Error('No verified terminal record; active or abandoned owners cannot be recovered automatically');
     const targets = await readProjectOwnerTargets(file);
@@ -107,8 +122,10 @@ async function releaseTargets(
   targets: ProjectOwnerTarget[],
   release: (ownerFile: string, target: ProjectOwnerTarget) => Promise<void>,
 ): Promise<void> {
+  await assertNoProjectOwnerCalls(file);
   const results = await Promise.allSettled(targets.map((target) => release(file, target)));
   if (results.some((result) => result.status === 'rejected'))
     throw new Error('Session ownership cleanup is incomplete');
+  await markProjectOwnerReleased(file);
   await removeProjectOwner(file);
 }

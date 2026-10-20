@@ -1,7 +1,14 @@
-import { isLoopbackHost } from '@src/commands/serve/templateContextTrust.js';
+import path from 'node:path';
+
+import { canonicalLifecyclePath } from '@src/application/projectLifecycle.js';
 import { resolveAgentSessionOptions } from '@src/commands/shared/agentSession.js';
+import {
+  isProjectOwnerEnded,
+  type ProjectOwnerTarget,
+  readProjectOwnerTargets,
+} from '@src/commands/shared/projectOwnerStore.js';
 import { buildServerUrl, type ServeUrlOptions } from '@src/commands/shared/serveClient.js';
-import { normalizeTags, resolveProjectContext } from '@src/config/projectConfigLoader.js';
+import { normalizeTags, type ResolvedProjectContext, resolveProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import { getConfigDir } from '@src/constants.js';
 import {
@@ -144,7 +151,17 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
   if (ports.agentSession && usesLocalAgentDefaults(options, ports)) {
     options = await resolveAgentSessionOptions(options);
   }
-  const projectSet = options['project-set'] ? await loadProjectSet(options['project-set'], options.project) : undefined;
+  const cleanup = await recordedCleanupTarget(options);
+  const resolveCheckout = cleanup
+    ? async (checkout: string) => {
+        if (!cleanup.project.includes(checkout)) throw new Error('Cleanup path is not in the recorded selection');
+        if (canonicalLifecyclePath(checkout) !== checkout) throw new Error('Recorded cleanup path was retargeted');
+        return checkout;
+      }
+    : canonicalizeCheckoutPath;
+  const projectSet = options['project-set']
+    ? await loadProjectSet(options['project-set'], options.project, resolveCheckout)
+    : undefined;
   const selected = projectSet ? resolveProjectSelection({ project: {}, projectSet }) : undefined;
   if (!projectSet && options.project && options.project.length !== 1) {
     throw new Error('Without --project-set, --project accepts exactly one checkout path');
@@ -153,9 +170,17 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
   if (selected?.kind === 'single') {
     checkoutPath = selected.projects[0].path;
   } else if (!projectSet && options.project?.[0]) {
-    checkoutPath = await canonicalizeCheckoutPath(options.project[0], process.cwd());
+    checkoutPath = await resolveCheckout(options.project[0], process.cwd());
   }
-  const resolvedProjectContext = await resolveProjectContext(checkoutPath);
+  const resolvedProjectContext: ResolvedProjectContext = cleanup
+    ? {
+        cwd: checkoutPath ?? cleanup.project[0],
+        projectRoot: checkoutPath ?? cleanup.project[0],
+        projectName: path.basename(checkoutPath ?? cleanup.project[0]),
+        projectConfig: null,
+        source: 'cwd',
+      }
+    : await resolveProjectContext(checkoutPath);
   const selectedProjectConfig = projectSet && selected?.kind !== 'single' ? null : resolvedProjectContext.projectConfig;
   const normalizedOptions = normalizeEphemeralUrlOption(options);
   const mergedOptions = mergeServeTargetOptions(normalizedOptions, selectedProjectConfig);
@@ -258,16 +283,37 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
   };
 }
 
+/** Missing checkouts are accepted only for the exact persisted terminal release selection. */
+async function recordedCleanupTarget(options: ResolvableServeTargetOptions): Promise<ProjectOwnerTarget | undefined> {
+  if (!('terminal-cleanup' in options) || options['terminal-cleanup'] !== true) return undefined;
+  if (!('action' in options) || options.action !== 'release') throw new Error('Recorded cleanup only supports release');
+  const ownerFile = options['project-owner'];
+  const scope = 'expected-runtime-scope' in options ? options['expected-runtime-scope'] : undefined;
+  if (!ownerFile || typeof scope !== 'string') throw new Error('Recorded cleanup requires owner and runtime identity');
+  if (!(await isProjectOwnerEnded(ownerFile))) throw new Error('Recorded cleanup requires verified terminal evidence');
+  const targets = await readProjectOwnerTargets(ownerFile);
+  for (const target of targets) {
+    if (target.runtimeScopeId !== scope) continue;
+    if (target['config-dir'] !== options['config-dir']) continue;
+    if (target['project-set'] !== options['project-set']) continue;
+    if (target['project-set']) {
+      if (options.project) continue;
+    } else if (JSON.stringify(target.project) !== JSON.stringify(options.project)) continue;
+    if (target.config !== options.config) continue;
+    if (target.context !== options.context) continue;
+    if (target.url !== options.url) continue;
+    return target;
+  }
+  throw new Error('Cleanup selectors do not match a recorded owner target');
+}
+
 function usesLocalAgentDefaults(options: ResolvableServeTargetOptions, ports: ServeTargetResolverPorts): boolean {
-  if (options.url) return isLoopbackHost(new URL(options.url).hostname);
+  if (options.url) return false;
   if (options.context === 'local') return true;
   const store = ports.runtimeTargetStore ?? new RuntimeTargetStore();
-  const target = store.resolveForConnection
-    ? store.resolveForConnection(options.context)
-    : options.context
-      ? store.inspect(options.context)
-      : store.current();
-  return target.name === 'local';
+  if (store.resolveForConnection) return store.resolveForConnection(options.context).name === 'local';
+  if (options.context) return store.inspect(options.context).name === 'local';
+  return store.current().name === 'local';
 }
 
 async function resolveRemoteRuntimeTargetContext<TOptions extends ResolvableServeTargetOptions>(

@@ -42,7 +42,6 @@ it('isolates owners, verifies backend exit, and persists drain through restart a
         listener.close((error) => (error ? reject(error) : resolve(address.port)));
       });
     });
-    const url = `http://127.0.0.1:${port}/mcp`;
     const start = async () => {
       runtime = spawn(
         process.execPath,
@@ -92,8 +91,8 @@ it('isolates owners, verifies backend exit, and persists drain through restart a
         ...args,
         '--config-dir',
         configDirectory,
-        '--url',
-        url,
+        '--context',
+        'local',
         '--cli-session-cache-path',
         path.join(directory, 'session-{scope}.json'),
       ];
@@ -154,7 +153,7 @@ it('isolates owners, verifies backend exit, and persists drain through restart a
     const releaseA = await cli(['project', 'release', '--format', 'json'], undefined, 'parent');
     expect(releaseA.output.results[0]).toMatchObject({ complete: false, ownerReleased: true });
     // Exercise the public hook subprocess, including terminal release proof with a live sibling.
-    const endSession = async () =>
+    const endSession = async (sessionId = 'parent') =>
       new Promise<{ code: number | null; output: string; error: string }>((resolve, reject) => {
         const child = spawn(
           process.execPath,
@@ -171,7 +170,7 @@ it('isolates owners, verifies backend exit, and persists drain through restart a
         });
         child.once('error', reject);
         child.once('close', (code) => resolve({ code, output, error }));
-        child.stdin.end(JSON.stringify({ hook_event_name: 'SessionEnd', session_id: 'parent' }));
+        child.stdin.end(JSON.stringify({ hook_event_name: 'SessionEnd', session_id: sessionId }));
       });
     const ended = await endSession();
     expect(ended.code, ended.error).toBe(0);
@@ -213,6 +212,21 @@ it('isolates owners, verifies backend exit, and persists drain through restart a
     await expect(readFile(path.join(checkout, 'backend-pids.log'))).rejects.toThrow();
     expect((await cli(['run', 'fixture/source', '--args', '{}', '--format', 'json'], ownerB)).code).toBe(0);
     await cli(['project', 'release', '--format', 'json'], ownerB);
+    const removedOwner = await bootstrapOwner(
+      { client: 'codex', event: 'SessionStart', 'config-dir': configDirectory, project: [checkout] },
+      JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'removed-session' }),
+    );
+    expect((await cli(['run', 'fixture/source', '--args', '{}', '--format', 'json'], removedOwner)).code).toBe(0);
+    expect((await cli(['project', 'release', '--format', 'json'], removedOwner)).code).toBe(0);
+    const drained = await cli(['project', 'drain', '--wait-ms', '1000', '--format', 'json']);
+    expect(drained.code, JSON.stringify(drained.output)).toBe(0);
+    expect(drained.output.results[0].complete).toBe(true);
+    await rm(checkout, { recursive: true });
+    const removedEnded = await endSession('removed-session');
+    expect(removedEnded.code, removedEnded.error).toBe(0);
+    await expect(readFile(removedOwner)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(`${removedOwner}.ended`)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(checkout)).rejects.toMatchObject({ code: 'ENOENT' });
     await stop();
   } finally {
     if (runtime && runtime.exitCode === null) {

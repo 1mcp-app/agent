@@ -55,12 +55,16 @@ export function resolveProjectSelection(
   return { kind: 'native-set', projects: selected };
 }
 
-export async function canonicalizeProjectSet(value: unknown, baseDirectory: string): Promise<ProjectSet> {
+export async function canonicalizeProjectSet(
+  value: unknown,
+  baseDirectory: string,
+  resolveCheckout = canonicalizeCheckoutPath,
+): Promise<ProjectSet> {
   const set = projectSetSchema.parse(value);
   const projects = await Promise.all(
     set.projects.map(async (project) => ({
       ...project,
-      path: await canonicalizeCheckoutPath(project.path, baseDirectory),
+      path: await resolveCheckout(project.path, baseDirectory),
     })),
   );
   return { ...set, projects };
@@ -74,7 +78,11 @@ export async function canonicalizeCheckoutPath(checkout: string, baseDirectory: 
 }
 
 /** The only saved state is a user-selected file; this never updates a runtime-global current project. */
-export async function loadProjectSet(file: string, selection?: string[]): Promise<ProjectSet> {
+export async function loadProjectSet(
+  file: string,
+  selection?: string[],
+  resolveCheckout = canonicalizeCheckoutPath,
+): Promise<ProjectSet> {
   const filePath = path.resolve(file);
   const handle = await open(filePath, 'r');
   let content: string;
@@ -93,7 +101,11 @@ export async function loadProjectSet(file: string, selection?: string[]): Promis
   }
   const definition: unknown = JSON.parse(content);
   const parsed = projectSetSchema.parse(definition);
-  return canonicalizeProjectSet({ ...parsed, ...(selection ? { selection } : {}) }, path.dirname(filePath));
+  return canonicalizeProjectSet(
+    { ...parsed, ...(selection ? { selection } : {}) },
+    path.dirname(filePath),
+    resolveCheckout,
+  );
 }
 
 export function withProjectSelection(context: ContextData, projectSet: ProjectSet): ContextData {

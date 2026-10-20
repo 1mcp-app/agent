@@ -26,3 +26,7 @@ Release does not close admission or delete the checkout. For removal, follow the
 See [session and worker hooks](/commands/project/#session-and-worker-hooks) for automatic end-cleanup coverage and limitations.
 
 `ownerReleased: true` proves this owner is safely released; it does not prove the checkout is unused. Manual release keeps credentials for later calls. Verified root SessionEnd deletes private records only with safe release proof. If terminal cleanup failed, use `1mcp project recover --project-owner <ended-own-file>` to retry its recorded targets. Recovery requires terminal evidence and never infers termination from age, Stop, or a missing parent.
+
+Automatic ownership applies to named or implicit local targets. An explicit `--url` (including loopback or SSH forwarding) needs an explicit `--project-owner` to attach local ownership.
+
+Terminal cleanup closes new caller admission and waits for pending calls or open proxies before releasing authority. A crashed or uncertain caller lease requires inspection; age never clears it. Successful release is recorded before file deletion, allowing recovery to finish interrupted deletion without repeating runtime effects. Recorded canonical checkout paths can be cleaned after removal; a symlink retarget is rejected.

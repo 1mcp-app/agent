@@ -1,9 +1,15 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { bootstrapOwner } from '@src/commands/bootstrap/bootstrapOwnership.js';
-import { createHookProjectOwner } from '@src/commands/shared/projectOwnerStore.js';
+import {
+  createHookProjectOwner,
+  markProjectOwnerEnded,
+  readProjectOwnerTargets,
+  recordProjectOwnerSelection,
+  recordProjectOwnerTarget,
+} from '@src/commands/shared/projectOwnerStore.js';
 import type { ResolvedProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import { RuntimeTargetStoreError } from '@src/domains/runtime-targets/runtimeTargetStore.js';
@@ -99,6 +105,87 @@ describe('mergeServeTargetOptions', () => {
 });
 
 describe('resolveServeTarget', () => {
+  it.each([false, true])(
+    'replays recorded removed paths and rejects symlink retargeting (native set=%s)',
+    async (nativeSet) => {
+      const storage = await mkdtemp(path.join(os.tmpdir(), 'removed-cleanup-'));
+      try {
+        const ancestor = path.join(storage, 'ancestor');
+        const checkout = path.join(ancestor, 'checkout');
+        await mkdir(checkout, { recursive: true });
+        const canonical = await realpath(checkout);
+        const file = await bootstrapOwner(
+          { client: 'codex', event: 'SessionStart', 'config-dir': storage, project: [checkout] },
+          JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'removed' }),
+        );
+        const target = {
+          project: [canonical],
+          'config-dir': storage,
+          runtimeScopeId: 'scope-removed',
+          context: 'local',
+        };
+        if (nativeSet) {
+          const second = path.join(storage, 'second');
+          await mkdir(second);
+          await recordProjectOwnerSelection(file, target, [
+            { label: 'first', path: canonical },
+            { label: 'second', path: await realpath(second) },
+          ]);
+          await rm(second, { recursive: true });
+        } else await recordProjectOwnerTarget(file, target);
+        const recorded = (await readProjectOwnerTargets(file))[0];
+        await markProjectOwnerEnded(file, { client: 'codex', sessionId: 'removed' });
+        await rm(checkout, { recursive: true });
+        const options = {
+          action: 'release',
+          'terminal-cleanup': true,
+          'expected-runtime-scope': 'scope-removed',
+          'project-owner': file,
+          'config-dir': storage,
+          context: 'local',
+          ...(nativeSet ? { 'project-set': recorded['project-set'] } : { project: [canonical] }),
+        };
+        expect((await resolveServeTarget(options, { agentSession: true })).projectRoot).toBe(canonical);
+        expect(mockedResolveProjectContext).not.toHaveBeenCalled();
+        const other = path.join(storage, 'other');
+        await mkdir(other);
+        await symlink(other, checkout);
+        await expect(resolveServeTarget(options, { agentSession: true })).rejects.toThrow('retarget');
+        await rm(ancestor, { recursive: true });
+        await mkdir(path.join(other, 'checkout'));
+        await symlink(other, ancestor);
+        await expect(resolveServeTarget(options, { agentSession: true })).rejects.toThrow('retarget');
+      } finally {
+        await rm(storage, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each([false, true])(
+    'keeps explicit loopback URLs credentialless with an unrelated locator=%s',
+    async (hasLocator) => {
+      const storage = await mkdtemp(path.join(os.tmpdir(), 'forwarded-url-'));
+      try {
+        vi.stubEnv('CODEX_THREAD_ID', 'url-thread');
+        vi.stubEnv('CODEX_SESSION_ID', '');
+        if (hasLocator)
+          await bootstrapOwner(
+            { client: 'codex', event: 'SessionStart', 'config-dir': storage, project: [storage] },
+            JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'url-thread' }),
+          );
+        const result = await resolveServeTarget<ResolvableServeTargetOptions>(
+          { 'config-dir': storage, url: 'http://localhost:4000/mcp' },
+          { agentSession: true },
+        );
+        expect(result.mergedOptions['project-owner']).toBeUndefined();
+        expect(result.mergedOptions.project).toBeUndefined();
+      } finally {
+        vi.unstubAllEnvs();
+        await rm(storage, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('resolves root and child thread-only shells through their private hook records', async () => {
     const storage = await mkdtemp(path.join(os.tmpdir(), 'thread-locator-'));
     try {

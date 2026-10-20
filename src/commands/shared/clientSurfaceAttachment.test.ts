@@ -5,7 +5,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { releaseSessionOwner } from '@src/commands/bootstrap/bootstrapOwnership.js';
+import {
+  bootstrapOwner,
+  recoverEndedSessionOwner,
+  releaseSessionOwner,
+} from '@src/commands/bootstrap/bootstrapOwnership.js';
 import { createHookProjectOwner, readProjectOwnerTargets } from '@src/commands/shared/projectOwnerStore.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import { verifyProjectOwnerCredential } from '@src/core/context/projectOwner.js';
@@ -680,6 +684,105 @@ describe('attachReusableClientSurface', () => {
 });
 
 describe('local template context proof attachment', () => {
+  it('retains terminal retry authority while concurrent calls are paused after target recording', async () => {
+    const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), 'pending-owner-'));
+    let resume!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    let paused!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      paused = resolve;
+    });
+    let readers = 0;
+    try {
+      new TemplateContextCapabilityStore({ storageDir: storagePath, runtimeScopeId: 'scope-owner' }).getOrCreate();
+      writePidFile(storagePath, {
+        pid: process.pid,
+        url: 'http://127.0.0.1:3050/mcp',
+        port: 3050,
+        host: '127.0.0.1',
+        transport: 'http',
+        startedAt: new Date().toISOString(),
+        configDir: storagePath,
+      });
+      const hookOptions = {
+        client: 'codex' as const,
+        event: 'SessionStart' as const,
+        'config-dir': storagePath,
+        project: [storagePath],
+      };
+      const owner = await bootstrapOwner(
+        hookOptions,
+        JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'pending' }),
+      );
+      const options = { 'config-dir': storagePath, 'project-owner': owner };
+      const target = makeResolvedTarget({
+        mergedOptions: options,
+        serverPid: process.pid,
+        localRuntimeScope: { storagePath },
+      });
+      const ports = {
+        ...makePorts({ target }),
+        readSessionCache: async () => {
+          if (++readers === 2) paused();
+          await gate;
+          return null;
+        },
+      };
+      const rest = vi.fn(async () => ({ status: 'success' as const, value: 'admitted' }));
+      const calls = [1, 2].map(() =>
+        attachReusableClientSurface({
+          clientSurface: 'run',
+          version: 'run',
+          options,
+          ports,
+          rest,
+          mcp: unusedAdapter(),
+        }),
+      );
+      await ready;
+      const fresh = await attachFreshClientSurface({
+        clientSurface: 'stdio-proxy',
+        version: 'proxy',
+        options,
+        ports: makePorts({ target }),
+      });
+      const release = vi.fn(async () => {});
+      await expect(
+        releaseSessionOwner(
+          { ...hookOptions, event: 'SessionEnd' },
+          JSON.stringify({ hook_event_name: 'SessionEnd', session_id: 'pending' }),
+          release,
+        ),
+      ).rejects.toThrow('pending');
+      expect(release).not.toHaveBeenCalled();
+      expect(fs.existsSync(owner)).toBe(true);
+      expect(await readProjectOwnerTargets(owner)).toHaveLength(1);
+      await expect(
+        attachReusableClientSurface({
+          clientSurface: 'run',
+          version: 'run',
+          options,
+          ports,
+          rest,
+          mcp: unusedAdapter(),
+        }),
+      ).rejects.toThrow('Session has ended');
+      resume();
+      expect((await Promise.all(calls)).every((call) => call.status === 'success')).toBe(true);
+      expect(rest).toHaveBeenCalledTimes(2);
+      await expect(recoverEndedSessionOwner(owner, release)).rejects.toThrow('pending');
+      expect(fs.existsSync(owner)).toBe(true);
+      await fresh.releaseOwnerLease?.();
+      await recoverEndedSessionOwner(owner, release);
+      expect(fs.existsSync(owner)).toBe(false);
+    } finally {
+      resume();
+      fs.rmSync(storagePath, { recursive: true, force: true });
+    }
+  });
+
   it('replays a native-set selection together on SessionEnd without selecting omitted members', async () => {
     const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-owner-selection-'));
     try {
