@@ -5,7 +5,7 @@ description: 获取 CLI 模式 agent 工作流和当前服务器发现信息。
 
 # Instructions 命令
 
-`bootstrap` 处理客户端生命周期钩子，并在启动目标已解析时调用 `instructions` 获取运行时指引。`instructions` 仍是智能体按需获取或刷新指引的受支持独立入口，不会创建钩子所有者凭证。Bootstrap 已交付当前目标指引后，直接执行 `inspect`，无需重复获取。完整流程见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
+客户端钩子运行 `bootstrap`，建立所有权并通过 `instructions` 获取指引。智能体仅在缺少当前指引或需要刷新时单独运行 `instructions`；它不会创建所有者凭证。完整流程见[启动工作流](/zh/guide/worktrees-and-cross-project-sessions)。
 
 显示面向 AI agent 的 CLI 模式工作流和当前服务器清单。
 
@@ -52,6 +52,14 @@ npx -y @1mcp/agent instructions [选项]
 - **`--preset, -p <name>`** - 查询运行中服务器时使用预设
 - **`--tag-filter, -f <expression>`** - 应用高级标签过滤表达式
 - **`--tags <tag>`** - 应用简单的逗号分隔标签
+
+### 项目选择与所有者
+
+- **`--project <path-or-label>`** — 选择检出目录或项目集合成员。
+- **`--project-set <file>`** — 加载保存的项目集合。
+- **`--project-owner <file>`** — 保留本地会话 bootstrap 提供的凭证。
+
+共用规则见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。下方示例重点展示各命令选项；本地智能体会话的每次调用还需保留其所有者凭证及已分配的项目选择参数。
 
 ## 示例
 

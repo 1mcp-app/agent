@@ -101,7 +101,7 @@ For Codex or Claude, run the agent path from [Quick Start](/guide/quick-start):
 1mcp cli-setup --codex
 ```
 
-For Codex, `cli-setup` prints required `config.toml` changes but does not apply them. Add the printed snippet before opening the next Codex session, then verify `instructions -> inspect -> run`.
+For Codex, `cli-setup` prints required `config.toml` changes but does not apply them. Add the printed snippet before opening the next Codex session, enable/trust the hooks, and verify that the new session receives runtime guidance and its own owner credential. The agent then uses `inspect` and `run`, retaining that credential; it runs `instructions` only to fetch missing or refreshed guidance.
 
 For a non-CLI stdio client, use [Proxy](/commands/proxy). For an MCP-native HTTP client that does not need project context, use [serve](/commands/serve).
 
@@ -123,3 +123,5 @@ On Windows, use [Windows Task Scheduler](/guide/advanced/windows-task-scheduler)
 - `1mcp serve` stays running
 - `1mcp inspect <server>` reports the configured upstream server
 - Your next guide matches the path you selected: CLI mode, configuration, authentication, proxy, cloud deployment, or Windows Task Scheduler
+
+For a workflow across repositories and Git worktrees, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).

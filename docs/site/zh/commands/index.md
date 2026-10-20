@@ -15,6 +15,8 @@ head:
 
 如果你还没有跑通第一次安装或上手流程，先看[快速入门](/zh/guide/quick-start)。
 
+客户端启动钩子通过 `bootstrap` 交付运行时指引。仅在缺少指引或需要刷新时单独运行 `instructions`。检出目录选择和调用方凭证见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。
+
 ## 快速参考
 
 ### 主要命令

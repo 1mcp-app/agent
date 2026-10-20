@@ -35,6 +35,14 @@ npx -y @1mcp/agent inspect [target] [选项]
 
 ## 选项
 
+### 项目选择与所有者
+
+- **`--project <path-or-label>`** — 选择检出目录或项目集合成员。
+- **`--project-set <file>`** — 加载保存的项目集合。
+- **`--project-owner <file>`** — 保留本地会话 bootstrap 提供的凭证。
+
+共用规则见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。下方示例重点展示各命令选项；本地智能体会话的每次调用还需保留其所有者凭证及已分配的项目选择参数。
+
 ### 连接与过滤
 
 - **`--url, -u <url>`** - 覆盖自动发现到的 1MCP 服务器 URL

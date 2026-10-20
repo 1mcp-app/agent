@@ -51,13 +51,14 @@ npm install -g @1mcp/agent
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-**AI agent — after startup:** follow this workflow, skipping `instructions` if hooks already delivered the current instructions. Keep the runtime above running; you do not need to repeat these agent commands manually. Retain any bootstrap-provided `--project-owner` credential on these calls.
+**AI agent — after startup:** follow this workflow, skipping `instructions` if hooks already delivered the current instructions. Keep the runtime above running; you do not need to repeat these agent commands manually. Verify that startup delivers guidance and a private owner credential. Replace `/private/session-owner.json` below with that session’s credential; each worker uses its own.
 
 ```bash
-1mcp instructions
-1mcp inspect context7
-1mcp inspect context7/query-docs
-1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
+# Only if current target guidance is missing or needs refreshing:
+1mcp instructions --project-owner /private/session-owner.json
+1mcp inspect context7 --project-owner /private/session-owner.json
+1mcp inspect context7/query-docs --project-owner /private/session-owner.json
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}' --project-owner /private/session-owner.json
 ```
 
 If you want the full walkthrough (with success criteria and off-ramps), use the [Quick Start guide](https://docs.1mcp.app/guide/quick-start).
@@ -66,31 +67,13 @@ For a given agent, choose one mode only. If you switch that agent to CLI mode, r
 
 ## Work Across Projects and Worktrees
 
-Use one local runtime across repositories and Git worktrees, with an explicit checkout for each call.
-
-**You — backend setup:** configure an installed backend as a reusable template:
+Use one local runtime across repositories and Git worktrees. After configuring an installed backend with `mcp setup`, the agent selects a checkout on each call:
 
 ```bash
-1mcp mcp setup --known codegraph --dry-run
-1mcp mcp setup --known codegraph
+1mcp inspect codegraph --project /absolute/checkout --project-owner /path/from/session-bootstrap.json
 ```
 
-Setup writes launch configuration; install the backend first and initialize its project data separately, or configure a supplied preparation recipe.
-
-- **AI agent:** use `--project /absolute/checkout` for one repository or worktree.
-- **AI agent:** use `--project-set /absolute/projects.json --project backend` to select a named member of a saved set. Single-project tools still need one call per checkout.
-- **AI agent:** keep the session's bootstrap-provided `--project-owner` credential on agent calls. Each worker has its own credential so releasing one worker's bindings preserves other callers.
-- **You:** configure optional preparation in the backend's `mcp.json` entry, with project preferences in `.1mcprc`.
-- **AI agent:** inspect readiness, start permitted preparation when needed, and release its own bindings when finished.
-- **Local operator / worktree manager:** drain the checkout, verify completion, then remove it. An authorized agent with the required local authority can perform these steps.
-
-Follow the complete [Working Across Projects and Worktrees guide](https://docs.1mcp.app/guide/worktrees-and-cross-project-sessions) ([中文](https://docs.1mcp.app/zh/guide/worktrees-and-cross-project-sessions)) for client setup, configuration examples, worker assignments, and cleanup.
-
-### Bootstrap and Instructions
-
-The client runs `bootstrap` through startup hooks. It establishes session/worker ownership and calls `instructions` to fetch runtime guidance for the resolved target, then delivers it to the agent. After that, the agent proceeds to `inspect` and `run`.
-
-`instructions` remains supported for the **AI agent** to fetch missing guidance or refresh it for a selected target. Skip it when hooks already delivered current guidance. It does not create an owner credential or replace lifecycle hooks. `bootstrap` is not a replacement for `instructions`; the normal startup path uses both internally.
+Use the actual owner credential supplied by that session's bootstrap. Follow [Working Across Projects and Worktrees](https://docs.1mcp.app/guide/worktrees-and-cross-project-sessions) ([中文](https://docs.1mcp.app/zh/guide/worktrees-and-cross-project-sessions)) for setup, project sets, independent workers, optional preparation, and safe cleanup.
 
 ## Why CLI Mode Exists
 

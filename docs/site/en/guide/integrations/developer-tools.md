@@ -125,17 +125,19 @@ npx -y @1mcp/agent --config staging.json --port 3052
 **Why you need it**: Lets agents discover current servers and tool schemas before calling tools, instead of guessing
 **How it helps**: `instructions` gives the playbook, `inspect` reveals the schema, and `run` executes the tool call
 
-**Recommended Flow**:
+**Recommended Flow**: startup hooks deliver guidance and a private owner credential. The agent substitutes its credential below and retains any assigned project selectors. Run `instructions` only if guidance is missing or needs refreshing.
 
 ```bash
 # Shell 1
 1mcp serve
 
 # Shell 2
-1mcp instructions
-1mcp inspect context7
-1mcp inspect context7/query-docs
-1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
+# Replace with this session’s bootstrap credential.
+# Only if current target guidance is missing or needs refreshing.
+1mcp instructions --project-owner /private/session-owner.json
+1mcp inspect context7 --project-owner /private/session-owner.json
+1mcp inspect context7/query-docs --project-owner /private/session-owner.json
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}' --project-owner /private/session-owner.json
 ```
 
 **Bootstrap Options**:
@@ -213,6 +215,8 @@ npx -y @1mcp/agent --config staging.json --port 3052
 - **Production Deployment** → [Enterprise Features](/guide/advanced/enterprise)
 
 ### Integration Guides
+
+For a workflow across repositories and Git worktrees, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
 
 - **Authentication Setup** → [Authentication Guide](/guide/advanced/authentication)
 - **Configuration Reference** → [Configuration Guide](/guide/essentials/configuration)

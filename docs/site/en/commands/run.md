@@ -27,7 +27,7 @@ npx -y @1mcp/agent run <server>/<tool> [options]
 
 The `run` command is the execution step in the CLI workflow:
 
-1. Run [`instructions`](./instructions.md) to see the playbook and available servers
+1. Read the guidance delivered by bootstrap, or run [`instructions`](/commands/instructions) if it is missing or needs refreshing
 2. Run [`inspect`](./inspect.md) to list tools and inspect tool schemas
 3. Run `run` to invoke the selected tool
 
@@ -67,6 +67,14 @@ If `--args` is omitted and stdin is provided, `run` tries to map stdin automatic
 
 - **`--config-dir, -d <path>`** - Config directory for auth profile lookup and server discovery
 - **`--cli-session-cache-path <path>`** - Override the session cache path template used by `run` and `inspect`; supports `{pid}` and `{scope}`
+
+### Project selection and ownership
+
+- **`--project <path-or-label>`** — Select a checkout or a project-set member.
+- **`--project-set <file>`** — Load a saved project set.
+- **`--project-owner <file>`** — Retain this local session's bootstrap credential.
+
+See [Project and owner options](/guide/project-checkouts#project-and-owner-options) for shared rules. Examples below focus on individual command options; in a local agent session, also retain its owner credential and assigned project selectors on each call.
 
 ## Examples
 

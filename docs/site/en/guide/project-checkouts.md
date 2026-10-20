@@ -11,6 +11,18 @@ In session and worker examples below, replace `/private/session-owner.json` with
 
 Use explicit project selectors when one agent works across repositories or Git worktrees. Each call selects its source checkout while a shared local runtime manages the connections. Selecting a project does not change a runtime-global current project or dispatch the same tool call to every member.
 
+## Project and owner options
+
+These options apply to `instructions`, `inspect`, `run`, and project preparation/lifecycle commands:
+
+| Option                      | Meaning                                                                                                                                |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `--project <path-or-label>` | Select one checkout path, or a member label when using a project set. Repeat labels only for operations that support multiple members. |
+| `--project-set <file>`      | Load a saved JSON project set; relative member paths resolve from this file's directory.                                               |
+| `--project-owner <file>`    | Retain the private credential path supplied by this local session's bootstrap. Each worker uses its own credential.                    |
+
+Keep the selected checkout, runtime, filters, and owner on subsequent calls. The owner credential identifies the caller; it does not select a checkout or replace runtime authentication. Remote runtimes do not support local owner credentials. Static, project-independent server/schema inspection can omit project selectors; retain them for dynamic templates and checkout-specific calls.
+
 ## Source Checkout and Configuration Source
 
 A **Project Checkout** is the source directory the backend must query. Its **Project Configuration Source** supplies defaults such as preset and tag filters. These can be different directories:

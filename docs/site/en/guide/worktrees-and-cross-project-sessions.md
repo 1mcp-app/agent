@@ -38,19 +38,9 @@ Install the backend you want to use, including its language dependencies, follow
 1mcp mcp setup --known codegraph
 ```
 
-`mcp setup` writes the backend's launch configuration to `mcp.json`. With no arguments, it offers an interactive choice; `--known` selects one maintained example directly:
+Setup saves a reusable `codegraph` entry under `mcpTemplates` in `mcp.json`. Each call binds it to the selected checkout. Omit `--checkout`, which creates a fixed target. If the executable is not on PATH, add `--executable /absolute/path/to/codegraph` to both commands.
 
-| Backend           | Setup command                              | What you install first                              |
-| ----------------- | ------------------------------------------ | --------------------------------------------------- |
-| CodeGraph         | `1mcp mcp setup --known codegraph`         | The `codegraph` executable.                         |
-| Code Review Graph | `1mcp mcp setup --known code-review-graph` | The `code-review-graph` executable.                 |
-| Serena            | `1mcp mcp setup --known serena`            | Serena and the language servers your projects need. |
-
-Choose the backend you need; you do not need all three. By default, setup saves a reusable entry under `mcpTemplates`, named after the selected example. Use `--name` to choose another name and use that name in later commands. The template binds its working directory and source target to the checkout selected for each call.
-
-On Linux/macOS the default file is `~/.config/1mcp/mcp.json`; on Windows it is `%APPDATA%/1mcp/mcp.json`. If you already use `--config` or `--config-dir`, pass the same selector to setup and edit that configuration file. Setup reports the saved change and reload observation. An equivalent setup is a no-op; use `--force` only when you intend to reconfigure an existing entry. It preserves unrelated overrides and preparation settings.
-
-Review the preview before saving. If the executable is not on PATH, add `--executable /absolute/path/to/codegraph` to both commands. Omit `--checkout`: that option creates a fixed checkout configuration. Setup does not install CodeGraph, initialize indexes, or supply an automatic preparation recipe. Complete native initialization for each source checkout before querying it, or use a supplied recipe in step 6. See [mcp setup](/commands/mcp/setup).
+On Linux/macOS the default file is `~/.config/1mcp/mcp.json`; on Windows it is `%APPDATA%/1mcp/mcp.json`. If you use `--config` or `--config-dir`, pass the same selector to setup and the runtime. Setup does not install the backend or initialize indexes. See [mcp setup](/commands/mcp/setup) for other maintained backends, naming, and reconfiguration options.
 
 Start your local runtime in another terminal if it is not already running:
 
@@ -90,25 +80,11 @@ This variable is only shorthand for the examples. If tool calls use separate she
 
 ### `bootstrap` and `instructions`: which one runs?
 
-`bootstrap` is the client lifecycle entrypoint; `instructions` fetches the runtime playbook and server guidance. **Both commands are supported. `bootstrap` does not replace or deprecate `instructions`.**
-
-| Situation                                                      | Caller and command                                                                             | What happens                                                                                                                                                                                      |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A session or worker starts                                     | The client hook runs `bootstrap`                                                               | Uses the hook identity to create that caller's owner credential, and delivers guidance in the client's hook response. With a resolved target, it calls `instructions` to obtain runtime guidance. |
-| A worker's startup target was unresolved                       | The worker agent reruns `bootstrap` with its explicit assignment and existing owner credential | Delivers guidance for the assigned target. This manual retry does not create a new owner credential without verified hook identity.                                                               |
-| Current target guidance was not delivered, or needs refreshing | The AI agent runs `instructions` with its project, runtime, and owner selectors                | Fetches runtime guidance directly. It does not create a hook owner credential or perform session lifecycle cleanup.                                                                               |
-| Current target guidance was already delivered                  | The AI agent proceeds to `inspect`, then `run`                                                 | No second `instructions` call is needed.                                                                                                                                                          |
-| A session ends                                                 | The client hook runs `bootstrap --event SessionEnd`                                            | Releases that session's recorded bindings; it does not fetch instructions.                                                                                                                        |
-
-The normal startup flow is `client hook → bootstrap → instructions → agent receives guidance`. After successful delivery, the agent starts with `inspect`. The standalone `instructions` examples below are conditional fetches, not an extra mandatory step after bootstrap. If an owner credential is missing, repair hook delivery; running `instructions` alone does not restore ownership.
+The client hook runs `bootstrap`, which creates the caller's owner credential and fetches runtime guidance through `instructions`. Once the agent receives guidance for its target, it proceeds to `inspect` and `run`. It runs `instructions` only when guidance is missing or needs refreshing. Missing credentials require repairing hook delivery; `instructions` does not create them. See [CLI setup](/commands/cli-setup) for lifecycle events and manual bootstrap retries.
 
 ### Why keep `--project-owner`?
 
-The project selector answers **which source checkout?** The owner credential answers **which session or worker is using it?** They solve different problems.
-
-For example, two workers can use `/work/backend-feature` at the same time. When worker A finishes, `project release` with A's credential releases A's bindings while preserving B's work. A checkout path alone cannot distinguish those callers. Keeping the same credential across discovery, tool calls, and preparation records those bindings under the right owner so they can be released later.
-
-The startup hook creates the credential; you do not generate or edit it. Your agent normally receives and carries the flag automatically. You only substitute the bootstrap-provided path when copying these commands manually. Each worker receives a separate credential. It does not choose a project, replace runtime authentication, or grant operator permission to drain a checkout. This guide covers local runtimes; local ownership credentials are not supported by remote runtimes.
+`--project` selects the checkout; `--project-owner` identifies the session using it. Each worker keeps its own bootstrap credential so releasing one worker's bindings preserves other workers' work. Never copy a parent's credential to a worker. The credential does not replace runtime authentication or grant operator permission. This walkthrough uses a local runtime; remote runtimes do not support local owner credentials.
 
 ## 3. Create the backend worktree
 
@@ -119,6 +95,17 @@ Assume `/work/frontend` and `/work/backend` are existing Git checkouts with a co
 ```bash
 git -C /work/backend worktree add -b feature/cross-project /work/backend-feature
 ```
+
+Before querying either checkout, initialize its CodeGraph index using the native setup command supplied by the maintained example. If you used `--executable` in step 1, replace `codegraph` below with that same absolute executable path:
+
+**You — native backend setup**
+
+```bash
+codegraph init /work/frontend --yes
+codegraph init /work/backend-feature --yes
+```
+
+If you use an authorized automatic preparation recipe, follow step 6 before querying instead. If a checkout already has a current index, follow CodeGraph's update guidance instead. The setup template disables file watching, so synchronize indexes when source changes. If you use another backend, follow its native setup instructions for each checkout.
 
 If `/work/backend-feature` has no local `.1mcprc`, 1MCP can inherit `/work/backend/.1mcprc`. It still queries **the feature worktree's source**. If `.1mcprc` is tracked in Git, the new checkout normally already contains its own copy, which takes precedence.
 
@@ -134,7 +121,7 @@ Or, to select servers you have tagged `code`, use this alternative file:
 { "tags": ["code"] }
 ```
 
-Use your actual preset or tag names. Do not combine `preset` and `tags` in the same configuration. You can omit `.1mcprc` when you need no local override. A local file replaces the inherited file as a whole; omitted fields are not merged. Invalid local configuration fails instead of falling back. See [Project checkouts and sets](/guide/project-checkouts) for inheritance details.
+Use your actual preset or tag names. Do not combine `preset` and `tags` in the same configuration. You can omit `.1mcprc` when you need no local override. A local file replaces the inherited file as a whole; omitted fields are not merged. If the local file is invalid, 1MCP logs a warning and ignores its settings without restoring the inherited configuration. Fix the file before relying on its filters or preparation preferences. See [Project checkouts and sets](/guide/project-checkouts) for inheritance details.
 
 ## 4. Select and query each project
 
@@ -215,82 +202,6 @@ Each worker sets `SESSION_OWNER` to its own credential and follows step 4 for it
 ## 6. Prepare a backend when needed
 
 Skip this step if native setup is complete and no preparation recipe is configured. **1MCP does not bundle automatic preparation recipes for CodeGraph, Code Review Graph, or Serena.** If your team supplies one, configure it using [Backend preparation](/guide/backend-preparation), including its supported actions and permissions.
-
-### Configure the recipe in `mcp.json`
-
-**You — configuration and permissions.**
-
-First obtain a recipe and any helper files from your team or integration maintainer. The recipe defines how to check readiness and run supported actions. The `preparation` block below references that file; it does not create a recipe. If you do not have one, use native initialization rather than copying a nonexistent recipe path.
-
-Open the same `mcp.json` that `mcp setup` updated in step 1. Add `preparation` **inside the existing `mcpTemplates.codegraph` entry**, alongside `command`, `args`, and `cwd`. This complete example shows its placement. Preserve your existing executable, environment, template options, and other servers; do not replace your entire file with this example.
-
-::: v-pre
-
-```json
-{
-  "mcpServers": {},
-  "mcpTemplates": {
-    "codegraph": {
-      "command": "/absolute/path/to/codegraph",
-      "args": ["serve", "--mcp", "--path", "{{{project.path}}}", "--no-watch"],
-      "cwd": "{{{project.path}}}",
-      "env": {
-        "CODEGRAPH_NO_DOWNLOAD": "1",
-        "CODEGRAPH_NO_DAEMON": "1"
-      },
-      "template": { "shareable": true, "perClient": false },
-      "preparation": {
-        "adapter": "configured-command",
-        "definition": {
-          "id": "team-codegraph",
-          "file": "/absolute/path/to/recipes/codegraph.json"
-        },
-        "activation": "setup",
-        "allowedActions": ["initialize", "sync"]
-      }
-    }
-  }
-}
-```
-
-:::
-
-Replace `/absolute/path/to/codegraph` with your installed executable. Replace `team-codegraph` with the ID declared by the supplied recipe and `definition.file` with its absolute local path. These are placeholders, not a bundled CodeGraph integration. If the recipe declares machine-specific inputs, add `definition.inputs` using exactly its documented names and values.
-
-| Setting                               | Effect                                                                                                                            |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `adapter: "configured-command"`       | Runs the recipe's readiness probe and permitted commands.                                                                         |
-| `definition.id` and `definition.file` | Select the supplied recipe by its declared ID and absolute file path. Keep its helper files in the layout supplied by its author. |
-| `activation: "setup"`                 | Enables automatic preparation for authorized checkouts using this backend, without adding an opt-in to each project.              |
-| `allowedActions`                      | Limits which recipe actions may run. Include `initialize` and `sync` only if the recipe supports them and you permit them.        |
-
-Save the configuration and check the next readiness inspection. A successful reload is not proof that an index is ready. Neither a recipe nor activation grants access to additional checkouts or permission to install dependencies, rebuild everything, or use paid services.
-
-### Choose whether preparation applies to each project
-
-**You — project preferences.**
-
-For automatic preparation only in selected projects, **omit `activation: "setup"` from the server entry** and opt in through the selected checkout's `.1mcprc`:
-
-```json
-{
-  "preparation": {
-    "codegraph": { "enabled": true }
-  }
-}
-```
-
-With setup-wide activation, disable it for one checkout instead:
-
-```json
-{
-  "preparation": {
-    "codegraph": { "enabled": false }
-  }
-}
-```
-
-The key `codegraph` is the configured server name, not the recipe ID. Add this preference to the checkout's complete effective configuration, preserving its chosen preset **or** tags. A worktree-local `.1mcprc` replaces inherited settings as described in step 3. Project opt-in does not add allowed actions; an explicit project disable wins over setup-wide activation. To disable preparation for the backend everywhere, set `enabled: false` inside its `preparation` block in `mcp.json`.
 
 ### Inspect, prepare, and retry the tool
 

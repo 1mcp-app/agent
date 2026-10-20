@@ -15,7 +15,7 @@ head:
 
 # CLI Setup Command
 
-`bootstrap` handles client lifecycle hooks and calls `instructions` to fetch runtime guidance at startup when the target is resolved. `instructions` remains the supported standalone entrypoint for agents that need to fetch or refresh that guidance. It does not create a hook owner credential. After bootstrap has delivered the current target's instructions, proceed to `inspect` without fetching them again. See [Bootstrap and instructions](/guide/worktrees-and-cross-project-sessions#bootstrap-and-instructions-which-one-runs).
+Client hooks run `bootstrap` to establish ownership and fetch guidance through `instructions`. Agents run `instructions` separately only when current guidance is missing or needs refreshing; it does not create an owner credential. See [the startup workflow](/guide/worktrees-and-cross-project-sessions#bootstrap-and-instructions-which-one-runs).
 
 For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
 

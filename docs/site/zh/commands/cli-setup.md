@@ -5,7 +5,7 @@ description: 为 Codex 或 Claude 安装 1MCP CLI 模式的引导文档和 hooks
 
 # CLI Setup 命令
 
-`bootstrap` 处理客户端生命周期钩子，并在启动目标已解析时调用 `instructions` 获取运行时指引。`instructions` 仍是智能体按需获取或刷新指引的受支持独立入口，不会创建钩子所有者凭证。Bootstrap 已交付当前目标指引后，直接执行 `inspect`，无需重复获取。完整流程见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
+客户端钩子运行 `bootstrap`，建立所有权并通过 `instructions` 获取指引。智能体仅在缺少当前指引或需要刷新时单独运行 `instructions`；它不会创建所有者凭证。完整流程见[启动工作流](/zh/guide/worktrees-and-cross-project-sessions)。
 
 从设置到清理的完整流程，参见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
 

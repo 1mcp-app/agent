@@ -21,6 +21,8 @@ For AI agents, the preferred path is CLI mode: keep MCP behind `1mcp serve`, the
 
 If you are still trying to get a first setup working, use [Quick Start](/guide/quick-start) before drilling into command details.
 
+Client startup hooks deliver runtime guidance through `bootstrap`. Fetch `instructions` separately only when guidance is missing or needs refreshing. For checkout selection and caller credentials, see [Project and owner options](/guide/project-checkouts#project-and-owner-options).
+
 ## Quick Reference
 
 ### Main Commands

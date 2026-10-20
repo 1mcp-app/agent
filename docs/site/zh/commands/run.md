@@ -17,7 +17,7 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 
 `run` 是 CLI 工作流中的执行步骤：
 
-1. 先运行 [`instructions`](./instructions.md) 查看当前工作流和服务器列表
+1. 阅读 bootstrap 已交付的指引；仅在缺少指引或需要刷新时运行 [`instructions`](/zh/commands/instructions)
 2. 再运行 [`inspect`](./inspect.md) 查看工具和工具 schema
 3. 最后运行 `run` 调用目标工具
 
@@ -57,6 +57,14 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 
 - **`--config-dir, -d <path>`** - 用于鉴权配置和服务器发现的配置目录
 - **`--cli-session-cache-path <path>`** - 覆盖 `run` 与 `inspect` 使用的会话缓存路径模板；支持 `{pid}` 与 `{scope}`
+
+### 项目选择与所有者
+
+- **`--project <path-or-label>`** — 选择检出目录或项目集合成员。
+- **`--project-set <file>`** — 加载保存的项目集合。
+- **`--project-owner <file>`** — 保留本地会话 bootstrap 提供的凭证。
+
+共用规则见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。下方示例重点展示各命令选项；本地智能体会话的每次调用还需保留其所有者凭证及已分配的项目选择参数。
 
 ## 示例
 

@@ -45,6 +45,14 @@ This is the command that turns the broad inventory from `instructions` into a sc
 
 ## Options
 
+### Project selection and ownership
+
+- **`--project <path-or-label>`** — Select a checkout or a project-set member.
+- **`--project-set <file>`** — Load a saved project set.
+- **`--project-owner <file>`** — Retain this local session's bootstrap credential.
+
+See [Project and owner options](/guide/project-checkouts#project-and-owner-options) for shared rules. Examples below focus on individual command options; in a local agent session, also retain its owner credential and assigned project selectors on each call.
+
 ### Connection and Filtering
 
 - **`--url, -u <url>`** - Override auto-detected 1MCP server URL

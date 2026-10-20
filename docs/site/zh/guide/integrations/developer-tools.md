@@ -119,17 +119,19 @@ npx -y @1mcp/agent --config staging.json --port 3052
 **适用场景**：让 agent 在调用工具前先发现当前服务器和工具 schema，而不是靠猜测
 **优势特点**：`instructions` 提供 playbook，`inspect` 暴露 schema，`run` 执行工具调用
 
-**推荐流程**：
+**推荐流程**：启动钩子交付指引和私有所有者凭证。智能体在下方填入自己的凭证，并保留已分配的项目选择参数。仅在缺少指引或需要刷新时运行 `instructions`。
 
 ```bash
 # 终端 1
 1mcp serve
 
 # 终端 2
-1mcp instructions
-1mcp inspect context7
-1mcp inspect context7/query-docs
-1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
+# 替换为本会话 bootstrap 提供的凭证。
+# 仅在缺少当前目标指引或需要刷新时执行。
+1mcp instructions --project-owner /private/session-owner.json
+1mcp inspect context7 --project-owner /private/session-owner.json
+1mcp inspect context7/query-docs --project-owner /private/session-owner.json
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}' --project-owner /private/session-owner.json
 ```
 
 **引导安装方式**：
@@ -207,6 +209,8 @@ npx -y @1mcp/agent --config staging.json --port 3052
 - **生产部署** → [企业功能](/zh/guide/advanced/enterprise)
 
 ### 集成指南
+
+跨仓库和 Git worktree 的完整流程见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
 
 - **身份验证设置** → [身份验证指南](/zh/guide/advanced/authentication)
 - **配置参考** → [配置指南](/zh/guide/essentials/configuration)

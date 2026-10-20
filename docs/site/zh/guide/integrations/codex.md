@@ -32,13 +32,15 @@ CLI 模式适用于通过引导说明完成指令、发现和调用，而不把 
 1mcp cli-setup --codex
 ```
 
-该命令会安装 1MCP Codex 引导文件，并打印必需的 Codex `config.toml` hook 与沙箱改动。请在启动新的 Codex 会话前应用输出的片段。保持会话工作流明确：
+该命令会安装 1MCP Codex 引导文件，并打印必需的 Codex `config.toml` hook 与沙箱改动。请在启动新的 Codex 会话前应用输出的片段。启用并信任钩子，确认启动时收到指引及私有所有者凭证。以下流程由 AI 智能体执行，需替换为它自己的凭证路径，并保留已分配的项目选择参数：
 
 ```bash
-1mcp instructions
-1mcp inspect <server>
-1mcp inspect <server>/<tool>
-1mcp run <server>/<tool> --args '<json>'
+# 替换为本会话 bootstrap 提供的凭证。
+# 仅在缺少当前目标指引或需要刷新时执行。
+1mcp instructions --project-owner /private/session-owner.json
+1mcp inspect <server> --project-owner /private/session-owner.json
+1mcp inspect <server>/<tool> --project-owner /private/session-owner.json
+1mcp run <server>/<tool> --args '<json>' --project-owner /private/session-owner.json
 ```
 
 使用此模式前，请从同一 Codex 作用域移除已有的 1MCP MCP server 条目。
@@ -92,6 +94,6 @@ curl http://localhost:3050/health
 1mcp mcp status
 ```
 
-使用直接 HTTP 或代理模式时，请新开 Codex 会话并检查已配置的 MCP server。使用 CLI 模式时，请运行 `1mcp instructions` 并遵循返回的服务器和工具检查路径。如果运行时启用了身份验证，请为端点配置相应的 MCP 客户端身份验证；代理和 CLI 模式不会绕过该运行时策略。
+使用直接 HTTP 或代理模式时，请新开 Codex 会话并检查已配置的 MCP server。使用 CLI 模式时，先确认启动已交付指引和所有者凭证，再让智能体检查并调用工具。仅在缺少指引或需要刷新时运行 `instructions`。多检出目录流程见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。如果运行时启用了身份验证，请为端点配置相应的 MCP 客户端身份验证；代理和 CLI 模式不会绕过该运行时策略。
 
 相关指南：[CLI 模式](/zh/guide/integrations/cli-mode)、[Proxy 命令](/zh/commands/proxy) 和[身份验证](/zh/guide/advanced/authentication)。

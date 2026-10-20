@@ -53,6 +53,7 @@ head:
 | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `--project <path-or-label>`                                     | 绝对检出路径，或项目集中的成员标签。检出目录相关的工作应选择一个目录。                      |
 | `--project-set <path>`                                          | 已保存的项目集定义，使用 `--project <label>` 选择检出目录。                                 |
+| `--project-owner <file>`                                        | 保留本地调用方 bootstrap 提供的私有凭证。                                                   |
 | `--operation <name>`                                            | 特定操作的就绪检查，通常为上游工具名称。保留检查/启动时的值；按 ID 控制时可自动恢复。       |
 | `--url <url>`                                                   | 覆盖检测到的运行时 URL。                                                                    |
 | `--context <name>`                                              | 使用命名的运行时目标上下文连接。                                                            |
@@ -62,26 +63,28 @@ head:
 
 全局配置选项同样适用。使用 `1mcp project prepare --help` 和子命令帮助查看可用参数。控制任务和后续工具调用时应保持相同的运行时、过滤器、检出目录和操作。
 
+使用 `--project-owner <file>` 保留本地调用方 bootstrap 提供的私有凭证。将下方 `/private/session-owner.json` 替换为该路径；worker 使用自己的凭证。参见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。
+
 ## 示例：检查、准备和恢复调用
 
 假设管理员已为 `source-search` 的 `lookup` 操作配置并授权准备动作：
 
 ```bash
-1mcp project prepare inspect source-search --project /work/frontend --operation lookup --format json
-1mcp project prepare start source-search --project /work/frontend --operation lookup --format json
+1mcp project prepare inspect source-search --project /work/frontend --operation lookup --format json --project-owner /private/session-owner.json
+1mcp project prepare start source-search --project /work/frontend --operation lookup --format json --project-owner /private/session-owner.json
 # 如果响应包含任务，复制其 status.id：
 JOB_ID='replace-with-returned-job-id'
-1mcp project prepare wait source-search "$JOB_ID" --project /work/frontend --wait-ms 5000 --format json
-1mcp project prepare status source-search "$JOB_ID" --project /work/frontend --format json
+1mcp project prepare wait source-search "$JOB_ID" --project /work/frontend --wait-ms 5000 --format json --project-owner /private/session-owner.json
+1mcp project prepare status source-search "$JOB_ID" --project /work/frontend --format json --project-owner /private/session-owner.json
 ```
 
 如果启动操作返回 `ready`，则无需等待任务。否则应检查响应状态，只在任务仍未完成且未超出当前任务预算时继续等待。验证就绪后：
 
 ```bash
-1mcp inspect source-search --project /work/frontend
-1mcp inspect source-search/lookup --project /work/frontend
+1mcp inspect source-search --project /work/frontend --project-owner /private/session-owner.json
+1mcp inspect source-search/lookup --project /work/frontend --project-owner /private/session-owner.json
 # 按刚检查的 schema 提供参数：
-1mcp run source-search/lookup --project /work/frontend --args '{"query":"example"}'
+1mcp run source-search/lookup --project /work/frontend --args '{"query":"example"}' --project-owner /private/session-owner.json
 ```
 
 **准备工作不会执行或重放原始工具调用。** 触发自动准备的工具调用也需要在就绪后重新发起。如果会话使用了额外的运行时或过滤参数，请继续携带。
@@ -95,8 +98,8 @@ JOB_ID='replace-with-returned-job-id'
 - `unknown`、`unsupported`、`conflict`、`forbidden`、`disabled` 或 `busy`：按照返回的指引处理并报告阻塞，不猜测就绪状态、破坏外部锁或更改权限来强制推进。
 
 ```bash
-1mcp project prepare retry source-search "$JOB_ID" --project /work/frontend --format json
-1mcp project prepare cancel source-search "$JOB_ID" --project /work/frontend --format json
+1mcp project prepare retry source-search "$JOB_ID" --project /work/frontend --format json --project-owner /private/session-owner.json
+1mcp project prepare cancel source-search "$JOB_ID" --project /work/frontend --format json --project-owner /private/session-owner.json
 ```
 
 以上是可选的恢复操作，不是应依次执行的常规步骤。只读检查不会启动准备工作。命令成功本身不能证明后端就绪，下一步应由响应状态和探测证据决定。准备工作需要已配置的集成，目前进程隔离支持 Linux 和 macOS。

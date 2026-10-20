@@ -38,19 +38,9 @@ description: 配置本地智能体会话，在前后端检出目录间协作，�
 1mcp mcp setup --known codegraph
 ```
 
-`mcp setup` 将后端启动配置写入 `mcp.json`。不带参数时可交互选择，使用 `--known` 可直接指定维护中的示例：
+Setup 在 `mcp.json` 的 `mcpTemplates` 中保存可复用的 `codegraph` 条目，每次调用将其绑定到所选检出目录。不要添加 `--checkout`，该选项会创建固定目标。如果可执行文件不在 PATH 中，为两个命令添加 `--executable /absolute/path/to/codegraph`。
 
-| 后端              | 设置命令                                   | 需要先安装的内容                 |
-| ----------------- | ------------------------------------------ | -------------------------------- |
-| CodeGraph         | `1mcp mcp setup --known codegraph`         | `codegraph` 可执行文件。         |
-| Code Review Graph | `1mcp mcp setup --known code-review-graph` | `code-review-graph` 可执行文件。 |
-| Serena            | `1mcp mcp setup --known serena`            | Serena 及项目所需的语言服务器。  |
-
-按需选择后端，不必安装全部三个。默认情况下，setup 在 `mcpTemplates` 中保存可复用条目，名称与示例一致。可以用 `--name` 指定其他名称，后续命令也使用该名称。模板将工作目录和源码目标绑定到每次调用选择的检出目录。
-
-Linux/macOS 的默认文件为 `~/.config/1mcp/mcp.json`，Windows 为 `%APPDATA%/1mcp/mcp.json`。如果已经使用 `--config` 或 `--config-dir`，请向 setup 传入同一选项，并编辑对应配置文件。Setup 会报告保存结果和重载观察结果。重复相同设置不会产生改动；仅在确实需要重新配置现有条目时使用 `--force`，它会保留无关覆盖项和准备设置。
-
-保存前检查预览。如果可执行文件不在 PATH 中，为两个命令添加 `--executable /absolute/path/to/codegraph`。不要添加 `--checkout`，该选项会创建固定检出目录配置。Setup 不会安装 CodeGraph、初始化索引或提供自动准备配方。在查询之前，为每个源码检出目录完成原生初始化，或使用第 6 步的配方。参见 [mcp setup](/zh/commands/mcp/setup)。
+Linux/macOS 的默认文件为 `~/.config/1mcp/mcp.json`，Windows 为 `%APPDATA%/1mcp/mcp.json`。如果使用 `--config` 或 `--config-dir`，向 setup 和运行时传入同一选项。Setup 不会安装后端或初始化索引。其他维护中的后端、命名及重新配置选项见 [mcp setup](/zh/commands/mcp/setup)。
 
 如果本地运行时尚未启动，在另一个终端运行：
 
@@ -90,25 +80,11 @@ SESSION_OWNER='/absolute/path/from/this-sessions-bootstrap.json'
 
 ### `bootstrap` 与 `instructions`：应该运行哪个？
 
-`bootstrap` 是客户端生命周期入口；`instructions` 获取运行时操作指引及服务器说明。**两个命令都受支持，`bootstrap` 不替代或弃用 `instructions`。**
-
-| 场景                               | 执行者与命令                                                  | 作用                                                                                                                     |
-| ---------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| 会话或 worker 启动                 | 客户端钩子运行 `bootstrap`                                    | 根据钩子身份创建该调用方的所有者凭证，并通过客户端钩子响应交付指引。目标已解析时，它调用 `instructions` 获取运行时指引。 |
-| Worker 启动时目标未解析            | Worker 智能体携带明确分配和已有所有者凭证重新运行 `bootstrap` | 交付所分配目标的指引。没有经过验证的钩子身份时，此手动重试不会创建新凭证。                                               |
-| 当前目标的指引尚未交付，或需要刷新 | AI 智能体携带项目、运行时和所有者参数运行 `instructions`      | 直接获取运行时指引，不创建钩子所有者凭证，也不执行会话生命周期清理。                                                     |
-| 当前目标的指引已经交付             | AI 智能体继续执行 `inspect`，然后 `run`                       | 无需再次调用 `instructions`。                                                                                            |
-| 会话结束                           | 客户端钩子运行 `bootstrap --event SessionEnd`                 | 释放该会话记录的绑定，不获取指令。                                                                                       |
-
-正常启动流程是 `客户端钩子 → bootstrap → instructions → 智能体收到指引`。成功交付后，智能体从 `inspect` 开始。下方独立的 `instructions` 示例是按需获取指引，并非 bootstrap 后必须额外执行的步骤。如果缺少所有者凭证，应修复钩子交付；单独运行 `instructions` 无法恢复所有权。
+客户端钩子运行 `bootstrap`，创建调用方的所有者凭证，并通过 `instructions` 获取运行时指引。智能体收到当前目标的指引后，继续执行 `inspect` 和 `run`；仅在缺少指引或需要刷新时运行 `instructions`。缺少凭证时应修复钩子交付，`instructions` 不会创建凭证。生命周期事件和手动 bootstrap 重试见 [CLI setup](/zh/commands/cli-setup)。
 
 ### 为什么要保留 `--project-owner`？
 
-项目选择参数回答的是**使用哪个源码检出目录？** 所有者凭证回答的是**哪个会话或 worker 正在使用它？** 两者解决的问题不同。
-
-例如，两个 worker 同时使用 `/work/backend-feature`。Worker A 完成后，使用 A 的凭证执行 `project release`，只释放 A 的绑定，保留 B 的工作。仅凭检出目录路径无法区分这两个调用方。在发现、工具调用和准备操作中持续携带同一凭证，才能将绑定归属到正确的所有者，供后续释放。
-
-凭证由启动钩子创建，不需要手动生成或编辑。智能体通常会自动接收并携带该参数；只有手动复制这些命令时，才需要填入 bootstrap 提供的路径。每个 worker 获得独立凭证。凭证不负责选择项目，不替代运行时认证，也不授予排空检出目录的操作者权限。本指南面向本地运行时；远程运行时不支持本地所有者凭证。
+`--project` 选择检出目录，`--project-owner` 标识使用它的会话。每个 worker 保留自己从 bootstrap 获得的凭证，释放自身绑定时才能保留其他 worker 的工作。不要将父会话凭证复制给 worker。该凭证不替代运行时认证，也不授予操作者权限。本指南使用本地运行时；远程运行时不支持本地所有者凭证。
 
 ## 3. 创建后端 worktree
 
@@ -119,6 +95,17 @@ SESSION_OWNER='/absolute/path/from/this-sessions-bootstrap.json'
 ```bash
 git -C /work/backend worktree add -b feature/cross-project /work/backend-feature
 ```
+
+查询任一检出目录前，使用维护示例提供的原生设置命令初始化各自的 CodeGraph 索引。如果第 1 步使用了 `--executable`，请将下方 `codegraph` 替换为同一个可执行文件的绝对路径：
+
+**你——后端原生设置**
+
+```bash
+codegraph init /work/frontend --yes
+codegraph init /work/backend-feature --yes
+```
+
+如果使用已授权的自动准备配方，可改为在查询前执行第 6 步。如果检出目录已有最新索引，按 CodeGraph 的更新指引操作即可。Setup 模板禁用了文件监听，源码变化后需要同步索引。使用其他后端时，请为每个检出目录完成其原生设置。
 
 如果 `/work/backend-feature` 没有本地 `.1mcprc`，1MCP 可以继承 `/work/backend/.1mcprc`，但查询的仍然是**功能 worktree 的源码**。如果 `.1mcprc` 已被 Git 跟踪，新检出目录通常已有自己的副本，该副本优先。
 
@@ -134,7 +121,7 @@ git -C /work/backend worktree add -b feature/cross-project /work/backend-feature
 { "tags": ["code"] }
 ```
 
-使用实际存在的 preset 或标签名称，不要在同一配置中同时设置 `preset` 和 `tags`。无需本地覆盖时可以不创建 `.1mcprc`。本地文件整体替换继承文件，缺失字段不会合并。无效的本地配置会报错，不会回退。继承规则见[项目 Checkout 与集合](/zh/guide/project-checkouts)。
+使用实际存在的 preset 或标签名称，不要在同一配置中同时设置 `preset` 和 `tags`。无需本地覆盖时可以不创建 `.1mcprc`。本地文件整体替换继承文件，缺失字段不会合并。本地文件无效时，1MCP 会记录警告并忽略其中设置，不会恢复继承配置。依赖其筛选条件或准备偏好之前，必须先修复该文件。继承规则见[项目 Checkout 与集合](/zh/guide/project-checkouts)。
 
 ## 4. 选择并查询各项目
 
@@ -215,82 +202,6 @@ Worker 将 `YOUR_OWN_CREDENTIAL_PATH` 替换为自己经验证的启动钩子提
 ## 6. 按需准备后端
 
 如果已完成原生设置，且没有配置准备配方，可以跳过此步骤。**1MCP 不内置 CodeGraph、Code Review Graph 或 Serena 的自动准备配方。** 如果团队提供配方，请按[后端准备指南](/zh/guide/backend-preparation)配置，包括支持的操作与权限。
-
-### 在 `mcp.json` 中配置配方
-
-**你——配置和权限。**
-
-先从团队或集成维护者获取配方及配套辅助文件。配方定义如何检查就绪状态和运行支持的操作。下面的 `preparation` 配置引用该文件，并不会创建配方。如果没有配方，请使用原生初始化，而不是复制一个不存在的配方路径。
-
-打开第 1 步中 `mcp setup` 更新的同一个 `mcp.json`。在**现有 `mcpTemplates.codegraph` 条目内部**添加 `preparation`，与 `command`、`args`、`cwd` 同级。以下完整示例展示其位置。请保留已有的可执行文件路径、环境变量、模板选项和其他服务器，不要用示例覆盖整个文件。
-
-::: v-pre
-
-```json
-{
-  "mcpServers": {},
-  "mcpTemplates": {
-    "codegraph": {
-      "command": "/absolute/path/to/codegraph",
-      "args": ["serve", "--mcp", "--path", "{{{project.path}}}", "--no-watch"],
-      "cwd": "{{{project.path}}}",
-      "env": {
-        "CODEGRAPH_NO_DOWNLOAD": "1",
-        "CODEGRAPH_NO_DAEMON": "1"
-      },
-      "template": { "shareable": true, "perClient": false },
-      "preparation": {
-        "adapter": "configured-command",
-        "definition": {
-          "id": "team-codegraph",
-          "file": "/absolute/path/to/recipes/codegraph.json"
-        },
-        "activation": "setup",
-        "allowedActions": ["initialize", "sync"]
-      }
-    }
-  }
-}
-```
-
-:::
-
-将 `/absolute/path/to/codegraph` 替换为已安装的可执行文件路径。将 `team-codegraph` 替换为配方声明的 ID，将 `definition.file` 替换为配方的本地绝对路径。这些是占位值，不是内置的 CodeGraph 集成。如果配方声明了本机输入参数，按其文档中的名称和值添加 `definition.inputs`。
-
-| 设置                                 | 作用                                                                        |
-| ------------------------------------ | --------------------------------------------------------------------------- |
-| `adapter: "configured-command"`      | 运行配方的就绪探测和已获许可的命令。                                        |
-| `definition.id` 和 `definition.file` | 根据声明的 ID 和绝对文件路径选择配方；辅助文件保持作者提供的目录布局。      |
-| `activation: "setup"`                | 对使用此后端的已授权检出目录启用自动准备，无需逐项目添加启用设置。          |
-| `allowedActions`                     | 限定允许运行的配方操作。仅在配方支持且你允许时添加 `initialize` 和 `sync`。 |
-
-保存配置后检查下一次就绪查询。重载成功不代表索引已就绪。配方和 activation 都不会授予额外检出目录访问权，也不会授予安装依赖、全量重建或使用付费服务的权限。
-
-### 选择哪些项目启用准备
-
-**你——项目偏好。**
-
-如果只想在指定项目中自动准备，**从服务器条目中省略 `activation: "setup"`**，然后在所选检出目录的 `.1mcprc` 中启用：
-
-```json
-{
-  "preparation": {
-    "codegraph": { "enabled": true }
-  }
-}
-```
-
-如果已经设置全局启用，则可以对某个检出目录禁用：
-
-```json
-{
-  "preparation": {
-    "codegraph": { "enabled": false }
-  }
-}
-```
-
-键 `codegraph` 是配置中的服务器名称，不是配方 ID。将此偏好添加到检出目录的完整有效配置中，保留所选的 preset **或** tags。Worktree 本地 `.1mcprc` 会整体替换继承设置，见第 3 步。项目启用设置不会增加已许可操作；明确的项目禁用优先于 setup 级启用。要在所有项目中禁用该后端的准备，在 `mcp.json` 中该后端的 `preparation` 内设置 `enabled: false`。
 
 ### 检查、准备并重新调用工具
 
