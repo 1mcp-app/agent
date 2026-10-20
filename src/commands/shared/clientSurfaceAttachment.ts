@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { isLoopbackHost } from '@src/commands/serve/templateContextTrust.js';
 import { type AuthProfile, loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
 import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
 import {
@@ -452,7 +453,8 @@ function withDefaultPorts<TOptions extends ResolvableServeTargetOptions>(
 ): ClientSurfaceAttachmentPorts<TOptions> {
   return {
     resolveTarget:
-      ports?.resolveTarget ?? ((options) => resolveServeTarget(options) as Promise<ResolvedServeTarget<TOptions>>),
+      ports?.resolveTarget ??
+      ((options) => resolveServeTarget(options, { agentSession: true }) as Promise<ResolvedServeTarget<TOptions>>),
     loadAuthProfile: ports?.loadAuthProfile ?? loadAuthProfile,
     getOAuthTokenReference:
       ports?.getOAuthTokenReference ??
@@ -488,6 +490,11 @@ async function attachProjectOwner<TOptions extends ResolvableServeTargetOptions>
   }
   const capability = await readLiveLocalCapability(target);
   if (!capability) {
+    if (file && target.localRuntimeScope && (!options.url || isLoopbackHost(target.serverUrl.hostname))) {
+      throw new Error(
+        'Project ownership requires verified local runtime authority; check scoped runtime permissions before retrying',
+      );
+    }
     if (operator || policy.required || expectedRuntimeScope) {
       throw new Error('Project ownership requires verified local runtime authority');
     }
@@ -506,6 +513,7 @@ async function attachProjectOwner<TOptions extends ResolvableServeTargetOptions>
     operator ? 'operator' : 'owner',
   );
   if (!file || !target.localRuntimeScope) return;
+  if ('terminal-cleanup' in options && options['terminal-cleanup']) return;
   const selection = resolveProjectSelection(context);
   if (selection.kind === 'unresolved') return;
   const recordedTarget = {

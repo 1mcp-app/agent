@@ -76,6 +76,27 @@ function unusedAdapter() {
 }
 
 describe('attachReusableClientSurface', () => {
+  it('stops local tool calls when caller ownership cannot be verified', async () => {
+    const options = { 'project-owner': '/unavailable/own.json' };
+    const rest = unusedAdapter();
+    await expect(
+      attachReusableClientSurface({
+        clientSurface: 'run',
+        version: 'run',
+        options,
+        ports: makePorts({
+          target: makeResolvedTarget({
+            mergedOptions: options,
+            localRuntimeScope: { storagePath: '/unavailable/runtime' },
+          }),
+        }),
+        rest,
+        mcp: unusedAdapter(),
+      }),
+    ).rejects.toThrow('Project ownership requires verified local runtime authority');
+    expect(rest).not.toHaveBeenCalled();
+  });
+
   it('preserves remote instructions when bootstrap supplies a local owner reference', async () => {
     const warning = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const options = { context: 'remote', 'project-owner': '/unavailable/local-owner.json' };
@@ -700,22 +721,23 @@ describe('local template context proof attachment', () => {
       });
       projectSet.selection = ['omitted'];
       const releases: unknown[] = [];
+      let snapshot: Awaited<ReturnType<typeof loadProjectSet>> | undefined;
       await releaseSessionOwner(
         { client: 'codex', event: 'SessionEnd', 'config-dir': storagePath },
         JSON.stringify({ hook_event_name: 'SessionEnd', session_id: 'parent' }),
         async (_file, recorded) => {
           releases.push(recorded);
+          snapshot = await loadProjectSet(recorded['project-set']!);
         },
       );
       expect(releases).toHaveLength(1);
       expect(releases[0]).toMatchObject({ runtimeScopeId: 'scope-owner', context: 'local', 'config-dir': storagePath });
-      const recorded = (await readProjectOwnerTargets(parent))[0];
-      const snapshot = await loadProjectSet(recorded['project-set']!);
-      expect(snapshot.projects).toEqual([
+      expect(fs.existsSync(parent)).toBe(false);
+      expect(snapshot?.projects).toEqual([
         { label: 'a', path: fs.realpathSync(storagePath) },
         { label: 'b', path: fs.realpathSync(second) },
       ]);
-      expect(snapshot.selection).toEqual(['a', 'b']);
+      expect(snapshot?.selection).toEqual(['a', 'b']);
     } finally {
       fs.rmSync(storagePath, { recursive: true, force: true });
     }

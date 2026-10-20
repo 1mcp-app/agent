@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import type { Readable } from 'node:stream';
 
+import { resolveAgentSessionOptions } from '@src/commands/shared/agentSession.js';
+import { type ProjectOwnerTarget, readProjectOwnerAssignment } from '@src/commands/shared/projectOwnerStore.js';
 import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
 import { renderManagedDocContent } from '@src/core/instructions/instructionsDistribution.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
@@ -201,16 +203,7 @@ export async function bootstrapCommand(options: BootstrapCommandOptions): Promis
   }
   if (options.event === 'SessionEnd') {
     try {
-      await releaseSessionOwner(options, input, async (ownerFile, target) => {
-        const args = ['project', 'release', '--format=json', `--project-owner=${ownerFile}`];
-        if (target['project-set']) args.push(`--project-set=${target['project-set']}`);
-        else for (const project of target.project) args.push(`--project=${project}`);
-        for (const key of ['config-dir', 'config', 'context', 'url'] as const) {
-          if (target[key]) args.push(`--${key}=${target[key]}`);
-        }
-        args.push(`--expected-runtime-scope=${target.runtimeScopeId}`);
-        await runInstructionsProcess(process.execPath, isSea() ? args : [process.argv[1], ...args], 2000);
-      });
+      await releaseSessionOwner(options, input, releaseRecordedOwnerTarget);
       process.stdout.write(`${JSON.stringify({ suppressOutput: true })}\n`);
     } catch {
       process.exitCode = 1;
@@ -218,22 +211,30 @@ export async function bootstrapCommand(options: BootstrapCommandOptions): Promis
         'Ownership cleanup coverage gap: session identity, recorded target, or runtime release could not be verified. Inspect project status before removal.\n',
       );
       process.stdout.write(
-        `${JSON.stringify({ systemMessage: 'Ownership cleanup coverage gap: session identity, recorded targets, or runtime release could not be verified. Idle expiry remains recovery; inspect project status before removal.' })}\n`,
+        `${JSON.stringify({ systemMessage: 'Ownership cleanup coverage gap: session identity, recorded targets, or runtime release could not be verified. Retry recorded terminal cleanup with project recover --project-owner <own-file>; inspect project status before removal.' })}\n`,
       );
     }
     return;
   }
   let ownerMessage = '';
   let ownedOptions = options;
-  if (input.trim()) {
-    try {
-      const ownerFile = await bootstrapOwner(options, input);
+  try {
+    const manualOptions = input.trim() ? options : await resolveAgentSessionOptions(options);
+    if (input.trim() || manualOptions['project-owner']) {
+      bootstrapOptionsSchema.parse(options);
+      const ownerFile = await bootstrapOwner(manualOptions, input);
       ownedOptions = { ...options, 'project-owner': ownerFile };
-      ownerMessage = `\nCaller ownership: retain --project-owner ${JSON.stringify(ownerFile)} on every 1MCP call in this session or worker, including project release. Do not pass this credential reference to parent, sibling, or child workers; each worker receives its own at bootstrap. Turn completion does not end ownership. Remote runtimes do not support this local ownership credential; remote instruction and tool calls remain available without local release coverage.\n`;
-    } catch {
-      ownerMessage =
-        '\nOwnership coverage gap: a verified session/worker identity was unavailable. No caller credential was created; do not release another caller.\n';
+      if (options.event === 'SubagentStart' && !options.project && !options['project-set']) {
+        const assignment = await readProjectOwnerAssignment(ownerFile);
+        if (assignment?.project || assignment?.['project-set']) {
+          ownedOptions = { ...ownedOptions, project: assignment.project, 'project-set': assignment['project-set'] };
+        }
+      }
+      ownerMessage = `\nCaller ownership: your private fallback is --project-owner ${JSON.stringify(ownerFile)}. Codex CODEX_THREAD_ID resolves this credential through its private hook-written thread locator; CODEX_SESSION_ID, when present, must agree. Both IDs also support legacy direct resolution; normal calls omit --project-owner. Hosts without a trustworthy locator or both-ID integration and Claude require this explicit reference. Use the verified startup project by default; an assigned worker retains its dispatch default after per-call overrides. Do not pass this credential reference to parent, sibling, or child workers; each worker receives its own at bootstrap. Turn completion does not end ownership. Remote runtimes do not support this local ownership credential; remote instruction and tool calls remain available without local release coverage.\n`;
     }
+  } catch {
+    ownerMessage =
+      '\nOwnership coverage gap: a verified session/worker identity, assigned default, or private owner storage was unavailable. No caller credential was fabricated; retain your own hook reference and resolve the reported sandbox or assignment gap. Do not release another caller.\n';
   }
   const context = await renderBootstrapContext(ownedOptions, input, async (selected) => {
     const args = buildInstructionsArguments(selected);
@@ -243,4 +244,15 @@ export async function bootstrapCommand(options: BootstrapCommandOptions): Promis
   process.stdout.write(
     `${JSON.stringify({ hookSpecificOutput: { hookEventName: options.event, additionalContext: context + ownerMessage } })}\n`,
   );
+}
+
+export async function releaseRecordedOwnerTarget(ownerFile: string, target: ProjectOwnerTarget): Promise<void> {
+  const args = ['project', 'release', '--terminal-cleanup', '--format=json', `--project-owner=${ownerFile}`];
+  if (target['project-set']) args.push(`--project-set=${target['project-set']}`);
+  else for (const project of target.project) args.push(`--project=${project}`);
+  for (const key of ['config-dir', 'config', 'context', 'url'] as const) {
+    if (target[key]) args.push(`--${key}=${target[key]}`);
+  }
+  args.push(`--expected-runtime-scope=${target.runtimeScopeId}`);
+  await runInstructionsProcess(process.execPath, isSea() ? args : [process.argv[1], ...args], 2000);
 }

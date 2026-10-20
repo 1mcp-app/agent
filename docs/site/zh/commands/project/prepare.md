@@ -9,7 +9,7 @@ head:
 
 # Project Prepare 命令
 
-调用方释放、目录排空、状态检查及恢复请参见 [Project 生命周期](/zh/commands/project/)。准备操作及后续工具调用应保留 bootstrap 提供的 `--project-owner` 凭证路径。
+调用方释放、目录排空、状态检查及恢复请参见 [Project 生命周期](/zh/commands/project/)。受支持的 Codex 会话自动使用已验证所有者与分配项目；其他宿主在准备操作及后续工具调用中保留自己的 bootstrap `--project-owner` 凭证路径。准备及重新调用工具时保持单次目标覆盖一致。
 
 为选定的检出目录和操作准备已配置的后端，例如初始化索引或同步变更的源码。准备工作使用运行时管理员配置的集成命令和操作权限。此功能需要运行时的 HTTP preparation 端点，不会回退到直接调用上游 MCP。
 

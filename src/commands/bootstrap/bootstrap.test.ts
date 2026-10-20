@@ -5,6 +5,7 @@ import { PassThrough, Readable } from 'node:stream';
 
 import {
   createHookProjectOwner,
+  readProjectOwnerAssignment,
   readProjectOwnerTargets,
   recordProjectOwnerSelection,
 } from '@src/commands/shared/projectOwnerStore.js';
@@ -22,8 +23,35 @@ import {
   renderBootstrapContext,
   runInstructionsProcess,
 } from './bootstrap.js';
+import { bootstrapOwner } from './bootstrapOwnership.js';
 
 describe('worker bootstrap client contracts', () => {
+  it('records a manual worker assignment from its private thread locator without an owner flag', async () => {
+    const storage = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-thread-only-'));
+    const file = await bootstrapOwner(
+      { client: 'codex', event: 'SubagentStart', 'config-dir': storage },
+      JSON.stringify({ hook_event_name: 'SubagentStart', session_id: 'parent', agent_id: 'child' }),
+    );
+    const entry = path.join(storage, 'instructions.mjs');
+    await fs.writeFile(entry, "process.stdout.write('runtime instructions')");
+    const previousEntry = process.argv[1];
+    const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(Readable.from([]) as typeof process.stdin);
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    vi.stubEnv('CODEX_THREAD_ID', 'child');
+    vi.stubEnv('CODEX_SESSION_ID', '');
+    try {
+      process.argv[1] = entry;
+      await bootstrapCommand({ client: 'codex', event: 'SubagentStart', 'config-dir': storage, project: [storage] });
+      expect((await readProjectOwnerAssignment(file))?.project).toEqual([storage]);
+    } finally {
+      process.argv[1] = previousEntry;
+      stdin.mockRestore();
+      stdout.mockRestore();
+      vi.unstubAllEnvs();
+      await fs.rm(storage, { recursive: true, force: true });
+    }
+  });
+
   it('runs SessionEnd cleanup once with the immutable native-set selector', async () => {
     const storage = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-selection-'));
     const owner = await createHookProjectOwner(storage, { client: 'codex', sessionId: 'parent' });
@@ -138,7 +166,7 @@ describe('worker bootstrap client contracts', () => {
     expect(output).not.toContain('/invented');
     expect(output).toContain('inspect <server>/<tool>');
     expect(output).toContain('1mcp project prepare inspect <backend>');
-    expect(output).toContain('assigned --project/--project-set');
+    expect(output).toContain('the assigned session project is the default');
   });
 
   it.each(['codex', 'claude'] as const)('emits a documented %s additionalContext envelope', async (client) => {

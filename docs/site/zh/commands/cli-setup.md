@@ -117,11 +117,11 @@ Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选�
 
 ```bash
 1mcp bootstrap --client codex --event SubagentStart --project /absolute/frontend-checkout
-1mcp bootstrap --client claude --event SubagentStart --project-set /absolute/feature-projects.json
+1mcp bootstrap --client claude --event SubagentStart --project-owner /private/your-worker-owner.json --project-set /absolute/feature-projects.json
 1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend
 ```
 
-不使用项目集合时，只分配一个绝对 checkout 路径。使用 `--project-set` 时，可重复传入 `--project` 选择有序成员标签，并覆盖定义中可选的 `selection`。在后续 `instructions`、`inspect` 和 `run` 调用中保留目标参数。多个项目的分配要求对 checkout 专属工具明确选择 checkout；单项目工具由 agent 协调分别调用。获取指令时参数通过 argv 传递，不经过 shell。定义格式和后端目标契约参见 [项目 Checkout 与集合](/zh/guide/project-checkouts)。
+不使用项目集合时，只分配一个绝对 checkout 路径。使用 `--project-set` 时，可重复传入 `--project` 选择有序成员标签，并覆盖定义中可选的 `selection`。受支持的 Codex 宿主在手动重试时通过已有私有线程定位记录解析所有者，无需所有者参数。Bootstrap 将工作代理分配记录为默认目标，后续 `instructions`、`inspect` 和 `run` 调用可省略项目参数。单次覆盖不会改变默认目标。多个项目的分配要求对 checkout 专属工具明确选择 checkout；单项目工具由 agent 协调分别调用。获取指令时参数通过 argv 传递，不经过 shell。定义格式和后端目标契约参见 [项目 Checkout 与集合](/zh/guide/project-checkouts)。
 
 ## 验证钩子交付
 
@@ -141,6 +141,29 @@ Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选�
 
 Setup 只安装指引，不会启动准备工作、启用自动准备或更改操作权限。保留 bootstrap hooks。若 hooks 已传递当前指令，则无需重复获取；否则使用独立的 `1mcp instructions` 入口。重新运行 `cli-setup` 可刷新所选范围内的托管指引。
 
-启动钩子为每个已验证的宿主会话或工作智能体创建私有所有者凭证。每次 CLI 调用（包括带明确分配的手动 bootstrap 重试）均应保留注入的 `--project-owner` 文件路径。`SessionEnd` 在有限钩子期限内仅释放当前会话记录过的选择。阻塞项、操作员排空及管理器移除流程请参见 [Project 生命周期](/zh/commands/project/)。
+## 会话默认目标与清理
 
-当前不支持工作智能体的终止事件。`SubagentStop` 表示工作智能体暂时停止响应，之后仍可继续，并不证明会话已终止，因此不能据此释放其所有权。工作智能体完成后须显式使用 `1mcp project release`。对于遗漏的结束事件和崩溃，保留空闲过期作为恢复兜底。
+启动钩子为每个已验证会话和工作代理创建独立私有凭证。Codex 钩子写入精确私有线程定位记录，后续调用通过 `CODEX_THREAD_ID`（当前代理）查找记录及已有凭证，支持未提供 `CODEX_SESSION_ID` 的工作代理 shell。若提供 `CODEX_SESSION_ID`（根会话），必须与钩子记录一致；同时提供两个标识时也可直接定位旧版凭证。正常调用无需 `--project-owner` 或 `--project`：
+
+```bash
+1mcp instructions
+1mcp inspect <server>
+1mcp inspect <server>/<tool>
+1mcp run <server>/<tool> --args '{}'
+```
+
+根会话保留通过钩子 cwd 或显式启动参数解析的初始项目；工作代理保留显式派发分配。改变 shell cwd 或单次使用 `--project /another/worktree` 不改变会话默认目标。未接入宿主身份的普通 CLI 仍使用 cwd。分配的项目集合在通过 `--project <label>` 选择成员前保持未解析状态，选择成员不会扩大工具可见范围。
+
+Claude 以及既无可信线程定位记录、也无完整双标识接入的 Codex 宿主，需要在后续调用及手动 bootstrap 重试中保留钩子提供的 `--project-owner <own-file>`。将上例 `/private/your-worker-owner.json` 替换为自己的钩子凭证路径。不得使用父会话凭证或伪造钩子身份；没有凭证时先解决受信任钩子交付缺口。环境标识仅定位已有凭证，不会创建凭证或授权远程生命周期控制。保持签发凭证时的配置目录；切换本地运行时范围时可显式指定自己的凭证路径。
+
+所有者跟踪会写入 `<config-dir>/project-owners` 下的私有凭证、分配和释放记录；省略配置目录时使用默认配置目录。仅允许工作区写入的沙箱可能需要为该目录及目标记录授予限定写权限。权限拒绝会阻止调用，应通过宿主权限流程仅开放所需目录。Setup 不扩大沙箱权限，调用不会静默丢弃所有权。
+
+已验证的根会话 `SessionEnd` 仅释放该所有者记录的选择。每个目标确认安全释放该所有者后，删除其凭证、线程定位记录、分配、选择快照和目标记录，保护其他所有者及共享资源。重复结束清理是安全的。释放等待中、失败或结果不确定时保留凭证及终止日志，可有限重试：
+
+```bash
+1mcp project recover --project-owner /private/ended-session-owner.json
+```
+
+恢复仅使用记录目标并验证运行时身份，必须已有受验证的终止记录。仅凭记录年龄、父任务消失、`Stop` 或 `SubagentStop` 不能证明会话不再活动。终止钩子执行前崩溃的记录保留供检查，不自动扫描删除；遗留锁也须先检查，不得删除活动进程的锁。
+
+目前不支持工作代理终止事件；`SubagentStop` 后工作代理仍可能继续。完成任务时工作代理显式执行 `1mcp project release`；手动释放保留凭证以便继续使用。普通回合结束不释放或删除活动所有者状态。钩子缺失、不支持的客户端、钩子超时和权限失败仍是明确覆盖缺口。释放结果、阻塞项与移除流程参见 [Project 生命周期](/zh/commands/project/)。

@@ -1,3 +1,5 @@
+import { isLoopbackHost } from '@src/commands/serve/templateContextTrust.js';
+import { resolveAgentSessionOptions } from '@src/commands/shared/agentSession.js';
 import { buildServerUrl, type ServeUrlOptions } from '@src/commands/shared/serveClient.js';
 import { normalizeTags, resolveProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
@@ -62,6 +64,8 @@ export interface ResolvedServeTarget<TOptions extends ResolvableServeTargetOptio
 }
 
 export interface ServeTargetResolverPorts {
+  /** Enabled only for agent MCP attachment, never runtime/config/auth management. */
+  agentSession?: boolean;
   runtimeTargetStore?: Pick<
     RuntimeTargetStore,
     'current' | 'inspect' | 'requireInsecureTlsConfirmation' | 'updateObservedIdentityMetadata'
@@ -136,6 +140,9 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
       'target_selector_conflict',
       'Use either --url or --context, not both, when selecting a runtime target',
     );
+  }
+  if (ports.agentSession && usesLocalAgentDefaults(options, ports)) {
+    options = await resolveAgentSessionOptions(options);
   }
   const projectSet = options['project-set'] ? await loadProjectSet(options['project-set'], options.project) : undefined;
   const selected = projectSet ? resolveProjectSelection({ project: {}, projectSet }) : undefined;
@@ -249,6 +256,18 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
     },
     runtimeIdentityWarnings: localRuntimeIdentity?.warnings,
   };
+}
+
+function usesLocalAgentDefaults(options: ResolvableServeTargetOptions, ports: ServeTargetResolverPorts): boolean {
+  if (options.url) return isLoopbackHost(new URL(options.url).hostname);
+  if (options.context === 'local') return true;
+  const store = ports.runtimeTargetStore ?? new RuntimeTargetStore();
+  const target = store.resolveForConnection
+    ? store.resolveForConnection(options.context)
+    : options.context
+      ? store.inspect(options.context)
+      : store.current();
+  return target.name === 'local';
 }
 
 async function resolveRemoteRuntimeTargetContext<TOptions extends ResolvableServeTargetOptions>(

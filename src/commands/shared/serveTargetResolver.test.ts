@@ -2,6 +2,8 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { bootstrapOwner } from '@src/commands/bootstrap/bootstrapOwnership.js';
+import { createHookProjectOwner } from '@src/commands/shared/projectOwnerStore.js';
 import type { ResolvedProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import { RuntimeTargetStoreError } from '@src/domains/runtime-targets/runtimeTargetStore.js';
@@ -97,6 +99,148 @@ describe('mergeServeTargetOptions', () => {
 });
 
 describe('resolveServeTarget', () => {
+  it('resolves root and child thread-only shells through their private hook records', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'thread-locator-'));
+    try {
+      vi.stubEnv('CODEX_SESSION_ID', '');
+      for (const event of ['SessionStart', 'SubagentStart'] as const) {
+        const worker = event === 'SubagentStart';
+        const threadId = worker ? 'child-thread' : 'root-thread';
+        const file = await bootstrapOwner(
+          { client: 'codex', event, 'config-dir': storage, project: [storage] },
+          JSON.stringify({
+            hook_event_name: event,
+            session_id: 'root-thread',
+            ...(worker ? { agent_id: threadId } : {}),
+          }),
+        );
+        vi.stubEnv('CODEX_THREAD_ID', threadId);
+        const resolved = await resolveServeTarget<ResolvableServeTargetOptions>(
+          { 'config-dir': storage },
+          { agentSession: true },
+        );
+        expect(resolved.mergedOptions['project-owner']).toBe(file);
+        expect(resolved.mergedOptions.project).toEqual([storage]);
+      }
+      vi.stubEnv('CODEX_SESSION_ID', 'different-root');
+      await expect(resolveServeTarget({ 'config-dir': storage }, { agentSession: true })).rejects.toThrow('disagree');
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(storage, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps concurrent root sessions separate and never persists a root project override', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'root-default-'));
+    try {
+      const owners: string[] = [];
+      for (const session of ['root-a', 'root-b']) {
+        const owner = await bootstrapOwner(
+          { client: 'codex', event: 'SessionStart', 'config-dir': storage, project: [storage] },
+          JSON.stringify({ hook_event_name: 'SessionStart', session_id: session, cwd: storage }),
+        );
+        vi.stubEnv('CODEX_SESSION_ID', session);
+        vi.stubEnv('CODEX_THREAD_ID', session);
+        const resolved = await resolveServeTarget<ResolvableServeTargetOptions>(
+          { 'config-dir': storage },
+          { agentSession: true },
+        );
+        expect(resolved.mergedOptions['project-owner']).toBe(owner);
+        expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(await realpath(storage));
+        owners.push(owner);
+      }
+      expect(owners[0]).not.toBe(owners[1]);
+      await resolveServeTarget({ 'config-dir': storage, project: [storage] }, { agentSession: true });
+      await resolveServeTarget<ResolvableServeTargetOptions>({ 'config-dir': storage }, { agentSession: true });
+      expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(await realpath(storage));
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(storage, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed for missing host identity, unknown workers, and legacy workers lacking an assignment', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'unassigned-default-'));
+    try {
+      await createHookProjectOwner(storage, { client: 'codex', sessionId: 'root' });
+      vi.stubEnv('CODEX_THREAD_ID', 'child');
+      vi.stubEnv('CODEX_SESSION_ID', '');
+      await expect(
+        resolveServeTarget<ResolvableServeTargetOptions>({ 'config-dir': storage }, { agentSession: true }),
+      ).rejects.toThrow('No private hook thread locator');
+      vi.stubEnv('CODEX_SESSION_ID', 'root');
+      await expect(
+        resolveServeTarget<ResolvableServeTargetOptions>({ 'config-dir': storage }, { agentSession: true }),
+      ).rejects.toThrow('credential unavailable');
+      await createHookProjectOwner(storage, { client: 'codex', sessionId: 'root', agentId: 'child' });
+      await expect(
+        resolveServeTarget<ResolvableServeTargetOptions>({ 'config-dir': storage }, { agentSession: true }),
+      ).rejects.toThrow('Assignment unresolved');
+      expect(
+        (await resolveServeTarget({ 'config-dir': storage, project: [storage] }, { agentSession: true })).mergedOptions
+          .project,
+      ).toEqual([storage]);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(storage, { recursive: true, force: true });
+    }
+  });
+
+  it('retains project-set ambiguity and allows one-invocation selection labels from the assigned set', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'set-default-'));
+    try {
+      const second = path.join(storage, 'second');
+      await mkdir(second);
+      const definition = path.join(storage, 'projects.json');
+      await writeFile(
+        definition,
+        JSON.stringify({
+          projects: [
+            { label: 'frontend', path: storage },
+            { label: 'backend', path: second },
+          ],
+        }),
+      );
+      const file = await bootstrapOwner(
+        { client: 'codex', event: 'SubagentStart', 'config-dir': storage, 'project-set': definition },
+        JSON.stringify({ hook_event_name: 'SubagentStart', session_id: 'root', agent_id: 'worker' }),
+      );
+      const options = { 'config-dir': storage, 'project-owner': file };
+      expect((await resolveServeTarget(options, { agentSession: true })).projectSet?.selection).toBeUndefined();
+      const selected = await resolveServeTarget({ ...options, project: ['backend'] }, { agentSession: true });
+      expect(selected.projectSet?.selection).toEqual(['backend']);
+      expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(await realpath(second));
+      expect((await resolveServeTarget(options, { agentSession: true })).projectSet?.selection).toBeUndefined();
+    } finally {
+      await rm(storage, { recursive: true, force: true });
+    }
+  });
+
+  it('reuses a verified Codex owner with no flags and returns to the worker assignment after an override', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'session-default-'));
+    try {
+      vi.stubEnv('CODEX_SESSION_ID', 'parent-session');
+      vi.stubEnv('CODEX_THREAD_ID', 'worker-thread');
+      const worker = await bootstrapOwner(
+        { client: 'codex', event: 'SubagentStart', 'config-dir': storage, project: [storage] },
+        JSON.stringify({ hook_event_name: 'SubagentStart', session_id: 'parent-session', agent_id: 'worker-thread' }),
+      );
+      const call = () =>
+        resolveServeTarget<ResolvableServeTargetOptions>({ 'config-dir': storage }, { agentSession: true });
+      expect((await call()).mergedOptions['project-owner']).toBe(worker);
+      expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(await realpath(storage));
+      const other = path.join(storage, 'other');
+      await mkdir(other);
+      await resolveServeTarget({ 'config-dir': storage, project: [other] }, { agentSession: true });
+      expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(await realpath(other));
+      expect((await call()).mergedOptions['project-owner']).toBe(worker);
+      expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(await realpath(storage));
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(storage, { recursive: true, force: true });
+    }
+  });
+
   beforeEach(() => {
     mockedResolveProjectContext.mockReset();
     mockedDiscoverServerWithPidFile.mockReset();
