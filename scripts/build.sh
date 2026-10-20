@@ -12,6 +12,7 @@ rm -rf build
 
 # Compile TypeScript
 echo "📦 Compiling TypeScript..."
+node scripts/generate-preparation-skill.mjs
 pnpm exec tsc --project tsconfig.build.json
 
 # Resolve path aliases

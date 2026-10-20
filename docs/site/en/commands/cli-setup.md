@@ -30,6 +30,7 @@ The `cli-setup` command installs lightweight bootstrap files that point Codex or
 - A managed `1MCP.md` bootstrap document
 - Managed `SessionStart` and `SubagentStart` bootstrap command hooks, plus `SessionEnd` caller cleanup
 - A startup file reference from `AGENTS.md` or `CLAUDE.md`
+- The `1mcp-preparation-setup` skill and its backend references
 
 `cli-setup` does not replace [`instructions`](./instructions.md). It makes sure the session is prepared to use `instructions`, `inspect`, and `run` in the right order.
 
@@ -74,6 +75,23 @@ Passing neither or both returns an error.
 - Repo managed doc: `<repo>/.claude/1MCP.md`
 - Repo hooks: `<repo>/.claude/settings.json`
 - Repo startup reference: `<repo>/CLAUDE.md`
+
+## Preparation setup skill
+
+Every `cli-setup` invocation installs the preparation skill in the selected client and scope:
+
+| Client | Global                                     | Repository                                      |
+| ------ | ------------------------------------------ | ----------------------------------------------- |
+| Codex  | `~/.codex/skills/1mcp-preparation-setup/`  | `<repo>/.agents/skills/1mcp-preparation-setup/` |
+| Claude | `~/.claude/skills/1mcp-preparation-setup/` | `<repo>/.claude/skills/1mcp-preparation-setup/` |
+
+Ask your agent to “Use the 1mcp-preparation-setup skill to configure preparation for my CodeGraph worktree.” The skill is also available for automatic selection when you ask to configure backend preparation. It can reuse supplied recipes or help author and verify a missing recipe. It includes version-sensitive guidance for CodeGraph, Code Review Graph, and Serena; these are not bundled production recipes.
+
+Installation works offline from an installed npm package or standalone binary. It does not enable preparation, install backend dependencies, or change `mcp.json`. See [Backend preparation](/guide/backend-preparation) for activation and verification.
+
+Rerun `cli-setup` to refresh the skill. Output reports `installed`, `updated`, `unchanged`, or `conflict`. A skill-local `.1mcp-managed.json` records managed file hashes. Unchanged managed files can be updated; local edits, removed managed files, unknown same-name installations, and symlink destinations are preserved and reported as conflicts. Other setup files still complete. To resolve a conflict, retain your custom skill separately and move the conflicting skill directory out of the install location before rerunning setup. Unrelated files are preserved.
+
+An installation lock prevents concurrent writers. Interrupted upgrades retain a journal and can resume without treating installer-written bytes as local edits. If a terminated process leaves an `.install-lock` directory beside the skill, confirm that no installer is running before moving that lock aside and rerunning setup. Never remove an active installer’s lock.
 
 ## Examples
 

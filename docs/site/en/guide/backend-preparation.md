@@ -23,6 +23,14 @@ You only need to configure preparation if you have a recipe for your server. A *
 
 To configure one of these servers, follow [mcp setup](/commands/mcp/setup). You do not need to write a preparation recipe to use it. Once configured, select an authorized project with `--project`; the same server template can be reused across projects, but each project may still need native initialization.
 
+## Get help configuring preparation
+
+Run `1mcp cli-setup --codex` or `1mcp cli-setup --claude` to install the `1mcp-preparation-setup` skill alongside the usual bootstrap files. Use `--scope repo --repo-root /path/to/repo` for repository-local installation. The [CLI setup reference](/commands/cli-setup#preparation-setup-skill) lists installation paths and upgrade/conflict behavior.
+
+Ask your agent to use the skill to configure preparation for your backend and selected checkout. It checks installed versions and existing permissions, reuses or authors a recipe, and verifies both its declared readiness scope and a fresh tool call. Experimental recipes require acceptance of their concrete limitations; a successful configuration probe does not prove index or language-server readiness.
+
+Installing the skill does not activate preparation. The skill ships guidance, not production recipes for the three backends above. You can still configure a supplied recipe directly as described below.
+
 ## Use a recipe supplied for your server
 
 If your team or integration maintainer supplies a recipe, save it and any accompanying helper files locally. Follow its instructions for supported backend versions, dependencies, required inputs, and permitted actions. Automatic preparation currently runs on Linux and macOS.
