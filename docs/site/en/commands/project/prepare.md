@@ -15,7 +15,7 @@ head:
 
 # Project Prepare Command
 
-For caller release, checkout drain, status and resume, see [Project lifecycle](/commands/project). Retain your bootstrap `--project-owner` credential reference on preparation and subsequent tool calls.
+For caller release, checkout drain, status and resume, see [Project lifecycle](/commands/project/). Retain your bootstrap `--project-owner` credential reference on preparation and subsequent tool calls.
 
 Make a configured backend ready for a selected checkout and operation, for example by initializing an index or synchronizing changed source. Preparation uses integration commands and action permissions configured by the runtime operator. It requires a runtime with the HTTP preparation endpoint; there is no upstream MCP fallback.
 

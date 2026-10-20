@@ -5,7 +5,7 @@ description: Understand when a server needs preparation, enable a supplied recip
 
 # Backend Preparation
 
-See the [Prepare command reference](/commands/prepare) for syntax, options, audiences, and recovery examples.
+See the [Prepare command reference](/commands/project/prepare) for syntax, options, audiences, and recovery examples.
 
 Some MCP servers need to initialize a project or update an index before they can answer a request. **Preparation** lets 1MCP run those steps and check whether the server is ready for your selected project.
 

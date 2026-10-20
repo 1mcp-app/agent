@@ -1,11 +1,11 @@
 ---
-title: Project Command - Release and Checkout Drain
+title: Project Commands - Preparation and Checkout Lifecycle
 description: Release caller-owned checkout bindings, inspect blockers, and explicitly drain or resume a checkout in one 1MCP runtime.
 ---
 
-# Project Command
+# Project Commands
 
-Use `project` to manage a checkout's use by the selected 1MCP runtime. [Project preparation](/commands/prepare) manages backend readiness and its jobs separately.
+Use `project` to manage a checkout's use by the selected 1MCP runtime. [Project preparation](/commands/project/prepare) manages backend readiness and its jobs separately.
 
 ```bash
 1mcp project status --project /work/frontend --format json
@@ -18,16 +18,17 @@ Replace the example owner file with the credential reference supplied by your se
 
 ## Actions and authority
 
-| Action    | Result                                                                                                                                                                                         |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `status`  | Inspect admission, ownership, active work and cleanup blockers without creating bindings, starting preparation, or extending idle lifetimes.                                                   |
-| `release` | Release only the verified caller's selected bindings. Other sessions, sibling workers, active requests and shared backends remain protected.                                                   |
-| `drain`   | Require local operator authority, close admission, and report when the selected runtime has released the checkout. Existing owners cannot start new work. Previously admitted work may finish. |
-| `resume`  | Require operator authority and explicitly reopen admission. This does not prepare or start a backend.                                                                                          |
+| Action                                 | Result                                                                                                                                                                                         |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`prepare`](/commands/project/prepare) | Inspect backend readiness and manage preparation jobs.                                                                                                                                         |
+| [`status`](/commands/project/status)   | Inspect admission, ownership, active work and cleanup blockers without creating bindings, starting preparation, or extending idle lifetimes.                                                   |
+| [`release`](/commands/project/release) | Release only the verified caller's selected bindings. Other sessions, sibling workers, active requests and shared backends remain protected.                                                   |
+| [`drain`](/commands/project/drain)     | Require local operator authority, close admission, and report when the selected runtime has released the checkout. Existing owners cannot start new work. Previously admitted work may finish. |
+| [`resume`](/commands/project/resume)   | Require operator authority and explicitly reopen admission. This does not prepare or start a backend.                                                                                          |
 
 Credentials are scoped to the runtime and signed using verified local authority. A claimed session ID, checkout path or role is insufficient. Existing runtime authentication still applies. Remote callers cannot acquire operator authority by setting a request field.
 
-Drain does not cancel jobs or terminate active work. Owners must release their bindings; jobs must finish or be deliberately cancelled through their authorized [preparation controls](/commands/prepare). Subscriptions and shared resources can prevent completion.
+Drain does not cancel jobs or terminate active work. Owners must release their bindings; jobs must finish or be deliberately cancelled through their authorized [preparation controls](/commands/project/prepare). Subscriptions and shared resources can prevent completion.
 
 On Windows, live stdio backends remain blockers when verified graceful termination is unavailable; project cleanup never falls back to forced termination. Stop those owned backends through an explicit supported operator workflow and inspect again. Static backends rooted in the checkout are also shared blockers. After a runtime restart, unresolved preparation recovery records remain blockers until explicitly reconciled.
 
