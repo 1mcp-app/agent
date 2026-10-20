@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { canonicalLifecyclePath } from '@src/application/projectLifecycle.js';
+import { isLoopbackHost } from '@src/commands/serve/templateContextTrust.js';
 import { resolveAgentSessionOptions } from '@src/commands/shared/agentSession.js';
 import {
   isProjectOwnerEnded,
@@ -308,7 +309,10 @@ async function recordedCleanupTarget(options: ResolvableServeTargetOptions): Pro
 }
 
 function usesLocalAgentDefaults(options: ResolvableServeTargetOptions, ports: ServeTargetResolverPorts): boolean {
-  if (options.url) return false;
+  if (options.url) {
+    if (!options['project-owner']) return false;
+    return isLoopbackHost(new URL(options.url).hostname);
+  }
   if (options.context === 'local') return true;
   const store = ports.runtimeTargetStore ?? new RuntimeTargetStore();
   if (store.resolveForConnection) return store.resolveForConnection(options.context).name === 'local';

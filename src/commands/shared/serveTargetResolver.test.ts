@@ -186,6 +186,47 @@ describe('resolveServeTarget', () => {
     },
   );
 
+  it.each([true, false])('uses an explicit loopback owner with worker assignment=%s', async (assigned) => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'url-owner-default-'));
+    try {
+      const checkout = path.join(storage, 'assigned-checkout');
+      await mkdir(checkout);
+      const owner = await bootstrapOwner(
+        {
+          client: 'codex',
+          event: 'SubagentStart',
+          'config-dir': storage,
+          ...(assigned ? { project: [checkout] } : {}),
+        },
+        JSON.stringify({ hook_event_name: 'SubagentStart', session_id: 'root', agent_id: 'worker' }),
+      );
+      const call = resolveServeTarget<ResolvableServeTargetOptions>(
+        { url: 'http://localhost:4000/mcp', 'project-owner': owner },
+        { agentSession: true },
+      );
+      if (!assigned) {
+        await expect(call).rejects.toThrow('Worker Project Assignment unresolved');
+        expect(mockedResolveProjectContext).not.toHaveBeenCalled();
+        return;
+      }
+      const result = await call;
+      expect(result.mergedOptions['project-owner']).toBe(owner);
+      expect(result.mergedOptions.project).toEqual([checkout]);
+      expect(mockedResolveProjectContext).toHaveBeenCalledWith(await realpath(checkout));
+    } finally {
+      await rm(storage, { recursive: true, force: true });
+    }
+  });
+
+  it('does not resolve local ownership for an explicit non-loopback URL', async () => {
+    const result = await resolveServeTarget<ResolvableServeTargetOptions>(
+      { url: 'https://prod.example.com/mcp', 'project-owner': '/unavailable/local-owner.json' },
+      { agentSession: true },
+    );
+    expect(result.mergedOptions.project).toBeUndefined();
+    expect(mockedResolveProjectContext).toHaveBeenCalledWith(undefined);
+  });
+
   it('resolves root and child thread-only shells through their private hook records', async () => {
     const storage = await mkdtemp(path.join(os.tmpdir(), 'thread-locator-'));
     try {
@@ -654,8 +695,10 @@ describe('resolveServeTarget', () => {
       {
         context: 'prod',
         preset: 'production',
+        'project-owner': '/unavailable/local-owner.json',
       },
       {
+        agentSession: true,
         runtimeTargetStore: {
           inspect: vi.fn().mockReturnValue({
             name: 'prod',
