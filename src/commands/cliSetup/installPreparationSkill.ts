@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, rm, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { z } from 'zod';
@@ -45,26 +45,33 @@ async function statIfPresent(file: string) {
 
 // Check every component below the selected scope, including dangling symlinks.
 async function pathConflict(root: string, file: string, directory: boolean): Promise<string | undefined> {
+  // The caller selected this root; aliases to it are valid, unlike redirects beneath it.
+  try {
+    if (!(await stat(root)).isDirectory()) return `Expected a directory: ${root}`;
+  } catch (error) {
+    if (isMissing(error)) return undefined;
+    throw error;
+  }
   const relative = path.relative(root, file);
   const parts = relative ? relative.split(path.sep) : [];
   let current = root;
-  for (let index = 0; index <= parts.length; index++) {
+  for (let index = 0; index < parts.length; index++) {
+    current = path.join(current, parts[index]);
     const stat = await statIfPresent(current);
     if (!stat) return undefined;
     if (stat.isSymbolicLink()) return `Symlink preserved: ${current}`;
-    const needsDirectory = index < parts.length || directory;
+    const needsDirectory = index < parts.length - 1 || directory;
     if (needsDirectory && !stat.isDirectory()) return `Expected a directory: ${current}`;
     if (!needsDirectory && !stat.isFile()) return `Expected a regular file: ${current}`;
-    if (index < parts.length) current = path.join(current, parts[index]);
   }
   return undefined;
 }
 
 async function writeAtomically(file: string, content: string): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true });
+  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporary, content, { flag: 'wx' });
+    await writeFile(temporary, content, { flag: 'wx', mode: 0o600 });
     await rename(temporary, file);
   } finally {
     await unlink(temporary).catch((error: unknown) => {
@@ -89,10 +96,10 @@ export async function installPreparationSkill(
   const directoryConflict = await pathConflict(root, destination, true);
   if (directoryConflict) return conflict(directoryConflict);
 
-  await mkdir(path.dirname(destination), { recursive: true });
+  await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
   const lockPath = `${destination}.install-lock`;
   try {
-    await mkdir(lockPath);
+    await mkdir(lockPath, { mode: 0o700 });
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'EEXIST') {
       return conflict(

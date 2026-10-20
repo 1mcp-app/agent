@@ -16,7 +16,7 @@ try {
   execFileSync('tar', ['-xzf', path.resolve(tarball), '-C', root]);
   const packageRoot = path.join(root, 'package');
   // Reuse installed dependencies offline; the extracted package has no skill source tree.
-  await symlink(path.join(repository, 'node_modules'), path.join(packageRoot, 'node_modules'), 'dir');
+  await symlink(path.join(repository, 'node_modules'), path.join(packageRoot, 'node_modules'), 'junction');
   const bundlePath = path.join(root, 'standalone.cjs');
   await cp(path.resolve(bundle), bundlePath);
   for (const [kind, entry] of [

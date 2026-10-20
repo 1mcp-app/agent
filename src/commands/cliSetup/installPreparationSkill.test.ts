@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -120,6 +120,14 @@ describe('managed preparation skill installation', () => {
     expect(await install()).toMatchObject({ status: 'unchanged' });
   });
 
+  it.skipIf(process.platform === 'win32')('creates private skill files and directories', async () => {
+    await install();
+    expect((await stat(destination)).mode & 0o777).toBe(0o700);
+    expect((await stat(path.join(destination, 'references'))).mode & 0o777).toBe(0o700);
+    expect((await stat(path.join(destination, 'SKILL.md'))).mode & 0o777).toBe(0o600);
+    expect((await stat(path.join(destination, '.1mcp-managed.json'))).mode & 0o777).toBe(0o600);
+  });
+
   it('removes obsolete unchanged managed files while preserving unrelated files', async () => {
     await install();
     await writeFile(path.join(destination, 'custom.md'), 'keep');
@@ -190,6 +198,32 @@ describe('managed preparation skill installation', () => {
     await symlink(outside, file);
     expect(await install(updated)).toMatchObject({ status: 'conflict', changed: false });
     expect(await readFile(outside, 'utf8')).toBe('keep');
+  });
+
+  it('installs through a selected scope-root alias', async () => {
+    const real = path.join(root, 'real');
+    const alias = path.join(root, 'alias');
+    await mkdir(real);
+    await symlink(real, alias, 'junction');
+    expect(await installPreparationSkill(alias, '.agents/skills', initial)).toMatchObject({ status: 'installed' });
+    expect(await installPreparationSkill(real, '.agents/skills', initial)).toMatchObject({ status: 'unchanged' });
+    expect(await readFile(path.join(real, '.agents/skills/1mcp-preparation-setup/SKILL.md'), 'utf8')).toBe(
+      initial['SKILL.md'],
+    );
+  });
+
+  it('still rejects redirects beneath a selected scope-root alias', async () => {
+    const real = path.join(root, 'real');
+    const alias = path.join(root, 'alias');
+    const other = path.join(root, 'other');
+    await mkdir(real);
+    await mkdir(other);
+    await symlink(real, alias, 'junction');
+    await symlink(other, path.join(real, '.agents'), 'junction');
+    expect(await installPreparationSkill(alias, '.agents/skills', initial)).toMatchObject({ status: 'conflict' });
+    await expect(readFile(path.join(other, 'skills/1mcp-preparation-setup/SKILL.md'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
   });
 
   it('detects a dangling destination symlink', async () => {
