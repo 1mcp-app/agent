@@ -123,7 +123,7 @@ Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选�
 
 ```bash
 1mcp bootstrap --client codex --event SubagentStart --project /absolute/frontend-checkout --project-owner /private/worker-owner.json
-1mcp bootstrap --client claude --event SubagentStart --project-set /absolute/feature-projects.json --project-owner /private/worker-owner.json
+1mcp bootstrap --client claude --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project-owner /private/worker-owner.json
 1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend --project-owner /private/worker-owner.json
 ```
 

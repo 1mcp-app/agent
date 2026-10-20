@@ -133,7 +133,7 @@ Replace `/private/worker-owner.json` with that worker’s own startup credential
 
 ```bash
 1mcp bootstrap --client codex --event SubagentStart --project /absolute/frontend-checkout --project-owner /private/worker-owner.json
-1mcp bootstrap --client claude --event SubagentStart --project-set /absolute/feature-projects.json --project-owner /private/worker-owner.json
+1mcp bootstrap --client claude --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project-owner /private/worker-owner.json
 1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend --project-owner /private/worker-owner.json
 ```
 
