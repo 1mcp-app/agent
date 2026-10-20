@@ -63,7 +63,7 @@ jobs:
 
       - name: Verify released SDK lifecycle compatibility and project persistence
         if: matrix.runtime == 'Node'
-        run: pnpm test:unit src/sdk/legacy/client/runtime/releasedSdkLifecycle.test.ts src/application/projectLifecycle.test.ts
+        run: pnpm test:unit src/sdk/legacy/client/runtime/releasedSdkLifecycle.test.ts src/application/projectLifecycle.test.ts src/core/server/clientInstancePool.lifecycle.test.ts src/core/server/clientInstancePool.test.ts
 
       - name: Verify cooperative lifecycle with Node
         if: matrix.runtime == 'Node'

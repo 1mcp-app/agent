@@ -31,6 +31,7 @@ If you are still trying to get a first setup working, use [Quick Start](/guide/q
 - **`inspect`** - List exposed servers or inspect a tool schema
 - **`run`** - Call a tool through a running 1MCP server
 - **`cli-setup`** - Install Codex or Claude bootstrap hooks and startup docs
+- **`project`** - Prepare backends and release, drain, inspect, or resume checkout admission
 - **`auth`** - Manage authentication profiles for secured servers
 - **`target`** - Manage verified Runtime Target Contexts
 - **`admin`** - Manage CLI Admin sessions for Runtime Target Contexts

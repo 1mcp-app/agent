@@ -64,6 +64,7 @@ interface Watch {
   active: boolean;
   ready: Promise<void>;
   teardown?: Promise<void>;
+  cleanupFailed?: boolean;
   authorize?: () => Promise<boolean>;
 }
 interface CatalogSource {
@@ -199,6 +200,8 @@ async function detach(watch: Watch): Promise<void> {
       watch.owner.teardowns.delete(watch);
       releaseIdleProjectSubscription(watch.owner);
     } catch (error) {
+      watch.cleanupFailed = true;
+      monitorOwner(watch.owner);
       logger.warn('resourceSubscriptions.resource.subscription.cleanup.incomplete.0640deca', { error: error });
       throw error;
     }
@@ -259,10 +262,12 @@ async function cleanupOwner(owner: Owner): Promise<void> {
   ownerCount--;
   owner.abort.abort();
   clearInterval(owner.monitor);
+  owner.monitor = undefined;
   for (const { connection } of owner.catalogs.values()) catalogOwners.get(connection)?.delete(owner);
   owner.catalogs.clear();
   const results = await Promise.allSettled(Array.from(owner.watches.values(), detach));
   const failedWatches = results.filter((result) => result.status === 'rejected').length;
+  if (owner.teardowns.size) monitorOwner(owner);
   if (failedWatches) {
     throw new Error('Resource subscription cleanup incomplete');
   }
@@ -459,6 +464,21 @@ export function bindOwnedCatalogRefresh(
 function monitorOwner(owner: Owner): void {
   if (owner.monitor) return;
   owner.monitor = setInterval(() => {
+    // Failed cleanup remains owned even after the inbound connection is gone.
+    for (const watch of owner.teardowns) {
+      if (!watch.cleanupFailed || watch.adapter?.state !== 'stopped') continue;
+      owner.teardowns.delete(watch);
+    }
+    releaseClosedUpstreamReservations();
+    releaseIdleProjectSubscription(owner);
+    if (
+      !owner.teardowns.size &&
+      (owner.closed || (!owner.watches.size && !owner.authorize && !owner.catalogKinds.size))
+    ) {
+      clearInterval(owner.monitor);
+      owner.monitor = undefined;
+      return;
+    }
     if (owner.closed || owner.checking) return;
     owner.checking = true;
     void deliverBounded(owner, async () => {

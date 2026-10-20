@@ -742,13 +742,15 @@ export class TemplateServerManager {
           ?.some((checkout) => getProjectLifecycle()?.status(checkout).admission === 'draining')
       )
         continue;
-      if (instance.status === 'idle' && now - instance.lastUsedAt.getTime() >= instance.idleTimeout) {
-        instancesToCleanup.push({
-          templateName: instance.templateName,
-          instanceId: instance.id,
-          instance,
-        });
+      if (!this.clientInstancePool.canRetryRemoval(instance)) {
+        if (instance.status !== 'idle') continue;
+        if (now - instance.lastUsedAt.getTime() < instance.idleTimeout) continue;
       }
+      instancesToCleanup.push({
+        templateName: instance.templateName,
+        instanceId: instance.id,
+        instance,
+      });
     }
 
     let cleanedUp = 0;

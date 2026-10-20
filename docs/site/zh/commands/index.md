@@ -25,6 +25,7 @@ head:
 - **`inspect`** - 列出已暴露的服务器或查看工具 schema
 - **`run`** - 通过运行中的 1MCP 服务器调用工具
 - **`cli-setup`** - 安装 Codex 或 Claude 的引导 hooks 和启动文档
+- **`project`** - 准备后端，释放绑定，排空、检查或恢复检出目录准入
 - **`auth`** - 管理受保护服务器的认证配置
 - **`target`** - 管理已验证的 Runtime Target Context
 - **`admin`** - 管理 Runtime Target Context 的 CLI Admin 会话

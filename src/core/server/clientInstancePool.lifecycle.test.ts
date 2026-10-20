@@ -350,11 +350,125 @@ describe('ClientInstancePool', () => {
       expect(stats.totalInstances).toBe(0);
     });
 
+    it('retries failed removals during idle cleanup without reusing the closed instance', async () => {
+      const instance = await pool.getOrCreateClientInstance(
+        'testTemplate',
+        mockTemplateConfig,
+        mockContext,
+        'client-1',
+      );
+      pool.removeClientFromInstance(instance.instanceKey, 'client-1', new Date(0));
+      vi.mocked(instance.transport.close).mockRejectedValueOnce(new Error('close failed'));
+      await expect(pool.removeInstance(instance.instanceKey)).rejects.toThrow('close is not confirmed');
+      expect(pool.getInstance(instance.instanceKey)).toBe(instance);
+      expect(instance.status).toBe('terminating');
+      await pool.cleanupIdleInstances();
+      expect(pool.getInstance(instance.instanceKey)).toBeUndefined();
+    });
+
+    it('retries failed removals through the runtime manager cleanup entry point', async () => {
+      const { TemplateServerManager } = await import('./templateServerManager.js');
+      const manager = new TemplateServerManager();
+      try {
+        const managedPool = manager.getClientInstancePool();
+        const instance = await managedPool.getOrCreateClientInstance(
+          'testTemplate',
+          mockTemplateConfig,
+          mockContext,
+          'client-1',
+        );
+        managedPool.removeClientFromInstance(instance.instanceKey, 'client-1');
+        vi.mocked(instance.transport.close).mockRejectedValueOnce(new Error('close failed'));
+        await expect(managedPool.removeInstance(instance.instanceKey)).rejects.toThrow('close is not confirmed');
+        expect(await manager.cleanupIdleInstances()).toBe(1);
+        expect(managedPool.getInstance(instance.instanceKey)).toBeUndefined();
+      } finally {
+        await manager.shutdown();
+      }
+    });
+
+    it('does not overwrite a failed removal with a fresh instance', async () => {
+      const instance = await pool.getOrCreateClientInstance(
+        'testTemplate',
+        mockTemplateConfig,
+        mockContext,
+        'client-1',
+      );
+      vi.mocked(instance.transport.close).mockRejectedValue(new Error('close failed'));
+      await expect(pool.removeInstance(instance.instanceKey)).rejects.toThrow('close is not confirmed');
+      await expect(
+        pool.getOrCreateClientInstance('testTemplate', mockTemplateConfig, mockContext, 'client-2'),
+      ).rejects.toThrow('close is not confirmed');
+      expect(pool.getInstance(instance.instanceKey)).toBe(instance);
+      vi.mocked(instance.transport.close).mockResolvedValue(undefined);
+    });
+
+    it('handles removal failure when the last client leaves a restarting instance', async () => {
+      const instance = await pool.getOrCreateClientInstance(
+        'testTemplate',
+        mockTemplateConfig,
+        mockContext,
+        'client-1',
+      );
+      Object.assign(instance, {
+        supervisor: {
+          snapshot: () => ({ state: 'restarting' }),
+          stop: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+      vi.mocked(instance.transport.close).mockRejectedValueOnce(new Error('close failed'));
+      pool.removeClientFromInstance(instance.instanceKey, 'client-1');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(pool.getInstance(instance.instanceKey)).toBe(instance);
+      await pool.cleanupIdleInstances();
+      expect(pool.getInstance(instance.instanceKey)).toBeUndefined();
+    });
+
+    it('retains live Windows stdio blockers and completes release after confirmed process exit', async () => {
+      const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
+      const transport = {
+        pid: 12345 as number | null,
+        close: vi.fn().mockResolvedValue(undefined),
+        start: vi.fn(),
+        send: vi.fn(),
+      };
+      vi.mocked(createTransportsWithContext).mockResolvedValue({ testTemplate: transport });
+      const instance = await pool.getOrCreateClientInstance(
+        'testTemplate',
+        mockTemplateConfig,
+        mockContext,
+        'client-1',
+      );
+      pool.removeClientFromInstance(instance.instanceKey, 'client-1');
+      const platform = process.platform;
+      const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      try {
+        await expect(pool.releaseInstance(instance.instanceKey)).rejects.toThrow(
+          'Graceful backend shutdown is unavailable',
+        );
+        expect(pool.getInstance(instance.instanceKey)).toBe(instance);
+        expect(instance.client.close).not.toHaveBeenCalled();
+        expect(transport.close).not.toHaveBeenCalled();
+        expect(kill.mock.calls.every(([, signal]) => signal === 0)).toBe(true);
+        transport.pid = null;
+        kill.mockImplementation(() => {
+          throw Object.assign(new Error('No process'), { code: 'ESRCH' });
+        });
+        await pool.releaseInstance(instance.instanceKey);
+        expect(pool.getInstance(instance.instanceKey)).toBeUndefined();
+        expect(transport.close).toHaveBeenCalledOnce();
+      } finally {
+        Object.defineProperty(process, 'platform', { value: platform });
+        kill.mockRestore();
+      }
+    });
+
     it('should handle removing non-existent instance gracefully', async () => {
       await expect(pool.removeInstance('non-existent')).resolves.not.toThrow();
     });
 
-    it('does not let an old close delete a replacement installed under the same key', async () => {
+    it('waits for confirmed removal before installing a replacement under the same key', async () => {
       const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
       const { ClientManager } = await import('@src/core/client/clientManager.js');
       let finishOldClose!: () => void;
@@ -395,16 +509,15 @@ describe('ClientInstancePool', () => {
         expect(oldInstance.status).toBe('terminating');
         await vi.waitFor(() => expect(oldClient.close).toHaveBeenCalledTimes(1));
 
-        const replacement = await pool.getOrCreateClientInstance(
-          'testTemplate',
-          mockTemplateConfig,
-          mockContext,
-          'client-2',
-        );
-        expect(replacement).not.toBe(oldInstance);
+        const replacing = pool.getOrCreateClientInstance('testTemplate', mockTemplateConfig, mockContext, 'client-2');
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(pool.getInstance(oldInstance.instanceKey)).toBe(oldInstance);
+        expect(replacementClient.connect).not.toHaveBeenCalled();
 
         finishOldClose();
         await removal;
+        const replacement = await replacing;
+        expect(replacement).not.toBe(oldInstance);
 
         expect(oldTransport.close).toHaveBeenCalledTimes(1);
         expect(pool.getInstance(oldInstance.instanceKey)).toBe(replacement);

@@ -136,7 +136,32 @@ describe('owned legacy resource subscriptions', () => {
       await cleanupOwnedResources(inbound);
       expect(getProjectLifecycle()!.status(directory).complete).toBe(false);
       Object.assign(upstream.adapter, { state: 'stopped' });
+      await vi.waitFor(() => expect(getProjectLifecycle()!.status(directory).complete).toBe(true), { timeout: 2000 });
     });
+    it.each(['legacy', 'modern'])(
+      'releases a disconnected %s owner only after its original adapter stops',
+      async (era) => {
+        vi.useFakeTimers();
+        const inbound = checkoutOwner();
+        const adapter = upstream.adapter;
+        Object.assign(adapter, { state: 'ready', protocol: { era } });
+        const close = vi.fn().mockRejectedValue(new Error('Unsubscribe failed'));
+        mocks.openModern.mockResolvedValue({ honoredFilter: { resourceSubscriptions: ['file:///a'] }, close });
+        await subscribeOwnedResource(connections, inbound, 'public:file:///a');
+        mocks.request.mockRejectedValueOnce(new Error('Unsubscribe failed'));
+        await expect(cleanupOwnedResources(inbound)).rejects.toThrow('cleanup incomplete');
+        const lifecycle = getProjectLifecycle()!;
+        lifecycle.drain(directory);
+        // A replacement connection stopping says nothing about the subscribed generation.
+        Object.assign(upstream, { adapter: { state: 'stopped' } });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(lifecycle.status(directory).complete).toBe(false);
+        Object.assign(adapter, { state: 'stopped' });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(lifecycle.status(directory).complete).toBe(true);
+      },
+    );
+
     it('retains queued delivery after the final unsubscribe until the delivery finishes', async () => {
       const inbound = checkoutOwner();
       await subscribeOwnedResource(connections, inbound, 'public:file:///a');

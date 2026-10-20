@@ -100,6 +100,7 @@ vi.mock('@src/core/server/clientInstancePool.js', () => ({
       getTemplateInstances: vi.fn(() => []),
       resolveTemplateInstance: vi.fn(),
       getAllInstances: vi.fn(() => []),
+      canRetryRemoval: vi.fn(() => false),
       removeInstance: vi.fn().mockResolvedValue(undefined),
       cleanupIdleInstances: vi.fn().mockResolvedValue(undefined),
       shutdown: vi.fn().mockResolvedValue(undefined),
