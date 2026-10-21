@@ -326,7 +326,10 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:browser']).toContain('browser.e2e.test.ts');
     expect(packageJson.scripts['test:e2e:non-browser']).toContain('--exclude "**/*.browser.e2e.test.ts"');
     expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/serve-background.test.ts"');
+    expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/project-lifecycle.test.ts"');
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/commands/serve-background.test.ts');
+    expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/project-lifecycle.test.ts');
+    expect(packageJson.scripts['test:e2e:system']).toContain('--maxWorkers=1');
   });
 
   it('requires harness and product conformance without serializing their runners', () => {

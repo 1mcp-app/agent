@@ -212,7 +212,8 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Test background runtime E2E
+      # Lifecycle checks launch timed cleanup subprocesses; keep their runner exclusive.
+      - name: Test system lifecycle E2E
         run: pnpm test:e2e:system --reporter=minimal
         env:
           CI: true
