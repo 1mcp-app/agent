@@ -71,15 +71,14 @@ npm install -g @1mcp/agent
 
 ### 5. 验证工作流
 
-启用并信任钩子，然后打开新的 agent 会话。确认它收到了运行时指引和自己的 `--project-owner` 凭证路径。让 agent 使用该路径执行以下流程；无需你手动重复这些命令：
+启用并信任钩子，然后打开新的 agent 会话。确认它收到运行时指引并建立所有权。使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。让 agent 执行以下流程；无需你手动重复这些命令：
 
 ```bash
-# 替换为本会话 bootstrap 提供的凭证。
 # 仅在缺少当前目标指引或需要刷新时执行。
-1mcp instructions --project-owner /private/session-owner.json
-1mcp inspect context7 --project-owner /private/session-owner.json
-1mcp inspect context7/query-docs --project-owner /private/session-owner.json
-1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}' --project-owner /private/session-owner.json
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 ### 成功的样子

@@ -125,19 +125,18 @@ npx -y @1mcp/agent --config staging.json --port 3052
 **Why you need it**: Lets agents discover current servers and tool schemas before calling tools, instead of guessing
 **How it helps**: `instructions` gives the playbook, `inspect` reveals the schema, and `run` executes the tool call
 
-**Recommended Flow**: startup hooks deliver guidance and a private owner credential. The agent substitutes its credential below and retains any assigned project selectors. Run `instructions` only if guidance is missing or needs refreshing.
+**Recommended Flow**: startup hooks deliver guidance and a private owner credential. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential. Use explicit project selectors when overriding the assigned default. Run `instructions` only if guidance is missing or needs refreshing.
 
 ```bash
 # Shell 1
 1mcp serve
 
 # Shell 2
-# Replace with this session’s bootstrap credential.
 # Only if current target guidance is missing or needs refreshing.
-1mcp instructions --project-owner /private/session-owner.json
-1mcp inspect context7 --project-owner /private/session-owner.json
-1mcp inspect context7/query-docs --project-owner /private/session-owner.json
-1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}' --project-owner /private/session-owner.json
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 **Bootstrap Options**:

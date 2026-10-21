@@ -62,14 +62,14 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 
 - **`--project <path-or-label>`** — 选择检出目录或项目集合成员。
 - **`--project-set <file>`** — 加载保存的项目集合。
-- **`--project-owner <file>`** — 保留本地会话 bootstrap 提供的凭证。
+- **`--project-owner <file>`** — 需要时使用当前调用方自己的 bootstrap 凭证，覆盖自动所有者查找。
 
-共用规则见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。下方示例重点展示各命令选项；本地智能体会话的每次调用还需保留其所有者凭证及已分配的项目选择参数。
+共用规则见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。受支持的 Codex 会话自动使用已验证所有者和分配项目。Claude 和不支持自动查找所有者的宿主需提供自己的 bootstrap `--project-owner <own-file>`。相关调用应保持显式目标覆盖一致。
 
-对于已配置的 CodeGraph 后端，先针对所选检出目录检查服务器和工具 schema，再使用相同的目标和凭证执行查询。将目录和所有者路径替换为实际检出目录及 bootstrap 提供的凭证：
+对于已配置的 CodeGraph 后端，先针对所选检出目录检查服务器和工具 schema，再使用相同目标执行查询。将目录路径替换为实际检出目录；如果它已是分配的默认目标，可省略 `--project`：
 
 ```bash
-1mcp run codegraph/codegraph_explore --project /work/backend-feature --project-owner /private/session-owner.json --args '{"query":"Where are the API routes defined?"}'
+1mcp run codegraph/codegraph_explore --project /work/backend-feature --args '{"query":"Where are the API routes defined?"}'
 ```
 
 ## 示例

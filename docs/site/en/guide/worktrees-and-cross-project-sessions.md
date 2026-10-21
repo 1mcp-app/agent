@@ -66,25 +66,19 @@ Choose the command for your client:
 
 These commands install global bootstrap guidance and hooks. For repository-scoped setup, see [CLI setup](/commands/cli-setup). For Codex, apply the hook/sandbox configuration snippet printed by setup. Enable and trust the installed hooks in your client, then start a new session. Use [CLI mode](/guide/integrations/cli-mode) for this workflow and remove duplicate direct 1MCP MCP entries from the same client scope.
 
-Verify that startup actually delivers the 1MCP playbook and a private `--project-owner` credential reference. Hook files alone do not prove delivery. A worker also needs its own startup context and credential. If either is missing, resolve the reported hook or runtime error before continuing; do not invent an owner file or copy the parent's credential.
+Verify that startup delivers the 1MCP playbook and establishes session ownership. Hook files alone do not prove delivery. Resolve reported ownership or assignment gaps before project-specific calls; do not invent an owner file or copy a parent’s credential.
 
-In each session's shell, set this convenience variable to the **actual absolute credential path from that session's bootstrap output**:
-
-**AI agent**
-
-```bash
-SESSION_OWNER='/absolute/path/from/this-sessions-bootstrap.json'
-```
-
-This variable is only shorthand for the examples. If tool calls use separate shells, pass the actual path each time. Do not commit or share the credential. Retain it on every subsequent 1MCP call, including bootstrap retries.
+The commands below assume a supported Codex session with verified hooks. 1MCP automatically finds that session’s owner and assigned project. Normal calls need neither `--project-owner` nor `--project`; the cross-project examples retain target selectors because they deliberately query other checkouts. A per-call override never changes the assigned default.
 
 ### `bootstrap` and `instructions`: which one runs?
 
 The client hook runs `bootstrap`, which creates the caller's owner credential and fetches runtime guidance through `instructions`. Once the agent receives guidance for its target, it proceeds to `inspect` and `run`. It runs `instructions` only when guidance is missing or needs refreshing. Missing credentials require repairing hook delivery; `instructions` does not create them. See [CLI setup](/commands/cli-setup) for lifecycle events and manual bootstrap retries.
 
-### Why keep `--project-owner`?
+### When is `--project-owner` needed?
 
-`--project` selects the checkout; `--project-owner` identifies the session using it. Each worker keeps its own bootstrap credential so releasing one worker's bindings preserves other workers' work. Never copy a parent's credential to a worker. The credential does not replace runtime authentication or grant operator permission. This walkthrough uses a local runtime; remote runtimes do not support local owner credentials.
+Claude and Codex hosts without a trustworthy thread locator or both-ID integration must add `--project-owner <own-file>` to subsequent calls and manual bootstrap retries. Replace `<own-file>` with the actual private credential reference from that caller’s startup hook. Each worker uses its own credential; never share or commit it. See [session defaults and cleanup](/commands/cli-setup#session-defaults-and-cleanup).
+
+Automatic ownership applies to named or implicit local targets. An explicit `--url`, including loopback or SSH forwarding, needs an explicit owner reference to attach local ownership. Remote runtimes do not support local owner credentials. Terminal cleanup recovery also requires `project recover --project-owner <ended-own-file>`; do not substitute a live caller’s credential. Ownership does not replace runtime authentication or grant operator permission.
 
 ## 3. Create the backend worktree
 
@@ -138,7 +132,7 @@ Start with a direct path for a single checkout:
 **AI agent**
 
 ```bash
-1mcp inspect codegraph --project /work/backend-feature --project-owner "$SESSION_OWNER"
+1mcp inspect codegraph --project /work/backend-feature
 ```
 
 Use a saved set when stable names make cross-repository work or worker assignments easier. `--project-set` names the **definition file**, not a repository; `--project` then names a **member label**, not a path. Loading the file does not change the session's global working directory or call every project. A multi-member set requires explicit labels or a saved `selection` for checkout-specific calls; explicit labels override the saved selection.
@@ -165,10 +159,10 @@ If hooks have not already delivered instructions for the assigned target, fetch 
 
 ```bash
 # Only if current target instructions were not already delivered:
-1mcp instructions --project-set /work/feature-projects.json --project frontend --project-owner "$SESSION_OWNER"
-1mcp inspect codegraph --project-set /work/feature-projects.json --project frontend --project-owner "$SESSION_OWNER"
-1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend --project-owner "$SESSION_OWNER"
-1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend --project-owner "$SESSION_OWNER" --args '{"query":"Where does the frontend call the backend API?"}'
+1mcp instructions --project-set /work/feature-projects.json --project frontend
+1mcp inspect codegraph --project-set /work/feature-projects.json --project frontend
+1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend
+1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend --args '{"query":"Where does the frontend call the backend API?"}'
 ```
 
 Repeat for the backend worktree:
@@ -177,10 +171,10 @@ Repeat for the backend worktree:
 
 ```bash
 # Only if current target instructions were not already delivered:
-1mcp instructions --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER"
-1mcp inspect codegraph --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER"
-1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER"
-1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER" --args '{"query":"Where are the backend API routes defined?"}'
+1mcp instructions --project-set /work/feature-projects.json --project backend
+1mcp inspect codegraph --project-set /work/feature-projects.json --project backend
+1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend
+1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend --args '{"query":"Where are the backend API routes defined?"}'
 ```
 
 The example requires CodeGraph to expose `codegraph_explore` with a `query` argument. Use the schema returned by your installed server. Confirm that results describe files in the selected checkout and that its index covers current source. A connected server or an index in the main checkout does not establish worktree readiness.
@@ -191,13 +185,13 @@ Selecting `--project frontend --project backend` does not broadcast a call or ch
 
 You or the coordinating AI agent give each worker a concrete assignment in its dispatch prompt. The **worker AI agent** runs the bootstrap command in this example:
 
-> Your Worker Project Assignment is `/work/feature-projects.json`, label `backend` (checkout `/work/backend-feature`). Work only on the backend part of this feature. Use your own bootstrap-provided owner credential. Before project-specific discovery, run `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend --project-owner YOUR_OWN_CREDENTIAL_PATH`. Retain this selection and your credential on subsequent calls. Inspect the server and tool schema before running tools. Release your own backend binding when your assignment is finished.
+> Your Worker Project Assignment is `/work/feature-projects.json`, label `backend` (checkout `/work/backend-feature`). Work only on the backend part of this feature. Use your own verified startup context. Before project-specific discovery, run `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend`. Bootstrap records this assignment as your default; subsequent calls can omit the project selectors. Inspect the server and tool schema before running tools. Release your own backend binding when your assignment is finished.
 
-For the frontend worker, use label `frontend` and checkout `/work/frontend`. For a worker assigned a direct path, replace `--project-set ... --project backend` with `--project /work/backend-feature`. Use `--client claude` for Claude Code.
+For the frontend worker, use label `frontend` and checkout `/work/frontend`. For a worker assigned a direct path, replace `--project-set ... --project backend` with `--project /work/backend-feature`. For Claude Code, use `--client claude` and add the worker’s own `--project-owner <own-file>`.
 
-The worker replaces `YOUR_OWN_CREDENTIAL_PATH` with the credential supplied by its own verified startup hook. The explicit bootstrap call resolves the assignment; a parent's cwd or session identity is not an assignment. If startup already delivered the correct assignment and instructions, avoid fetching them again.
+The explicit bootstrap call resolves the assignment; a parent's cwd or session identity is not an assignment. If startup already delivered the correct assignment and instructions, avoid fetching them again.
 
-Each worker sets `SESSION_OWNER` to its own credential and follows step 4 for its selected target. Do not pass the parent shell's value to a child worker. Concurrent workers may select different checkouts without changing one another's target.
+Each worker follows step 4 for its own target. With a single assigned target, it can omit project selectors; a worker assigned a project set can select a member with `--project backend`. Concurrent workers keep independent defaults and ownership.
 
 ## 6. Prepare a backend when needed
 
@@ -210,8 +204,8 @@ The following example assumes that recipe is configured for `codegraph` and cove
 **AI agent**
 
 ```bash
-1mcp project prepare inspect codegraph --operation codegraph_explore --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER"
-1mcp project prepare start codegraph --operation codegraph_explore --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER"
+1mcp project prepare inspect codegraph --operation codegraph_explore --project-set /work/feature-projects.json --project backend
+1mcp project prepare start codegraph --operation codegraph_explore --project-set /work/feature-projects.json --project backend
 ```
 
 Inspection does not start preparation. Start only a permitted action when readiness requires it. If a job ID is returned, replace `JOB_ID` below with that ID:
@@ -219,7 +213,7 @@ Inspection does not start preparation. Start only a permitted action when readin
 **AI agent**
 
 ```bash
-1mcp project prepare wait codegraph JOB_ID --operation codegraph_explore --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER" --wait-ms 5000
+1mcp project prepare wait codegraph JOB_ID --operation codegraph_explore --project-set /work/feature-projects.json --project backend --wait-ms 5000
 ```
 
 Repeat bounded waits while queued or running. Preserve the same runtime, filters, target, owner, and operation. A finished command is not enough: require verified readiness. On failure, read the reason and deliberately retry only after resolving it. Once ready, repeat server/schema inspection and submit a **fresh** tool call from step 4. Preparation never replays the original request.
@@ -231,15 +225,15 @@ When a worker finishes its assignment, it releases its own selected binding:
 **AI agent — each caller releases its own bindings**
 
 ```bash
-1mcp project release --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER" --format json
+1mcp project release --project-set /work/feature-projects.json --project backend --format json
 ```
 
-The frontend worker uses `--project frontend`. The parent also releases every selection it used, with its own credential:
+The frontend worker uses `--project frontend`. The parent also releases every selection it used under its own automatically resolved ownership:
 
 **AI agent — each caller releases its own bindings**
 
 ```bash
-1mcp project release --project-set /work/feature-projects.json --project frontend --project backend --project-owner "$SESSION_OWNER" --format json
+1mcp project release --project-set /work/feature-projects.json --project frontend --project backend --format json
 ```
 
 Release protects other owners. A nonzero exit can mean cleanup is still pending; inspect the returned blockers. `SessionEnd` offers bounded session cleanup, but `Stop` and `SubagentStop` are not terminal events. Workers must explicitly release when finished, not after every response.
@@ -249,8 +243,8 @@ Before removing `/work/backend-feature`, an authorized local operator closes adm
 **Local operator / worktree manager**
 
 ```bash
-1mcp project drain --project /work/backend-feature --project-owner "$SESSION_OWNER" --wait-ms 5000 --format json
-1mcp project status --project /work/backend-feature --project-owner "$SESSION_OWNER" --format json
+1mcp project drain --project /work/backend-feature --wait-ms 5000 --format json
+1mcp project status --project /work/backend-feature --format json
 ```
 
 Require a successful drain exit and `complete: true` in its result for this checkout. Status can exit zero while blockers remain. Drain lets admitted work finish; it does not automatically cancel jobs. Other owners, subscriptions, shared backends, or unresolved preparation recovery can block cleanup. Resolve the reported blockers and retry drain. On Windows, a live stdio backend can remain a blocker when graceful exit cannot be verified.
@@ -270,7 +264,7 @@ If you abandon removal, explicitly reopen admission:
 **Local operator / worktree manager**
 
 ```bash
-1mcp project resume --project /work/backend-feature --project-owner "$SESSION_OWNER" --format json
+1mcp project resume --project /work/backend-feature --format json
 ```
 
 A timeout leaves the checkout draining. The barrier survives runtime restart and deletion/recreation of the same path; `resume` is required before reuse and does not start or prepare a backend. See [Project lifecycle](/commands/project/) for detailed results and blockers.

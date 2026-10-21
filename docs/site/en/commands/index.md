@@ -72,7 +72,7 @@ npx -y @1mcp/agent inspect --help
 
 ### CLI Workflow Commands
 
-For a standalone terminal session, use these commands to discover and call tools through a running `1mcp serve` instance. In a hooked agent session, use the guidance delivered by bootstrap and run `instructions` only when guidance is missing or needs refreshing; retain the session’s owner credential and assigned project selectors.
+For a standalone terminal session, use these commands to discover and call tools through a running `1mcp serve` instance. In a hooked agent session, use the guidance delivered by bootstrap and run `instructions` only when guidance is missing or needs refreshing. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential.
 
 ```bash
 npx -y @1mcp/agent instructions

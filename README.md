@@ -51,14 +51,14 @@ npm install -g @1mcp/agent
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-**AI agent — after startup:** follow this workflow, skipping `instructions` if hooks already delivered the current instructions. Keep the runtime above running; you do not need to repeat these agent commands manually. Verify that startup delivers guidance and a private owner credential. Replace `/private/session-owner.json` below with that session’s credential; each worker uses its own.
+**AI agent — after startup:** follow this workflow, skipping `instructions` if hooks already delivered the current instructions. Keep the runtime above running; you do not need to repeat these agent commands manually. Verify that startup delivers guidance and establishes session ownership. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to the commands below; each worker uses its own credential.
 
 ```bash
 # Only if current target guidance is missing or needs refreshing:
-1mcp instructions --project-owner /private/session-owner.json
-1mcp inspect context7 --project-owner /private/session-owner.json
-1mcp inspect context7/query-docs --project-owner /private/session-owner.json
-1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}' --project-owner /private/session-owner.json
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 If you want the full walkthrough (with success criteria and off-ramps), use the [Quick Start guide](https://docs.1mcp.app/guide/quick-start).
@@ -70,10 +70,10 @@ For a given agent, choose one mode only. If you switch that agent to CLI mode, r
 Use one local runtime across repositories and Git worktrees. After configuring an installed backend with `mcp setup`, the agent selects a checkout on each call:
 
 ```bash
-1mcp inspect codegraph --project /absolute/checkout --project-owner /path/from/session-bootstrap.json
+1mcp inspect codegraph --project /absolute/checkout
 ```
 
-Use the actual owner credential supplied by that session's bootstrap. Follow [Working Across Projects and Worktrees](https://docs.1mcp.app/guide/worktrees-and-cross-project-sessions) ([中文](https://docs.1mcp.app/zh/guide/worktrees-and-cross-project-sessions)) for setup, project sets, independent workers, optional preparation, and safe cleanup.
+For the session’s assigned checkout, omit `--project`; explicit overrides do not change that default. Follow [Working Across Projects and Worktrees](https://docs.1mcp.app/guide/worktrees-and-cross-project-sessions) ([中文](https://docs.1mcp.app/zh/guide/worktrees-and-cross-project-sessions)) for setup, project sets, independent workers, optional preparation, and safe cleanup.
 
 ## Why CLI Mode Exists
 

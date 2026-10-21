@@ -56,13 +56,14 @@ Keep your MCP servers exactly where they belong: behind `1mcp serve`.
 
 Then let the agent work through the CLI:
 
+With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential.
+
 ```bash
-# Replace with this session’s bootstrap credential.
 # Only if current target guidance is missing or needs refreshing.
-1mcp instructions --project-owner /private/session-owner.json
-1mcp inspect <server> --project-owner /private/session-owner.json
-1mcp inspect <server>/<tool> --project-owner /private/session-owner.json
-1mcp run <server>/<tool> --args '<json>' --project-owner /private/session-owner.json
+1mcp instructions
+1mcp inspect <server>
+1mcp inspect <server>/<tool>
+1mcp run <server>/<tool> --args '<json>'
 ```
 
 Each step narrows the context:
@@ -115,7 +116,7 @@ What the user should run once per machine or repository:
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-Enable and trust the installed hooks, apply any client configuration printed by setup, and start a new session. The startup hook runs `bootstrap`, which creates the caller's owner credential and fetches guidance through `instructions`. Verify that the agent receives both. It then follows the inspection and invocation steps above, retaining its credential on every call. Each worker needs its own credential.
+Enable and trust the installed hooks, apply any client configuration printed by setup, and start a new session. The startup hook runs `bootstrap`, which creates the caller's owner credential and fetches guidance through `instructions`. Verify that the agent receives both. It then follows the inspection and invocation steps above. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential.
 
 Run `instructions` separately only when current target guidance is missing or needs refreshing. It does not create an owner credential. See [CLI setup](/commands/cli-setup) for hook troubleshooting and [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions) for explicit checkout selection and worker assignments.
 

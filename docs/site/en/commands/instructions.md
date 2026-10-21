@@ -67,9 +67,9 @@ Each server entry includes metadata such as:
 
 - **`--project <path-or-label>`** — Select a checkout or a project-set member.
 - **`--project-set <file>`** — Load a saved project set.
-- **`--project-owner <file>`** — Retain this local session's bootstrap credential.
+- **`--project-owner <file>`** — Override automatic owner lookup with this caller’s own bootstrap credential when required.
 
-See [Project and owner options](/guide/project-checkouts#project-and-owner-options) for shared rules. Examples below focus on individual command options; in a local agent session, also retain its owner credential and assigned project selectors on each call.
+See [Project and owner options](/guide/project-checkouts#project-and-owner-options) for shared rules. Supported Codex sessions use their verified owner and assigned project automatically. Claude and hosts without automatic owner lookup must supply their own bootstrap `--project-owner <own-file>`. Keep explicit target overrides consistent across related calls.
 
 ## Examples
 

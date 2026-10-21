@@ -101,7 +101,7 @@ For Codex or Claude, run the agent path from [Quick Start](/guide/quick-start):
 1mcp cli-setup --codex
 ```
 
-For Codex, `cli-setup` prints required `config.toml` changes but does not apply them. Add the printed snippet before opening the next Codex session, enable/trust the hooks, and verify that the new session receives runtime guidance and its own owner credential. The agent then uses `inspect` and `run`, retaining that credential; it runs `instructions` only to fetch missing or refreshed guidance.
+For Codex, `cli-setup` prints required `config.toml` changes but does not apply them. Add the printed snippet before opening the next Codex session, enable/trust the hooks, and verify that the new session receives runtime guidance and its own owner credential. The agent then uses `inspect` and `run`; it runs `instructions` only to fetch missing or refreshed guidance. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential.
 
 For a non-CLI stdio client, use [Proxy](/commands/proxy). For an MCP-native HTTP client that does not need project context, use [serve](/commands/serve).
 

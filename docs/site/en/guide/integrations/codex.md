@@ -35,15 +35,14 @@ CLI mode is the 1MCP workflow for instruction, discovery, and invocation without
 1mcp cli-setup --codex
 ```
 
-The command installs the 1MCP Codex bootstrap files and prints the required Codex `config.toml` hook and sandbox change. Apply the printed snippet before starting a new Codex session. Enable and trust the hooks, then verify that startup delivers guidance and a private owner credential. The AI agent uses the following flow, substituting its credential path and retaining any assigned project selectors:
+The command installs the 1MCP Codex bootstrap files and prints the required Codex `config.toml` hook and sandbox change. Apply the printed snippet before starting a new Codex session. Enable and trust the hooks, then verify that startup delivers guidance and a private owner credential. The AI agent uses the following flow with automatic owner and assigned-project lookup. Hosts without supported automatic lookup add their own bootstrap `--project-owner <own-file>`. Use explicit project selectors only to override the assigned default:
 
 ```bash
-# Replace with this session’s bootstrap credential.
 # Only if current target guidance is missing or needs refreshing.
-1mcp instructions --project-owner /private/session-owner.json
-1mcp inspect <server> --project-owner /private/session-owner.json
-1mcp inspect <server>/<tool> --project-owner /private/session-owner.json
-1mcp run <server>/<tool> --args '<json>' --project-owner /private/session-owner.json
+1mcp instructions
+1mcp inspect <server>
+1mcp inspect <server>/<tool>
+1mcp run <server>/<tool> --args '<json>'
 ```
 
 Remove any existing 1MCP MCP-server entry from the same Codex scope before using this mode.

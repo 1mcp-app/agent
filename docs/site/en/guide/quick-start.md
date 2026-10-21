@@ -71,15 +71,14 @@ The command installs hooks that run `bootstrap` at startup, supplying runtime gu
 
 ### 5. Verify the workflow
 
-Enable and trust the hooks, then open a new agent session. Verify that it receives runtime guidance and its own `--project-owner` credential path. Ask the agent to follow this flow using that path; you do not need to repeat these commands manually:
+Enable and trust the hooks, then open a new agent session. Verify that it receives runtime guidance and establishes ownership. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential. Ask the agent to follow this flow; you do not need to repeat these commands manually:
 
 ```bash
-# Replace with this session’s bootstrap credential.
 # Only if current target guidance is missing or needs refreshing.
-1mcp instructions --project-owner /private/session-owner.json
-1mcp inspect context7 --project-owner /private/session-owner.json
-1mcp inspect context7/query-docs --project-owner /private/session-owner.json
-1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}' --project-owner /private/session-owner.json
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 ### Success looks like this

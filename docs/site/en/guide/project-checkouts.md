@@ -7,7 +7,7 @@ description: Select source checkouts and saved project sets, understand inherite
 
 For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
 
-In session and worker examples below, replace `/private/session-owner.json` with the credential supplied by that caller’s bootstrap. Keep it on each call; workers use their own credential. See the walkthrough above for client setup and hook verification.
+Examples below use a supported Codex session with verified startup hooks: 1MCP resolves its owner and assigned project automatically. For Claude or hosts without automatic owner lookup, add `--project-owner <own-file>` using that caller’s bootstrap credential; workers use their own. Explicit project selectors below demonstrate overrides for another checkout. See [CLI setup](/commands/cli-setup#session-defaults-and-cleanup) for setup and fallback details.
 
 Use explicit project selectors when one agent works across repositories or Git worktrees. Each call selects its source checkout while a shared local runtime manages the connections. Selecting a project does not change a runtime-global current project or dispatch the same tool call to every member.
 
@@ -19,9 +19,9 @@ These options apply to `instructions`, `inspect`, `run`, and project preparation
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `--project <path-or-label>` | Select one checkout path, or a member label when using a project set. Repeat labels only for operations that support multiple members. |
 | `--project-set <file>`      | Load a saved JSON project set; relative member paths resolve from this file's directory.                                               |
-| `--project-owner <file>`    | Retain the private credential path supplied by this local session's bootstrap. Each worker uses its own credential.                    |
+| `--project-owner <file>`    | Override automatic owner lookup when required, using this caller’s own bootstrap credential.                                           |
 
-Keep the selected checkout, runtime, filters, and owner on subsequent calls. The owner credential identifies the caller; it does not select a checkout or replace runtime authentication. Remote runtimes do not support local owner credentials. Static, project-independent server/schema inspection can omit project selectors; retain them for dynamic templates and checkout-specific calls.
+Keep the runtime and filters consistent. Calls for the assigned default project need no project or owner flags in a supported Codex session. A per-call project override does not change that default; retain the override throughout discovery, inspection, preparation, and invocation. The owner credential identifies the caller; it does not select a checkout or replace runtime authentication. Remote runtimes do not support local owner credentials. When overriding the default, retain project selectors for dynamic templates and checkout-specific calls. Static, project-independent server/schema inspection does not need them.
 
 ## Source Checkout and Configuration Source
 
@@ -37,14 +37,26 @@ A local file replaces inherited configuration; missing fields do not merge from 
 
 Automatic discovery searches within the current repository boundary. A configuration above that repository is not implicitly selected. Invocation from a nested directory can still find configuration inside its repository. Keep source identity separate from provenance when checking results: shared Git history or inherited settings do not prove that another checkout's index represents this checkout.
 
-## Select One Checkout
+## Use the assigned checkout
 
-Without a project set, supply exactly one checkout path:
+In a supported Codex session, ordinary calls use the root session’s verified startup project or the worker’s explicit bootstrap assignment:
 
 ```bash
-1mcp instructions --project /work/frontend --project-owner /private/session-owner.json
-1mcp inspect --project /work/frontend --project-owner /private/session-owner.json
-1mcp inspect codegraph --project /work/frontend --project-owner /private/session-owner.json
+1mcp inspect codegraph
+1mcp inspect codegraph/codegraph_explore
+1mcp run codegraph/codegraph_explore --args '{"query":"Where are the API routes defined?"}'
+```
+
+Changing shell cwd does not change that session default. Without host integration, ordinary CLI calls use cwd instead. A worker still needs an explicit assignment before project-specific calls. An assigned multi-project set requires a member selection for single-checkout tools, such as `--project backend`.
+
+## Select One Checkout
+
+To override the assigned default without a project set, supply exactly one checkout path:
+
+```bash
+1mcp instructions --project /work/frontend
+1mcp inspect --project /work/frontend
+1mcp inspect codegraph --project /work/frontend
 ```
 
 Ordinary CLI checkout paths may be relative to the invocation directory and are resolved to readable, traversable canonical directories. Existing single-checkout invocations can continue using their discovered default without `--project`. Worker dispatch assignments should use absolute paths to avoid a parent's invocation directory affecting selection.
@@ -52,8 +64,8 @@ Ordinary CLI checkout paths may be relative to the invocation directory and are 
 Retain the selector on each `instructions`, `inspect`, and `run` call. Inspect the server instructions and tool schema before invoking it:
 
 ```bash
-1mcp inspect codegraph/codegraph_explore --project /work/frontend --project-owner /private/session-owner.json
-1mcp run codegraph/codegraph_explore --project /work/frontend --args '{"query":"Checkout-specific symbol"}' --project-owner /private/session-owner.json
+1mcp inspect codegraph/codegraph_explore --project /work/frontend
+1mcp run codegraph/codegraph_explore --project /work/frontend --args '{"query":"Checkout-specific symbol"}'
 ```
 
 These commands require the named server and tool to be configured and available. Target selection preserves the runtime's existing authentication, authorization, and template-context trust requirements.
@@ -77,14 +89,14 @@ Create a JSON definition such as `/work/feature-projects.json`:
 Select a member by its label:
 
 ```bash
-1mcp instructions --project-set /work/feature-projects.json --project frontend --project-owner /private/session-owner.json
-1mcp inspect --project-set /work/feature-projects.json --project backend --project-owner /private/session-owner.json
+1mcp instructions --project-set /work/feature-projects.json --project frontend
+1mcp inspect --project-set /work/feature-projects.json --project backend
 ```
 
 The definition may include an optional default `"selection": ["backend"]`. CLI `--project` labels override that saved selection. Repeated labels preserve the requested order:
 
 ```bash
-1mcp inspect --project-set /work/feature-projects.json --project backend --project frontend --project-owner /private/session-owner.json
+1mcp inspect --project-set /work/feature-projects.json --project backend --project frontend
 ```
 
 A one-member set defaults to that member. A multi-member set without either saved `selection` or explicit labels has unresolved checkout selection. Checkout-specific operations require a selection and report the available labels; project-independent tools do not need one. Unknown or duplicate selected labels are rejected.
@@ -113,9 +125,9 @@ For a single-project backend, coordinate separate calls with one label each. For
 
 Include an absolute checkout path, or an absolute project-set definition path and selected labels, in every delegated worker's dispatch instructions. For example:
 
-> Your Worker Project Assignment is `/work/feature-projects.json`, label `backend`. Before project-specific discovery, run `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend --project-owner /private/session-owner.json`. Retain these selectors for subsequent instructions, inspection, and tool calls.
+> Your Worker Project Assignment is `/work/feature-projects.json`, label `backend`. Before project-specific discovery, run `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend`. Bootstrap records this assignment as the worker’s default; subsequent calls can omit these selectors.
 
-Workers assigned several members can repeat `--project` labels, then use one label per single-project call or the selected labels for a supported native combined call. For Claude, use `--client claude`.
+Workers assigned several members can repeat `--project` labels, then use one label per single-project call or the selected labels for a supported native combined call. For Claude, use `--client claude` and add that worker’s own bootstrap `--project-owner <own-file>`.
 
 [`cli-setup`](/commands/cli-setup) configures managed `SessionStart` and `SubagentStart` handlers for the selected client and scope. `SessionStart` can fetch ordinary runtime instructions. Each worker receives the inspect-before-run playbook independently. The supported client hook payloads carry identity and cwd, but no project assignment field; the worker therefore obtains its assignment through dispatch instructions and an explicit bootstrap invocation.
 

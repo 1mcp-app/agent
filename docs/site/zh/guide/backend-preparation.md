@@ -7,7 +7,7 @@ description: 了解服务器何时需要准备、如何启用已有配方，以�
 
 从设置到清理的完整流程，参见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
 
-以下会话和 worker 示例中的 `/private/session-owner.json` 需替换为该调用方 bootstrap 提供的凭证路径。每次调用均保留它；worker 使用自己的凭证。客户端设置和钩子验证见上述完整指南。
+下方示例使用已验证启动钩子的受支持 Codex 会话：1MCP 自动解析所有者和已分配项目。Claude 或不支持自动查找所有者的宿主需添加 `--project-owner <own-file>`，使用该调用方自己的 bootstrap 凭证；worker 也使用自己的凭证。示例中的显式项目参数用于覆盖目标、选择其他检出目录。设置与回退方式见 [CLI setup](/zh/commands/cli-setup)。
 
 命令语法、选项、适用人群和恢复示例请参阅 [Prepare 命令参考](/zh/commands/project/prepare)。
 
@@ -119,8 +119,8 @@ description: 了解服务器何时需要准备、如何启用已有配方，以�
 你也可以自行检查或启动准备。下面的例子中，将 `source-search` 替换为服务器配置名称，`lookup` 替换为配方覆盖的工具名称，`/work/project` 替换为已授权的项目路径：
 
 ```bash
-1mcp project prepare inspect source-search --project /work/project --operation lookup --project-owner /private/session-owner.json
-1mcp project prepare source-search --project /work/project --operation lookup --project-owner /private/session-owner.json
+1mcp project prepare inspect source-search --project /work/project --operation lookup
+1mcp project prepare source-search --project /work/project --operation lookup
 ```
 
 `inspect` 只检查就绪状态，不启动准备。`prepare` 在需要时启动已允许的操作，即使服务器尚未列出任何工具，也可以使用。
@@ -128,7 +128,7 @@ description: 了解服务器何时需要准备、如何启用已有配方，以�
 使用返回的任务 ID 查看进度：
 
 ```bash
-1mcp project prepare wait source-search JOB_ID --project /work/project --wait-ms 5000 --project-owner /private/session-owner.json
+1mcp project prepare wait source-search JOB_ID --project /work/project --wait-ms 5000
 ```
 
 如果任务仍在运行，请再次等待。你也可以使用 `prepare status`、`prepare cancel` 或 `prepare retry`，传入相同的服务器名称、任务 ID 和项目。

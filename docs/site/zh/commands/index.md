@@ -66,7 +66,7 @@ npx -y @1mcp/agent inspect --help
 
 ### CLI 工作流命令
 
-独立终端会话可按以下命令通过运行中的 `1mcp serve` 实例发现并调用工具。使用钩子的智能体会话应复用 bootstrap 交付的指引，仅在缺少指引或需要刷新时运行 `instructions`，并保留会话的所有者凭证和已分配的项目选择参数。
+独立终端会话可按以下命令通过运行中的 `1mcp serve` 实例发现并调用工具。使用钩子的智能体会话应复用 bootstrap 交付的指引，仅在缺少指引或需要刷新时运行 `instructions`。使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。
 
 ```bash
 npx -y @1mcp/agent instructions

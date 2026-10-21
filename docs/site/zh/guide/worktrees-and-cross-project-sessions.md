@@ -66,25 +66,19 @@ Linux/macOS 的默认文件为 `~/.config/1mcp/mcp.json`，Windows 为 `%APPDATA
 
 这些命令安装全局 bootstrap 指引和钩子。仓库级配置见 [CLI setup](/zh/commands/cli-setup)。Codex 用户还需要应用 setup 输出的钩子和沙箱配置片段。在客户端启用并信任这些钩子，然后启动新会话。此流程使用 [CLI 模式](/zh/guide/integrations/cli-mode)，请移除同一客户端作用域中重复的直连 1MCP MCP 配置。
 
-确认启动时实际收到 1MCP 操作指引和私有 `--project-owner` 凭证路径。仅存在钩子文件不能证明已经执行。Worker 也需要自己的启动上下文和凭证。缺少任一项时，先解决报告的钩子或运行时错误；不要自行构造凭证文件，也不要复制父会话凭证。
+确认启动时收到 1MCP 操作指引并建立会话所有权。仅存在钩子文件不能证明已经执行。项目相关调用前应解决报告的所有权或分配缺口；不要自行构造凭证文件，也不要复制父会话凭证。
 
-在每个会话的 shell 中，将下面的便捷变量设为**该会话 bootstrap 输出的实际绝对凭证路径**：
-
-**AI 智能体**
-
-```bash
-SESSION_OWNER='/absolute/path/from/this-sessions-bootstrap.json'
-```
-
-变量仅用于简化示例。如果工具调用使用独立 shell，每次都直接传入实际路径。不要提交或共享凭证。后续所有 1MCP 调用都保留它，包括 bootstrap 重试。
+下方命令假设使用已验证钩子的受支持 Codex 会话。1MCP 自动查找该会话的所有者和分配项目，正常调用无需 `--project-owner` 或 `--project`。跨项目示例保留目标参数，因为它们明确查询其他检出目录；单次覆盖不会改变已分配默认目标。
 
 ### `bootstrap` 与 `instructions`：应该运行哪个？
 
 客户端钩子运行 `bootstrap`，创建调用方的所有者凭证，并通过 `instructions` 获取运行时指引。智能体收到当前目标的指引后，继续执行 `inspect` 和 `run`；仅在缺少指引或需要刷新时运行 `instructions`。缺少凭证时应修复钩子交付，`instructions` 不会创建凭证。生命周期事件和手动 bootstrap 重试见 [CLI setup](/zh/commands/cli-setup)。
 
-### 为什么要保留 `--project-owner`？
+### 什么时候需要 `--project-owner`？
 
-`--project` 选择检出目录，`--project-owner` 标识使用它的会话。每个 worker 保留自己从 bootstrap 获得的凭证，释放自身绑定时才能保留其他 worker 的工作。不要将父会话凭证复制给 worker。该凭证不替代运行时认证，也不授予操作者权限。本指南使用本地运行时；远程运行时不支持本地所有者凭证。
+Claude 以及既无可信线程定位记录、也无双标识接入的 Codex 宿主，必须在后续调用和手动 bootstrap 重试中添加 `--project-owner <own-file>`。将 `<own-file>` 替换为该调用方启动钩子提供的实际私有凭证路径。每个 worker 使用自己的凭证，不要共享或提交。详见 [CLI setup](/zh/commands/cli-setup)。
+
+自动所有权适用于命名或隐式本地目标。显式 `--url`（包括回环地址或 SSH 转发）需要显式所有者凭证才能附加本地所有权；远程运行时不支持本地所有者凭证。终止清理恢复也需要 `project recover --project-owner <ended-own-file>`，不能替换为活跃调用方的凭证。所有权不替代运行时认证，也不授予操作者权限。
 
 ## 3. 创建后端 worktree
 
@@ -138,7 +132,7 @@ codegraph init /work/backend-feature --yes
 **AI 智能体**
 
 ```bash
-1mcp inspect codegraph --project /work/backend-feature --project-owner "$SESSION_OWNER"
+1mcp inspect codegraph --project /work/backend-feature
 ```
 
 需要用固定名称简化跨仓库工作或 worker 分配时，再使用保存的集合。`--project-set` 指向**定义文件**，不是仓库；此时 `--project` 指定**成员标签**，不是路径。加载文件不会改变会话的全局工作目录，也不会调用所有项目。多成员集合在项目相关调用中需要明确标签或保存的 `selection`；命令行标签会覆盖保存的选择。
@@ -165,10 +159,10 @@ codegraph init /work/backend-feature --yes
 
 ```bash
 # 仅在当前目标指引尚未交付时执行：
-1mcp instructions --project-set /work/feature-projects.json --project frontend --project-owner "$SESSION_OWNER"
-1mcp inspect codegraph --project-set /work/feature-projects.json --project frontend --project-owner "$SESSION_OWNER"
-1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend --project-owner "$SESSION_OWNER"
-1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend --project-owner "$SESSION_OWNER" --args '{"query":"Where does the frontend call the backend API?"}'
+1mcp instructions --project-set /work/feature-projects.json --project frontend
+1mcp inspect codegraph --project-set /work/feature-projects.json --project frontend
+1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend
+1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend --args '{"query":"Where does the frontend call the backend API?"}'
 ```
 
 对后端 worktree 重复此流程：
@@ -177,10 +171,10 @@ codegraph init /work/backend-feature --yes
 
 ```bash
 # 仅在当前目标指引尚未交付时执行：
-1mcp instructions --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER"
-1mcp inspect codegraph --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER"
-1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER"
-1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER" --args '{"query":"Where are the backend API routes defined?"}'
+1mcp instructions --project-set /work/feature-projects.json --project backend
+1mcp inspect codegraph --project-set /work/feature-projects.json --project backend
+1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend
+1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend --args '{"query":"Where are the backend API routes defined?"}'
 ```
 
 示例要求 CodeGraph 提供带 `query` 参数的 `codegraph_explore`。以实际安装服务器返回的 schema 为准。确认结果来自所选检出目录，且索引覆盖当前源码。服务器已连接或主检出目录已有索引，并不能证明 worktree 已就绪。
@@ -191,13 +185,13 @@ codegraph init /work/backend-feature --yes
 
 由你或负责协调的 AI 智能体在派发提示词中给出明确分配。以下 bootstrap 命令由 **worker AI 智能体**执行：
 
-> 你的 Worker Project Assignment 是 `/work/feature-projects.json` 中的 `backend` 标签（检出目录 `/work/backend-feature`）。只处理本功能的后端部分。使用你自己的 bootstrap 凭证。在项目相关发现之前，执行 `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend --project-owner YOUR_OWN_CREDENTIAL_PATH`。后续调用保留该选择和你的凭证。运行工具前先检查服务器及工具 schema。任务完成时释放你自己的 backend 绑定。
+> 你的 Worker Project Assignment 是 `/work/feature-projects.json` 中的 `backend` 标签（检出目录 `/work/backend-feature`）。只处理本功能的后端部分。使用你自己经验证的启动上下文。在项目相关发现之前，执行 `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend`。Bootstrap 将该分配记录为你的默认目标，后续调用可省略项目参数。运行工具前先检查服务器及工具 schema。任务完成时释放你自己的 backend 绑定。
 
-前端 worker 使用 `frontend` 标签和 `/work/frontend` 检出目录。如果直接分配路径，将 `--project-set ... --project backend` 替换为 `--project /work/backend-feature`。Claude Code 使用 `--client claude`。
+前端 worker 使用 `frontend` 标签和 `/work/frontend` 检出目录。如果直接分配路径，将 `--project-set ... --project backend` 替换为 `--project /work/backend-feature`。Claude Code 使用 `--client claude` 并添加该 worker 自己的 `--project-owner <own-file>`。
 
-Worker 将 `YOUR_OWN_CREDENTIAL_PATH` 替换为自己经验证的启动钩子提供的凭证路径。显式 bootstrap 调用解析任务目标；父会话的 cwd 或会话身份不代表目标分配。如果启动时已经收到正确分配和指令，无需重复获取。
+显式 bootstrap 调用解析任务目标；父会话的 cwd 或会话身份不代表目标分配。如果启动时已经收到正确分配和指令，无需重复获取。
 
-每个 worker 将 `SESSION_OWNER` 设为自己的凭证，并针对所选目标执行第 4 步。不要将父 shell 的值传给子 worker。并发 worker 可以选择不同检出目录，而不改变彼此的目标。
+每个 worker 针对自己的目标执行第 4 步。只有一个已分配目标时可省略项目参数；分配了项目集合的 worker 可用 `--project backend` 选择成员。并发 worker 保持独立的默认目标和所有权。
 
 ## 6. 按需准备后端
 
@@ -210,8 +204,8 @@ Worker 将 `YOUR_OWN_CREDENTIAL_PATH` 替换为自己经验证的启动钩子提
 **AI 智能体**
 
 ```bash
-1mcp project prepare inspect codegraph --operation codegraph_explore --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER"
-1mcp project prepare start codegraph --operation codegraph_explore --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER"
+1mcp project prepare inspect codegraph --operation codegraph_explore --project-set /work/feature-projects.json --project backend
+1mcp project prepare start codegraph --operation codegraph_explore --project-set /work/feature-projects.json --project backend
 ```
 
 检查不会启动准备。仅在确实需要准备时启动已获许可的操作。如果返回任务 ID，将下方 `JOB_ID` 替换为实际 ID：
@@ -219,7 +213,7 @@ Worker 将 `YOUR_OWN_CREDENTIAL_PATH` 替换为自己经验证的启动钩子提
 **AI 智能体**
 
 ```bash
-1mcp project prepare wait codegraph JOB_ID --operation codegraph_explore --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER" --wait-ms 5000
+1mcp project prepare wait codegraph JOB_ID --operation codegraph_explore --project-set /work/feature-projects.json --project backend --wait-ms 5000
 ```
 
 排队或运行期间可重复有限等待。保持运行时、筛选条件、目标、所有者和操作一致。命令结束并不足够，必须确认就绪验证成功。失败时读取原因，解决问题后再明确重试。就绪后，重新检查服务器和 schema，再提交第 4 步中的**新工具调用**。准备过程不会自动重放原请求。
@@ -231,15 +225,15 @@ Worker 完成分配的任务后，释放自己所选的绑定：
 **AI 智能体——各调用方释放自己的绑定**
 
 ```bash
-1mcp project release --project-set /work/feature-projects.json --project backend --project-owner "$SESSION_OWNER" --format json
+1mcp project release --project-set /work/feature-projects.json --project backend --format json
 ```
 
-前端 worker 使用 `--project frontend`。父会话也需要使用自己的凭证释放它曾使用的各目标：
+前端 worker 使用 `--project frontend`。父会话也需以自动解析的自身所有权释放它曾使用的各目标：
 
 **AI 智能体——各调用方释放自己的绑定**
 
 ```bash
-1mcp project release --project-set /work/feature-projects.json --project frontend --project backend --project-owner "$SESSION_OWNER" --format json
+1mcp project release --project-set /work/feature-projects.json --project frontend --project backend --format json
 ```
 
 Release 会保护其他所有者。非零退出可能表示清理仍未完成，应检查返回的阻塞项。`SessionEnd` 提供有限时间的会话清理，但 `Stop` 和 `SubagentStop` 不是终止事件。Worker 应在任务结束时显式释放，而非每次回复之后释放。
@@ -249,8 +243,8 @@ Release 会保护其他所有者。非零退出可能表示清理仍未完成，
 **本地操作者 / worktree 管理器**
 
 ```bash
-1mcp project drain --project /work/backend-feature --project-owner "$SESSION_OWNER" --wait-ms 5000 --format json
-1mcp project status --project /work/backend-feature --project-owner "$SESSION_OWNER" --format json
+1mcp project drain --project /work/backend-feature --wait-ms 5000 --format json
+1mcp project status --project /work/backend-feature --format json
 ```
 
 必须确认 drain 成功退出，且该检出目录的结果为 `complete: true`。Status 即使仍有阻塞项也可能退出为零。Drain 允许已准入工作完成，不会自动取消任务。其他所有者、订阅、共享后端或未解决的准备恢复记录都可能阻止清理。解决报告的阻塞项后重试 drain。Windows 上，如果无法验证正常退出，运行中的 stdio 后端可能持续阻塞清理。
@@ -270,7 +264,7 @@ git -C /work/backend worktree remove /work/backend-feature
 **本地操作者 / worktree 管理器**
 
 ```bash
-1mcp project resume --project /work/backend-feature --project-owner "$SESSION_OWNER" --format json
+1mcp project resume --project /work/backend-feature --format json
 ```
 
 超时会保留 draining 状态。该状态跨运行时重启及同一路径的删除重建持续存在，复用前必须执行 `resume`；它不会启动或准备后端。详细结果和阻塞项见[项目生命周期](/zh/commands/project/)。

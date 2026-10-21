@@ -119,19 +119,18 @@ npx -y @1mcp/agent --config staging.json --port 3052
 **适用场景**：让 agent 在调用工具前先发现当前服务器和工具 schema，而不是靠猜测
 **优势特点**：`instructions` 提供 playbook，`inspect` 暴露 schema，`run` 执行工具调用
 
-**推荐流程**：启动钩子交付指引和私有所有者凭证。智能体在下方填入自己的凭证，并保留已分配的项目选择参数。仅在缺少指引或需要刷新时运行 `instructions`。
+**推荐流程**：启动钩子交付指引和私有所有者凭证。使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。覆盖已分配默认目标时才使用显式项目参数。仅在缺少指引或需要刷新时运行 `instructions`。
 
 ```bash
 # 终端 1
 1mcp serve
 
 # 终端 2
-# 替换为本会话 bootstrap 提供的凭证。
 # 仅在缺少当前目标指引或需要刷新时执行。
-1mcp instructions --project-owner /private/session-owner.json
-1mcp inspect context7 --project-owner /private/session-owner.json
-1mcp inspect context7/query-docs --project-owner /private/session-owner.json
-1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}' --project-owner /private/session-owner.json
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 **引导安装方式**：

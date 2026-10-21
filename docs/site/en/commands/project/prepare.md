@@ -59,7 +59,7 @@ Make a configured backend ready for a selected checkout and operation, for examp
 | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `--project <path-or-label>`                                     | Absolute checkout path, or member label with a project set. Select one checkout for checkout-specific work.                        |
 | `--project-set <path>`                                          | Saved project-set definition; use `--project <label>` to select the checkout.                                                      |
-| `--project-owner <file>`                                        | Retain the private credential supplied by this local caller’s bootstrap.                                                           |
+| `--project-owner <file>`                                        | Override automatic owner lookup when required, using this caller’s own bootstrap credential.                                       |
 | `--operation <name>`                                            | Operation-specific readiness, usually the upstream tool name. Preserve it from inspection/start; ID-based controls can recover it. |
 | `--url <url>`                                                   | Override the detected runtime URL.                                                                                                 |
 | `--context <name>`                                              | Attach using a named runtime target context.                                                                                       |
@@ -69,28 +69,28 @@ Make a configured backend ready for a selected checkout and operation, for examp
 
 Global configuration options also apply. Use `1mcp project prepare --help` and subcommand help to see available flags. Keep the same runtime, filters, checkout, and operation across controls and subsequent tool calls.
 
-Retain `--project-owner <file>` with the private credential supplied by this local caller’s bootstrap. Replace `/private/session-owner.json` below with that path; workers use their own credentials. See [Project and owner options](/guide/project-checkouts#project-and-owner-options).
+The examples use automatic ownership in a supported Codex session. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>`. Omit `--project` when working on the assigned default; keep it across related calls when overriding that default. See [Project and owner options](/guide/project-checkouts#project-and-owner-options).
 
 ## Example: inspect, prepare, and resume
 
 Assume an operator has configured `source-search` with a permitted preparation action for `lookup`:
 
 ```bash
-1mcp project prepare inspect source-search --project /work/frontend --operation lookup --format json --project-owner /private/session-owner.json
-1mcp project prepare start source-search --project /work/frontend --operation lookup --format json --project-owner /private/session-owner.json
+1mcp project prepare inspect source-search --project /work/frontend --operation lookup --format json
+1mcp project prepare start source-search --project /work/frontend --operation lookup --format json
 # If the response contains a job, copy its status.id:
 JOB_ID='replace-with-returned-job-id'
-1mcp project prepare wait source-search "$JOB_ID" --project /work/frontend --wait-ms 5000 --format json --project-owner /private/session-owner.json
-1mcp project prepare status source-search "$JOB_ID" --project /work/frontend --format json --project-owner /private/session-owner.json
+1mcp project prepare wait source-search "$JOB_ID" --project /work/frontend --wait-ms 5000 --format json
+1mcp project prepare status source-search "$JOB_ID" --project /work/frontend --format json
 ```
 
 If start reports `ready`, there is no job to wait for. Otherwise inspect the returned state, waiting again only while work is pending and within the task's budget. After readiness is verified:
 
 ```bash
-1mcp inspect source-search --project /work/frontend --project-owner /private/session-owner.json
-1mcp inspect source-search/lookup --project /work/frontend --project-owner /private/session-owner.json
+1mcp inspect source-search --project /work/frontend
+1mcp inspect source-search/lookup --project /work/frontend
 # Supply arguments matching the freshly inspected schema:
-1mcp run source-search/lookup --project /work/frontend --args '{"query":"example"}' --project-owner /private/session-owner.json
+1mcp run source-search/lookup --project /work/frontend --args '{"query":"example"}'
 ```
 
 **Preparation never executes or replays the original tool call.** A tool call that triggers automatic preparation also requires a fresh invocation after readiness. Preserve additional runtime/filter flags if used in your session.
@@ -104,8 +104,8 @@ If start reports `ready`, there is no job to wait for. Otherwise inspect the ret
 - `unknown`, `unsupported`, `conflict`, `forbidden`, `disabled`, or `busy`: follow the returned instructions and report the blocker. Do not infer readiness, break foreign locks, or change permissions to force progress.
 
 ```bash
-1mcp project prepare retry source-search "$JOB_ID" --project /work/frontend --format json --project-owner /private/session-owner.json
-1mcp project prepare cancel source-search "$JOB_ID" --project /work/frontend --format json --project-owner /private/session-owner.json
+1mcp project prepare retry source-search "$JOB_ID" --project /work/frontend --format json
+1mcp project prepare cancel source-search "$JOB_ID" --project /work/frontend --format json
 ```
 
 These are alternative recovery actions, not a sequence to execute routinely. Read-only inspection never starts preparation. Command success alone does not prove backend readiness; the response state and probe evidence determine the next step. Preparation requires a configured integration, and process containment currently supports Linux and macOS.

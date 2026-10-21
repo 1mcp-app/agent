@@ -50,13 +50,14 @@ CLI 模式把 agent 的工作方式从：
 
 然后让 agent 按以下顺序工作：
 
+使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。
+
 ```bash
-# 替换为本会话 bootstrap 提供的凭证。
 # 仅在缺少当前目标指引或需要刷新时执行。
-1mcp instructions --project-owner /private/session-owner.json
-1mcp inspect <server> --project-owner /private/session-owner.json
-1mcp inspect <server>/<tool> --project-owner /private/session-owner.json
-1mcp run <server>/<tool> --args '<json>' --project-owner /private/session-owner.json
+1mcp instructions
+1mcp inspect <server>
+1mcp inspect <server>/<tool>
+1mcp run <server>/<tool> --args '<json>'
 ```
 
 每一步都会继续收窄上下文：
@@ -109,7 +110,7 @@ CLI 模式把 agent 的工作方式从：
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-启用并信任已安装的钩子，应用 setup 输出的客户端配置，然后启动新会话。启动钩子运行 `bootstrap`，创建调用方的所有者凭证，并通过 `instructions` 获取指引。确认智能体收到这两项内容后，按上方步骤检查并调用工具，每次调用保留凭证。每个 worker 都需要自己的凭证。
+启用并信任已安装的钩子，应用 setup 输出的客户端配置，然后启动新会话。启动钩子运行 `bootstrap`，创建调用方的所有者凭证，并通过 `instructions` 获取指引。确认智能体收到这两项内容后，按上方步骤检查并调用工具。使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。
 
 仅在缺少当前目标指引或需要刷新时单独运行 `instructions`；它不会创建所有者凭证。钩子排障见 [CLI setup](/zh/commands/cli-setup)，明确选择检出目录及分配 worker 的流程见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
 
