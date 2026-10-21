@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { bootstrapOwner } from '@src/commands/bootstrap/bootstrapOwnership.js';
+import { temporaryProjectOwnerStorage } from '@src/commands/shared/projectOwnerStorage.js';
 import {
   createHookProjectOwner,
   markProjectOwnerEnded,
@@ -157,6 +158,7 @@ describe('resolveServeTarget', () => {
         await expect(resolveServeTarget(options, { agentSession: true })).rejects.toThrow('retarget');
       } finally {
         await rm(storage, { recursive: true, force: true });
+        await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
       }
     },
   );
@@ -182,6 +184,7 @@ describe('resolveServeTarget', () => {
       } finally {
         vi.unstubAllEnvs();
         await rm(storage, { recursive: true, force: true });
+        await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
       }
     },
   );
@@ -215,6 +218,7 @@ describe('resolveServeTarget', () => {
       expect(mockedResolveProjectContext).toHaveBeenCalledWith(await realpath(checkout));
     } finally {
       await rm(storage, { recursive: true, force: true });
+      await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
     }
   });
 
@@ -255,6 +259,7 @@ describe('resolveServeTarget', () => {
     } finally {
       vi.unstubAllEnvs();
       await rm(storage, { recursive: true, force: true });
+      await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
     }
   });
 
@@ -284,6 +289,7 @@ describe('resolveServeTarget', () => {
     } finally {
       vi.unstubAllEnvs();
       await rm(storage, { recursive: true, force: true });
+      await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
     }
   });
 
@@ -295,7 +301,7 @@ describe('resolveServeTarget', () => {
       vi.stubEnv('CODEX_SESSION_ID', '');
       await expect(
         resolveServeTarget<ResolvableServeTargetOptions>({ 'config-dir': storage }, { agentSession: true }),
-      ).rejects.toThrow('No private hook thread locator');
+      ).resolves.toMatchObject({ mergedOptions: { 'config-dir': storage } });
       vi.stubEnv('CODEX_SESSION_ID', 'root');
       await expect(
         resolveServeTarget<ResolvableServeTargetOptions>({ 'config-dir': storage }, { agentSession: true }),
@@ -311,6 +317,7 @@ describe('resolveServeTarget', () => {
     } finally {
       vi.unstubAllEnvs();
       await rm(storage, { recursive: true, force: true });
+      await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
     }
   });
 
@@ -341,6 +348,7 @@ describe('resolveServeTarget', () => {
       expect((await resolveServeTarget(options, { agentSession: true })).projectSet?.selection).toBeUndefined();
     } finally {
       await rm(storage, { recursive: true, force: true });
+      await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
     }
   });
 
@@ -366,6 +374,7 @@ describe('resolveServeTarget', () => {
     } finally {
       vi.unstubAllEnvs();
       await rm(storage, { recursive: true, force: true });
+      await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
     }
   });
 

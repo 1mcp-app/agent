@@ -4,6 +4,7 @@ import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
 import { getConfigDir } from '@src/constants.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 
+import { hasProjectOwnerState, resolveProjectOwnerStorage } from './projectOwnerStorage.js';
 import {
   hookProjectOwnerPath,
   isProjectOwnerEnded,
@@ -19,14 +20,21 @@ export async function resolveAgentSessionOptions<T extends GlobalOptions>(option
   const automatic = !ownerFile;
   if (!ownerFile) {
     const environment = getRuntimeParentEnvironment();
-    const sessionId = environment.CODEX_SESSION_ID;
-    const threadId = environment.CODEX_THREAD_ID;
+    const sessionId = environment.CODEX_SESSION_ID || undefined;
+    const threadId = environment.CODEX_THREAD_ID || undefined;
     if (!sessionId && !threadId) return options;
-    if (!threadId)
+    const storageDirectory = await resolveProjectOwnerStorage(
+      getConfigDir(options['config-dir']),
+      'codex',
+      threadId ?? sessionId!,
+      sessionId,
+    );
+    if (!threadId) {
+      if (!(await hasProjectOwnerState(storageDirectory, 'codex', sessionId!, sessionId))) return unintegrated(options);
       throw new Error(
         'Automatic Codex ownership needs CODEX_THREAD_ID or your own bootstrap --project-owner reference',
       );
-    const storageDirectory = getConfigDir(options['config-dir']);
+    }
     const locator = await readHookThreadLocator(storageDirectory, 'codex', threadId);
     if (locator) {
       if (sessionId && sessionId !== locator.identity.sessionId)
@@ -34,6 +42,7 @@ export async function resolveAgentSessionOptions<T extends GlobalOptions>(option
       ownerFile = locator.ownerFile;
       worker = Boolean(locator.identity.agentId);
     } else {
+      if (!(await hasProjectOwnerState(storageDirectory, 'codex', threadId, sessionId))) return unintegrated(options);
       if (!sessionId)
         throw new Error('No private hook thread locator; retain your own bootstrap --project-owner reference');
       worker = threadId !== sessionId;
@@ -73,4 +82,11 @@ export async function resolveAgentSessionOptions<T extends GlobalOptions>(option
     );
   }
   return { ...resolved, project: assignment.project, 'project-set': assignment['project-set'] };
+}
+
+function unintegrated<T extends GlobalOptions>(options: T): T {
+  process.stderr.write(
+    'Ownership coverage gap: no hook-written session record; continuing without session defaults.\n',
+  );
+  return options;
 }

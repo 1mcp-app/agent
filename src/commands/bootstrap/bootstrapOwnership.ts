@@ -1,6 +1,12 @@
 import path from 'node:path';
 
 import {
+  createProjectOwnerStorage,
+  hasProjectOwnerState,
+  resolveProjectOwnerStorage,
+  temporaryProjectOwnerStorage,
+} from '@src/commands/shared/projectOwnerStorage.js';
+import {
   assertNoProjectOwnerCalls,
   assertProjectOwnerAbsent,
   createHookProjectOwner,
@@ -53,10 +59,22 @@ function identity(options: OwnershipHookOptions, input: string) {
 
 export async function bootstrapOwner(options: OwnershipHookOptions, input: string): Promise<string> {
   if (options.event === 'SessionEnd') throw new Error('End events cannot create ownership');
-  if (input.trim()) identity(options, input);
-  const file =
-    options['project-owner'] ??
-    (await createHookProjectOwner(getConfigDir(options['config-dir']), identity(options, input)));
+  const hookIdentity = input.trim() ? identity(options, input) : undefined;
+  const storage = hookIdentity
+    ? await resolveProjectOwnerStorage(
+        getConfigDir(options['config-dir']),
+        hookIdentity.client,
+        hookIdentity.agentId ?? hookIdentity.sessionId,
+        hookIdentity.sessionId,
+      )
+    : undefined;
+  let file = options['project-owner'];
+  if (!file) {
+    if (!hookIdentity || !storage) throw new Error('Missing hook owner identity');
+    if (storage === temporaryProjectOwnerStorage(getConfigDir(options['config-dir'])))
+      await createProjectOwnerStorage(storage);
+    file = await createHookProjectOwner(storage, hookIdentity);
+  }
   await readProjectOwner(file);
   const parsed = input.trim() ? inputSchema.parse(JSON.parse(input)) : undefined;
   let project = options.project;
@@ -69,7 +87,7 @@ export async function bootstrapOwner(options: OwnershipHookOptions, input: strin
     ...(project ? { project } : {}),
     ...(options['project-set'] ? { 'project-set': options['project-set'] } : {}),
   });
-  if (input.trim()) await recordHookThreadLocator(getConfigDir(options['config-dir']), identity(options, input), file);
+  if (hookIdentity && storage) await recordHookThreadLocator(storage, hookIdentity, file);
   return file;
 }
 
@@ -79,7 +97,18 @@ export async function releaseSessionOwner(
   release: (ownerFile: string, target: ProjectOwnerTarget) => Promise<void>,
 ): Promise<void> {
   if (options.event !== 'SessionEnd') throw new Error('Only verified SessionEnd may release ownership');
-  const file = hookProjectOwnerPath(getConfigDir(options['config-dir']), identity(options, input));
+  const hookIdentity = identity(options, input);
+  const storage = await resolveProjectOwnerStorage(
+    getConfigDir(options['config-dir']),
+    hookIdentity.client,
+    hookIdentity.sessionId,
+    hookIdentity.sessionId,
+  );
+  const file = hookProjectOwnerPath(storage, hookIdentity);
+  if (!(await hasProjectOwnerState(storage, hookIdentity.client, hookIdentity.sessionId, hookIdentity.sessionId))) {
+    await assertProjectOwnerAbsent(file, hookIdentity);
+    return;
+  }
   await withProjectOwnerLock(file, async () => {
     if ((await readProjectOwnerTerminal(file))?.released) {
       await removeProjectOwner(file);

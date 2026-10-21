@@ -1,6 +1,19 @@
+import { resolveAgentSessionOptions } from '@src/commands/shared/agentSession.js';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { formatProjectOutput, projectCommand } from './project.js';
+
+vi.mock('@src/commands/shared/agentSession.js', () => ({
+  resolveAgentSessionOptions: vi.fn(async (options) => options),
+}));
+vi.mock('@src/domains/runtime-targets/runtimeTargetStore.js', () => ({
+  RuntimeTargetStore: class {
+    resolveForConnection(context?: string) {
+      return { name: context ?? 'local' };
+    }
+  },
+}));
 
 const attach = vi.hoisted(() => vi.fn());
 vi.mock('@src/commands/shared/clientSurfaceAttachment.js', () => ({
@@ -24,6 +37,38 @@ const pending = {
 };
 
 describe('project lifecycle results', () => {
+  it.each(['http://localhost:4000/mcp', 'https://remote.example/mcp'])(
+    'does not infer ownership or assignment for explicit URL %s',
+    async (url) => {
+      vi.mocked(resolveAgentSessionOptions).mockClear();
+      attach.mockResolvedValue({ status: 'success', value: pending });
+      vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      await projectCommand({ action: 'status', url });
+      expect(resolveAgentSessionOptions).not.toHaveBeenCalled();
+      expect(attach.mock.lastCall?.[0].options['project-owner']).toBeUndefined();
+      await expect(projectCommand({ action: 'release', url })).rejects.toThrow('project-owner');
+    },
+  );
+
+  it('does not resolve local session defaults for a named remote target', async () => {
+    vi.mocked(resolveAgentSessionOptions).mockClear();
+    attach.mockResolvedValue({ status: 'success', value: pending });
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    await projectCommand({ action: 'status', context: 'production' });
+    expect(resolveAgentSessionOptions).not.toHaveBeenCalled();
+  });
+
+  it('retains explicit loopback owner resolution and implicit local defaults', async () => {
+    vi.mocked(resolveAgentSessionOptions).mockClear();
+    attach.mockResolvedValue({ status: 'success', value: pending });
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const explicit = { action: 'status' as const, url: 'http://localhost:4000/mcp', 'project-owner': '/own.json' };
+    await projectCommand(explicit);
+    expect(resolveAgentSessionOptions).toHaveBeenCalledWith(explicit);
+    await projectCommand({ action: 'status' });
+    expect(resolveAgentSessionOptions).toHaveBeenCalledWith({ action: 'status' });
+  });
+
   it('returns nonzero for an accepted but incomplete drain and includes blockers in JSON', async () => {
     attach.mockResolvedValue({ status: 'success', value: pending });
     const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);

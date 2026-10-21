@@ -5,6 +5,7 @@ import {
   formatClientSurfaceAuthRequiredMessage,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
+import { usesLocalAgentDefaults } from '@src/commands/shared/serveTargetResolver.js';
 import { API_BASE_PATH } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 
@@ -62,7 +63,7 @@ export async function projectCommand(options: ProjectCommandOptions): Promise<vo
     process.stdout.write(`${JSON.stringify({ recovered: true })}\n`);
     return;
   }
-  options = await resolveAgentSessionOptions(options);
+  if (usesLocalAgentDefaults(options)) options = await resolveAgentSessionOptions(options);
   const parsed = optionsSchema.parse(options);
   if (parsed.action === 'release' && !options['project-owner']) {
     throw new Error('Release requires --project-owner from this session or worker bootstrap');

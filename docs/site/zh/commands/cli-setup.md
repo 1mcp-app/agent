@@ -105,7 +105,7 @@ npx -y @1mcp/agent cli-setup --codex --scope all
 
 ## Worker 引导与项目分配
 
-`bootstrap` 从 stdin 读取客户端钩子 JSON，为指定事件输出 `hookSpecificOutput.additionalContext`。[Codex](https://developers.openai.com/codex/hooks) 和 [Claude](https://code.claude.com/docs/en/hooks) 均支持该格式。stdin 上限为 64 KiB，等待期限为一秒；运行时指令获取期限为五秒。成功获取的指令会完整交付，不再设置子进程输出大小上限或上下文大小截断。输入无效或运行时失败时仍交付通用指引并报告覆盖缺口，不声称已经交付完整项目指令。
+`bootstrap` 从 stdin 读取客户端钩子 JSON，为指定事件输出 `hookSpecificOutput.additionalContext`。[Codex](https://learn.chatgpt.com/docs/hooks) 和 [Claude](https://code.claude.com/docs/en/hooks) 均支持该格式。stdin 上限为 64 KiB，等待期限为一秒；运行时指令获取期限为五秒。成功获取的指令会完整交付，不再设置子进程输出大小上限或上下文大小截断。输入无效或运行时失败时仍交付通用指引并报告覆盖缺口，不声称已经交付完整项目指令。
 
 当渲染后的运行时指令超过 9,000 字符（按 JavaScript 字符串长度计算）时，bootstrap 会附加一条建议，要求 agent 简短告知用户，并推荐使用 1MCP preset 在未来会话中选择更少的相关 MCP 服务器，例如 `1mcp instructions --preset <name>`。该阈值不包含静态指引和序列化后的项目分配。所有指令和有效项目分配均完整保留；agent 继续当前任务，不自动修改配置。指令长度小于或等于阈值时不附加建议。
 
@@ -156,7 +156,7 @@ Setup 只安装指引，不会启动准备工作、启用自动准备或更改�
 
 Claude 以及既无可信线程定位记录、也无完整双标识接入的 Codex 宿主，需要在后续调用及手动 bootstrap 重试中保留钩子提供的 `--project-owner <own-file>`。将上例 `/private/your-worker-owner.json` 替换为自己的钩子凭证路径。不得使用父会话凭证或伪造钩子身份；没有凭证时先解决受信任钩子交付缺口。环境标识仅定位已有凭证，不会创建凭证或授权远程生命周期控制。保持签发凭证时的配置目录；切换本地运行时范围时可显式指定自己的凭证路径。
 
-所有者跟踪会写入 `<config-dir>/project-owners` 下的私有凭证、分配和释放记录；省略配置目录时使用默认配置目录。仅允许工作区写入的沙箱可能需要为该目录及目标记录授予限定写权限。权限拒绝会阻止调用，应通过宿主权限流程仅开放所需目录。Setup 不扩大沙箱权限，调用不会静默丢弃所有权。
+新会话将私有凭证、分配、锁和释放记录写入 `<os-temp>/1mcp-owners-<user-and-config-hash>/project-owners`。系统临时目录由 Node.js `os.tmpdir()` 决定；钩子和 CLI 调用必须使用相同的临时目录与配置目录。目录仅所有者可访问（`0700`），凭证文件权限为 `0600`。运行时配置保留原位置。已有会话继续使用原来的 `<config-dir>/project-owners` 记录直到验证清理完成；不要复制或移动活跃凭证。使用更新后的 CLI 启动新会话即可使用临时存储。系统清理或重启可能丢失临时记录；记录缺失不能证明运行时已释放所有权。权限错误、不完整或冲突的记录会阻止调用。完全没有钩子记录时，普通调用使用 cwd 并输出所有权覆盖缺口提示。Setup 不扩大沙箱权限。
 
 已验证的根会话 `SessionEnd` 仅释放该所有者记录的选择。每个目标确认安全释放该所有者后，删除其凭证、线程定位记录、分配、选择快照和目标记录，保护其他所有者及共享资源。重复结束清理是安全的。释放等待中、失败或结果不确定时保留凭证及终止日志，可有限重试：
 

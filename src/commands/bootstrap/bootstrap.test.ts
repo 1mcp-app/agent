@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 
+import { temporaryProjectOwnerStorage } from '@src/commands/shared/projectOwnerStorage.js';
 import {
   createHookProjectOwner,
   readProjectOwnerAssignment,
@@ -49,6 +50,7 @@ describe('worker bootstrap client contracts', () => {
       stdout.mockRestore();
       vi.unstubAllEnvs();
       await fs.rm(storage, { recursive: true, force: true });
+      await fs.rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
     }
   });
 
@@ -88,6 +90,7 @@ describe('worker bootstrap client contracts', () => {
       stdin.mockRestore();
       stdout.mockRestore();
       await fs.rm(storage, { recursive: true, force: true });
+      await fs.rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
     }
   });
   it('emits sanitized SessionEnd failure diagnostics on stderr for clients that discard JSON', async () => {

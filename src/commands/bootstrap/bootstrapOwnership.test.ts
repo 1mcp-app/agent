@@ -2,6 +2,7 @@ import { access, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { temporaryProjectOwnerStorage } from '@src/commands/shared/projectOwnerStorage.js';
 import {
   isProjectOwnerEnded,
   readHookThreadLocator,
@@ -14,7 +15,12 @@ import { bootstrapOwner, recoverEndedSessionOwner, releaseSessionOwner } from '.
 
 const directories: string[] = [];
 afterEach(async () => {
-  await Promise.all(directories.splice(0).map((entry) => rm(entry, { recursive: true, force: true })));
+  await Promise.all(
+    directories
+      .splice(0)
+      .flatMap((entry) => [entry, temporaryProjectOwnerStorage(entry)])
+      .map((entry) => rm(entry, { recursive: true, force: true })),
+  );
 });
 
 describe('bootstrap ownership lifecycle', () => {
@@ -49,8 +55,10 @@ describe('bootstrap ownership lifecycle', () => {
       'config-dir': '/runtime',
       runtimeScopeId: 'scope-a',
     });
-    expect(await readHookThreadLocator(storage, 'codex', 'a')).toBeUndefined();
-    expect((await readHookThreadLocator(storage, 'codex', 'child'))?.ownerFile).toBe(worker);
+    expect(await readHookThreadLocator(temporaryProjectOwnerStorage(storage), 'codex', 'a')).toBeUndefined();
+    expect((await readHookThreadLocator(temporaryProjectOwnerStorage(storage), 'codex', 'child'))?.ownerFile).toBe(
+      worker,
+    );
   });
 
   it('removes private state only after complete terminal release and allows a repeated end event', async () => {
@@ -69,7 +77,9 @@ describe('bootstrap ownership lifecycle', () => {
     ).rejects.toThrow('incomplete');
     await expect(access(file)).resolves.toBeUndefined();
     await expect(access(`${file}.targets`)).resolves.toBeUndefined();
-    expect((await readHookThreadLocator(storage, 'codex', 'ended'))?.ownerFile).toBe(file);
+    expect((await readHookThreadLocator(temporaryProjectOwnerStorage(storage), 'codex', 'ended'))?.ownerFile).toBe(
+      file,
+    );
     await releaseSessionOwner(end, terminalInput, async () => {});
     await expect(access(file)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(access(`${file}.targets`)).rejects.toMatchObject({ code: 'ENOENT' });

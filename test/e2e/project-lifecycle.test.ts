@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { bootstrapOwner } from '@src/commands/bootstrap/bootstrapOwnership.js';
+import { temporaryProjectOwnerStorage } from '@src/commands/shared/projectOwnerStorage.js';
 
 import { expect, it } from 'vitest';
 
@@ -235,5 +236,6 @@ it('isolates owners, verifies backend exit, and persists drain through restart a
       await closed;
     }
     await rm(directory, { recursive: true, force: true });
+    await rm(temporaryProjectOwnerStorage(configDirectory), { recursive: true, force: true });
   }
 }, 90000);

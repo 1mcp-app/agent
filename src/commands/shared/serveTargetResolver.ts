@@ -308,7 +308,10 @@ async function recordedCleanupTarget(options: ResolvableServeTargetOptions): Pro
   throw new Error('Cleanup selectors do not match a recorded owner target');
 }
 
-function usesLocalAgentDefaults(options: ResolvableServeTargetOptions, ports: ServeTargetResolverPorts): boolean {
+export function usesLocalAgentDefaults(
+  options: ResolvableServeTargetOptions,
+  ports: ServeTargetResolverPorts = {},
+): boolean {
   if (options.url) {
     if (!options['project-owner']) return false;
     return isLoopbackHost(new URL(options.url).hostname);
