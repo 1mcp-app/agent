@@ -4,6 +4,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
+    // Test subprocesses must never discover a live host session's credential.
+    env: { CODEX_SESSION_ID: '', CODEX_THREAD_ID: '' },
     environment: 'node',
     include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs'],
     globals: true,

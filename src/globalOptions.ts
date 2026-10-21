@@ -13,12 +13,14 @@ import type { Argv } from 'yargs';
 
 export const globalOptions = {
   'project-owner': {
-    describe: 'Private caller credential file supplied by agent bootstrap (env: ONE_MCP_PROJECT_OWNER)',
+    describe:
+      'Override automatic session ownership with your own private bootstrap credential (env: ONE_MCP_PROJECT_OWNER)',
     type: 'string' as const,
     default: undefined,
   },
   project: {
-    describe: 'Explicit checkout path, or selected labels from --project-set',
+    describe:
+      'Per-call checkout override, or selected labels from --project-set; defaults to the assigned session project or cwd',
     type: 'array' as const,
     string: true,
   },

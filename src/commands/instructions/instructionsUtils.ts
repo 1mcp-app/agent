@@ -1,4 +1,5 @@
 import { PREPARATION_GUIDANCE } from '@src/core/instructions/preparationGuidance.js';
+import { SESSION_GUIDANCE } from '@src/core/instructions/sessionGuidance.js';
 
 import chalk from 'chalk';
 
@@ -78,8 +79,8 @@ export function formatInstructionsOutput(output: InstructionsOutput): string {
       '7. Use `--preset`, `--tags`, or `--tag-filter` to narrow the server set when needed.',
       '8. If authentication is required, run `1mcp auth login --context <name> --token <token>` and retry.',
       '',
-      'Read the server type in the `1mcp instructions` server summary or `1mcp inspect <server>` metadata: `type: external` identifies a static server; `type: template` identifies a dynamic server. Retain the assigned project selectors during discovery that may include dynamic servers, and when the server type is missing or unknown. Omit them only for a target confirmed as static.',
-      'Static-server inspection (`1mcp inspect <server>` or `1mcp inspect <server>/<tool>`) does not require `--project` or `--project-set`. Retain the assigned project selectors when inspecting dynamic, project-dependent servers.',
+      'Read the server type in the `1mcp instructions` server summary or `1mcp inspect <server>` metadata: `type: external` identifies a static server; `type: template` identifies a dynamic server. For work outside the session default, retain the same explicit target during project-dependent discovery, inspection, and tool calls.',
+      SESSION_GUIDANCE,
       '',
       'Search uses case-insensitive literal substring matching on server/tool references. Use a quoted pattern such as `--search "filesystem/*read?" --glob` for whole-reference matching with only `*` and `?` wildcards.',
       '`--include-descriptions` also matches effective descriptions using the selected matching mode; `--show-descriptions` independently displays descriptions without changing matches.',
