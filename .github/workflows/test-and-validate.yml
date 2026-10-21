@@ -70,7 +70,7 @@ jobs:
         run: pnpm ci:static
 
       - name: Test bounded release failure and recovery fixtures (no publication)
-        run: node --test test/release/*.test.cjs
+        run: pnpm test:release
 
       # AUTH-07 gate: credential-file permission invariants (0600 files / 0700
       # dirs, fail-closed read+write) as a named, separately inspectable step.

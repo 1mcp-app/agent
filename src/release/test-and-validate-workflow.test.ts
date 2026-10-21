@@ -289,7 +289,10 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['ci:static']).toContain('pnpm lint');
     expect(packageJson.scripts['ci:static']).toContain('pnpm typecheck');
     expect(packageJson.scripts['ci:static']).toContain('pnpm build');
-    expect(packageJson.scripts['ci:static']).not.toContain('pnpm test:');
+    expect(packageJson.scripts['ci:static']).toContain('pnpm test:sdk-boundary');
+    for (const command of ['pnpm test:unit', 'pnpm test:admin', 'pnpm test:e2e']) {
+      expect(packageJson.scripts['ci:static']).not.toContain(command);
+    }
     expect(nonBrowserJob).toBeDefined();
     expect(nonBrowserJob).toContain('timeout-minutes: 15');
     expect(nonBrowserJob).not.toContain('needs: ci');
