@@ -5,6 +5,10 @@ description: 为 Codex 或 Claude 安装 1MCP CLI 模式的引导文档和 hooks
 
 # CLI Setup 命令
 
+客户端钩子运行 `bootstrap`，建立所有权并通过 `instructions` 获取指引。智能体仅在缺少当前指引或需要刷新时单独运行 `instructions`；它不会创建所有者凭证。完整流程见[启动工作流](/zh/guide/worktrees-and-cross-project-sessions)。
+
+从设置到清理的完整流程，参见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
+
 为 Codex 或 Claude 安装 1MCP CLI 的引导文档和钩子配置。
 
 ## 概要
@@ -21,7 +25,7 @@ npx -y @1mcp/agent cli-setup (--codex | --claude) [选项]
 - 受管理的 `SessionStart`、`SubagentStart` 引导命令钩子及 `SessionEnd` 调用方清理
 - 从 `AGENTS.md` 或 `CLAUDE.md` 指向启动文档的引用
 
-`cli-setup` 不会替代 [`instructions`](./instructions.md)。它的作用是确保会话准备好按正确顺序使用 `instructions`、`inspect` 和 `run`。
+`cli-setup` 不会替代 [`instructions`](/zh/commands/instructions)。它的作用是确保会话准备好按正确顺序使用 `instructions`、`inspect` 和 `run`。
 
 可以把 `cli-setup` 理解为把现有 agent 工作流迁移到 1MCP CLI 模式的桥。它负责教客户端怎么开始，但真正的实时发现和执行仍然通过 `instructions`、`inspect`、`run` 完成。
 
@@ -115,9 +119,11 @@ Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选�
 
 在派发任务的上下文中，为每个 worker 写明绝对 checkout 路径或项目集合定义文件的绝对路径。Worker 在获取项目指令或调用工具之前执行其中一种命令：
 
+在 Claude 示例中，将 `/private/your-worker-owner.json` 替换为该 worker 自己的启动凭证，不能复用父会话凭证。
+
 ```bash
 1mcp bootstrap --client codex --event SubagentStart --project /absolute/frontend-checkout
-1mcp bootstrap --client claude --event SubagentStart --project-owner /private/your-worker-owner.json --project-set /absolute/feature-projects.json
+1mcp bootstrap --client claude --event SubagentStart --project-owner /private/your-worker-owner.json --project-set /absolute/feature-projects.json --project backend
 1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend
 ```
 
@@ -129,11 +135,11 @@ Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选�
 
 ## 另请参阅
 
-- **[CLI 模式指南](../guide/integrations/cli-mode.md)** - 面向 agent 的 CLI 工作流概念说明
-- **[Instructions 命令](./instructions.md)** - `cli-setup` 最终引导会话进入的命令
-- **[Inspect 命令](./inspect.md)** - 发现工具和查看 schema
-- **[Run 命令](./run.md)** - 调用选中的工具
-- **[Codex 集成指南](../guide/integrations/codex.md)** - Codex 的完整配置流程
+- **[CLI 模式指南](/zh/guide/integrations/cli-mode)** - 面向 agent 的 CLI 工作流概念说明
+- **[Instructions 命令](/zh/commands/instructions)** - `cli-setup` 最终引导会话进入的命令
+- **[Inspect 命令](/zh/commands/inspect)** - 发现工具和查看 schema
+- **[Run 命令](/zh/commands/run)** - 调用选中的工具
+- **[Codex 集成指南](/zh/guide/integrations/codex)** - Codex 的完整配置流程
 
 ## 准备工作指引
 

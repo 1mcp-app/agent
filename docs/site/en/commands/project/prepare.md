@@ -40,8 +40,6 @@ Make a configured backend ready for a selected checkout and operation, for examp
 
 `backend` is the configured server name, not an executable or tool reference. `project prepare <backend>` is shorthand for `project prepare start <backend>`. Use explicit `start` for names matching subcommands, such as `1mcp project prepare start status`.
 
-The previous root commands `1mcp prepare` and `1mcp preparation` have been removed. Use `1mcp project prepare` for all preparation operations; no compatibility aliases are registered.
-
 ## Actions
 
 | Action                 | Behavior                                                                                                                                             |
@@ -61,6 +59,7 @@ The previous root commands `1mcp prepare` and `1mcp preparation` have been remov
 | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `--project <path-or-label>`                                     | Absolute checkout path, or member label with a project set. Select one checkout for checkout-specific work.                        |
 | `--project-set <path>`                                          | Saved project-set definition; use `--project <label>` to select the checkout.                                                      |
+| `--project-owner <file>`                                        | Override automatic owner lookup when required, using this caller’s own bootstrap credential.                                       |
 | `--operation <name>`                                            | Operation-specific readiness, usually the upstream tool name. Preserve it from inspection/start; ID-based controls can recover it. |
 | `--url <url>`                                                   | Override the detected runtime URL.                                                                                                 |
 | `--context <name>`                                              | Attach using a named runtime target context.                                                                                       |
@@ -69,6 +68,8 @@ The previous root commands `1mcp prepare` and `1mcp preparation` have been remov
 | `--wait-ms <milliseconds>`                                      | Only for `wait`; integer from 0 to 3,600,000. Omission uses the runtime default. This does not extend the job execution deadline.  |
 
 Global configuration options also apply. Use `1mcp project prepare --help` and subcommand help to see available flags. Keep the same runtime, filters, checkout, and operation across controls and subsequent tool calls.
+
+The examples use automatic ownership in a supported Codex session. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>`. Omit `--project` when working on the assigned default; keep it across related calls when overriding that default. See [Project and owner options](/guide/project-checkouts#project-and-owner-options).
 
 ## Example: inspect, prepare, and resume
 

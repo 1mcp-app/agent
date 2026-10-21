@@ -35,7 +35,7 @@ Most MCP setups eventually hit two kinds of sprawl:
 
 This page is optimized for AI agent users. The 5-minute outcome is simple: start a real `1mcp serve` runtime, connect your agent with `cli-setup`, then verify the `instructions -> inspect -> run` workflow.
 
-Install 1MCP, add one upstream server, and start the runtime:
+**You — setup:** install 1MCP, add one upstream server, and start the runtime:
 
 ```bash
 npm install -g @1mcp/agent
@@ -43,7 +43,7 @@ npm install -g @1mcp/agent
 1mcp serve
 ```
 
-In a second shell, connect your agent to CLI mode:
+**You — client setup:** in a second shell, connect your agent to CLI mode:
 
 ```bash
 1mcp cli-setup --codex
@@ -51,13 +51,10 @@ In a second shell, connect your agent to CLI mode:
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-Then verify the agent workflow:
+**AI agent — after startup:** follow this workflow, skipping `instructions` if hooks already delivered the current instructions. Keep the runtime above running; you do not need to repeat these agent commands manually. Verify that startup delivers guidance and establishes session ownership. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to the commands below; each worker uses its own credential.
 
 ```bash
-# shell 1
-1mcp serve
-
-# shell 2
+# Only if current target guidance is missing or needs refreshing:
 1mcp instructions
 1mcp inspect context7
 1mcp inspect context7/query-docs
@@ -67,6 +64,16 @@ Then verify the agent workflow:
 If you want the full walkthrough (with success criteria and off-ramps), use the [Quick Start guide](https://docs.1mcp.app/guide/quick-start).
 
 For a given agent, choose one mode only. If you switch that agent to CLI mode, remove its old direct MCP configuration first.
+
+## Work Across Projects and Worktrees
+
+Use one local runtime across repositories and Git worktrees. After configuring an installed backend with `mcp setup`, the agent selects a checkout on each call:
+
+```bash
+1mcp inspect codegraph --project /absolute/checkout
+```
+
+For the session’s assigned checkout, omit `--project`; explicit overrides do not change that default. Follow [Working Across Projects and Worktrees](https://docs.1mcp.app/guide/worktrees-and-cross-project-sessions) ([中文](https://docs.1mcp.app/zh/guide/worktrees-and-cross-project-sessions)) for setup, project sets, independent workers, optional preparation, and safe cleanup.
 
 ## Why CLI Mode Exists
 

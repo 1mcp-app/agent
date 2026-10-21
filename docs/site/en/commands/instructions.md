@@ -15,6 +15,8 @@ head:
 
 # Instructions Command
 
+Client hooks run `bootstrap` to establish ownership and fetch guidance through `instructions`. Agents run `instructions` separately only when current guidance is missing or needs refreshing; it does not create an owner credential. See [the startup workflow](/guide/worktrees-and-cross-project-sessions#bootstrap-and-instructions-which-one-runs).
+
 Show CLI-mode instructions for AI agents using a running 1MCP `serve` instance.
 
 ## Synopsis
@@ -60,6 +62,14 @@ Each server entry includes metadata such as:
 - **`--preset, -p <name>`** - Use a preset when querying the running server
 - **`--tag-filter, -f <expression>`** - Apply an advanced tag filter expression
 - **`--tags <tag>`** - Apply simple comma-separated tags
+
+### Project selection and ownership
+
+- **`--project <path-or-label>`** — Select a checkout or a project-set member.
+- **`--project-set <file>`** — Load a saved project set.
+- **`--project-owner <file>`** — Override automatic owner lookup with this caller’s own bootstrap credential when required.
+
+See [Project and owner options](/guide/project-checkouts#project-and-owner-options) for shared rules. Supported Codex sessions use their verified owner and assigned project automatically. Claude and hosts without automatic owner lookup must supply their own bootstrap `--project-owner <own-file>`. Keep explicit target overrides consistent across related calls.
 
 ## Examples
 

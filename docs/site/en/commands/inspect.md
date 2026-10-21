@@ -45,6 +45,14 @@ This is the command that turns the broad inventory from `instructions` into a sc
 
 ## Options
 
+### Project selection and ownership
+
+- **`--project <path-or-label>`** — Select a checkout or a project-set member.
+- **`--project-set <file>`** — Load a saved project set.
+- **`--project-owner <file>`** — Override automatic owner lookup with this caller’s own bootstrap credential when required.
+
+See [Project and owner options](/guide/project-checkouts#project-and-owner-options) for shared rules. Supported Codex sessions use their verified owner and assigned project automatically. Claude and hosts without automatic owner lookup must supply their own bootstrap `--project-owner <own-file>`. Keep explicit target overrides consistent across related calls.
+
 ### Connection and Filtering
 
 - **`--url, -u <url>`** - Override auto-detected 1MCP server URL

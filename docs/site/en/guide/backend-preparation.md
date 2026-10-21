@@ -5,6 +5,10 @@ description: Understand when a server needs preparation, enable a supplied recip
 
 # Backend Preparation
 
+For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
+
+Examples below use a supported Codex session with verified startup hooks: 1MCP resolves its owner and assigned project automatically. For Claude or hosts without automatic owner lookup, add `--project-owner <own-file>` using that caller’s bootstrap credential; workers use their own. Explicit project selectors below demonstrate overrides for another checkout. See [CLI setup](/commands/cli-setup#session-defaults-and-cleanup) for setup and fallback details.
+
 See the [Prepare command reference](/commands/project/prepare) for syntax, options, audiences, and recovery examples.
 
 Some MCP servers need to initialize a project or update an index before they can answer a request. **Preparation** lets 1MCP run those steps and check whether the server is ready for your selected project.
@@ -27,39 +31,84 @@ To configure one of these servers, follow [mcp setup](/commands/mcp/setup). You 
 
 If your team or integration maintainer supplies a recipe, save it and any accompanying helper files locally. Follow its instructions for supported backend versions, dependencies, required inputs, and permitted actions. Automatic preparation currently runs on Linux and macOS.
 
-Add a `preparation` section to the server's existing entry in `mcp.json`, under `mcpServers` or `mcpTemplates`. The example below shows the configuration shape: **`team-source-search` and its file path are placeholders, not a bundled recipe**. Replace them with the ID and absolute path supplied with your recipe.
+Choose the scope before copying the configuration:
+
+- **All authorized projects using this backend:** retain `activation: "setup"` below. Individual projects can disable preparation.
+- **Only selected projects:** omit `activation` and enable preparation in each selected checkout's `.1mcprc`, as shown below.
+
+Add preparation to the existing backend entry under `mcpServers` or `mcpTemplates`. The example below uses a CodeGraph template and a team-supplied recipe; it is not a bundled integration.
+
+Open the `mcp.json` used by your runtime and `mcp setup`. Add `preparation` **inside the existing `mcpTemplates.codegraph` entry**, alongside `command`, `args`, and `cwd`. This complete example shows its placement. Preserve your existing executable, environment, template options, and other servers; do not replace your entire file with this example.
+
+::: v-pre
 
 ```json
 {
-  "preparation": {
-    "adapter": "configured-command",
-    "definition": {
-      "id": "team-source-search",
-      "file": "/absolute/path/to/source-search.json"
-    },
-    "activation": "setup",
-    "allowedActions": ["initialize", "sync"]
+  "mcpServers": {},
+  "mcpTemplates": {
+    "codegraph": {
+      "command": "/absolute/path/to/codegraph",
+      "args": ["serve", "--mcp", "--path", "{{{project.path}}}", "--no-watch"],
+      "cwd": "{{{project.path}}}",
+      "env": {
+        "CODEGRAPH_NO_DOWNLOAD": "1",
+        "CODEGRAPH_NO_DAEMON": "1"
+      },
+      "template": { "shareable": true, "perClient": false },
+      "preparation": {
+        "adapter": "configured-command",
+        "definition": {
+          "id": "team-codegraph",
+          "file": "/absolute/path/to/recipes/codegraph.json"
+        },
+        "activation": "setup",
+        "allowedActions": ["initialize", "sync"]
+      }
+    }
   }
 }
 ```
 
-| Setting               | What to provide                                                                                                         |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `definition.id`       | The ID declared by the recipe.                                                                                          |
-| `definition.file`     | The absolute path to the recipe on this machine.                                                                        |
-| `definition.inputs`   | Add this object only if the recipe needs local values, using the input names it documents.                              |
-| `activation: "setup"` | Enable automatic preparation for authorized projects using this server, without enabling it separately in each project. |
-| `allowedActions`      | The actions you permit. Include `initialize` and `sync` only if the recipe supports them and you want them to run.      |
+:::
 
-Share the recipe and its accompanying files with teammates. Each person keeps their own file paths and inputs in `mcp.json`. Updating a recipe does not grant permission to run additional actions. Existing inline preparation configurations continue to work; there is no need to convert them.
+Replace `/absolute/path/to/codegraph` with your installed executable. Replace `team-codegraph` with the ID declared by the supplied recipe and `definition.file` with its absolute local path. These are placeholders, not a bundled CodeGraph integration. If the recipe declares machine-specific inputs, add `definition.inputs` using exactly its documented names and values.
 
-To turn automatic preparation off for one project, add the following to its effective `.1mcprc`, replacing `source-search` with the **configured server name** from `mcp.json`:
+| Setting                               | Effect                                                                                                                            |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter: "configured-command"`       | Runs the recipe's readiness probe and permitted commands.                                                                         |
+| `definition.id` and `definition.file` | Select the supplied recipe by its declared ID and absolute file path. Keep its helper files in the layout supplied by its author. |
+| `activation: "setup"`                 | Enables automatic preparation for authorized checkouts using this backend, without adding an opt-in to each project.              |
+| `allowedActions`                      | Limits which recipe actions may run. Include `initialize` and `sync` only if the recipe supports them and you permit them.        |
+
+Save the configuration and check the next readiness inspection. A successful reload is not proof that an index is ready. Neither a recipe nor activation grants access to additional checkouts or permission to install dependencies, rebuild everything, or use paid services.
+
+Share the recipe and helper files in the layout supplied by the author. Each person keeps their local paths and inputs in `mcp.json`. Existing inline preparation configurations remain supported.
+
+### Choose whether preparation applies to each project
+
+**You — project preferences.**
+
+For automatic preparation only in selected projects, **omit `activation: "setup"` from the server entry** and opt in through the selected checkout's `.1mcprc`:
 
 ```json
-{ "preparation": { "source-search": { "enabled": false } } }
+{
+  "preparation": {
+    "codegraph": { "enabled": true }
+  }
+}
 ```
 
-An explicit project disable takes precedence over `activation: "setup"`. To disable preparation for the server as a whole, set `enabled: false` inside its `preparation` section in `mcp.json`.
+With setup-wide activation, disable it for one checkout instead:
+
+```json
+{
+  "preparation": {
+    "codegraph": { "enabled": false }
+  }
+}
+```
+
+The key `codegraph` is the configured server name, not the recipe ID. Add this preference to the checkout's complete effective configuration, preserving its chosen preset **or** tags. A worktree-local `.1mcprc` replaces inherited settings as described in [Project checkouts](/guide/project-checkouts). Invalid local files are ignored without restoring inherited settings; fix them before relying on preparation preferences. Project opt-in does not add allowed actions; an explicit project disable wins over setup-wide activation. To disable preparation for the backend everywhere, set `enabled: false` inside its `preparation` block in `mcp.json`.
 
 ## When a tool needs preparation
 

@@ -107,6 +107,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: '核心功能', link: '/zh/guide/essentials/core-features' },
           { text: '配置', link: '/zh/guide/essentials/configuration' },
           { text: '项目 Checkout 与集合', link: '/zh/guide/project-checkouts' },
+          { text: '跨项目与 Git Worktree 工作指南', link: '/zh/guide/worktrees-and-cross-project-sessions' },
           { text: '后端准备', link: '/zh/guide/backend-preparation' },
           { text: '服务器管理', link: '/zh/guide/essentials/server-management' },
         ],

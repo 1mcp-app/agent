@@ -50,7 +50,10 @@ CLI 模式把 agent 的工作方式从：
 
 然后让 agent 按以下顺序工作：
 
+使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。
+
 ```bash
+# 仅在缺少当前目标指引或需要刷新时执行。
 1mcp instructions
 1mcp inspect <server>
 1mcp inspect <server>/<tool>
@@ -107,18 +110,9 @@ CLI 模式把 agent 的工作方式从：
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-它会安装引导文档和 hooks，让 agent 从 `instructions` 开始。它是对实时 `instructions` 命令的补充，而不是替代。
+启用并信任已安装的钩子，应用 setup 输出的客户端配置，然后启动新会话。启动钩子运行 `bootstrap`，创建调用方的所有者凭证，并通过 `instructions` 获取指引。确认智能体收到这两项内容后，按上方步骤检查并调用工具。使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。
 
-引导完成后，通常由 AI agent 执行以下命令：
-
-```bash
-1mcp instructions
-1mcp inspect filesystem
-1mcp inspect filesystem/read_file
-1mcp run filesystem/read_file --args '{"path":"./mcp.json"}'
-```
-
-你也可以手动运行这些命令来验证配置，但预期模式是：用户执行 `cli-setup`，agent 执行后续工作流命令。
+仅在缺少当前目标指引或需要刷新时单独运行 `instructions`；它不会创建所有者凭证。钩子排障见 [CLI setup](/zh/commands/cli-setup)，明确选择检出目录及分配 worker 的流程见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
 
 ## 什么时候优先使用 CLI 模式
 

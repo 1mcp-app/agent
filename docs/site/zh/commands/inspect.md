@@ -35,6 +35,14 @@ npx -y @1mcp/agent inspect [target] [选项]
 
 ## 选项
 
+### 项目选择与所有者
+
+- **`--project <path-or-label>`** — 选择检出目录或项目集合成员。
+- **`--project-set <file>`** — 加载保存的项目集合。
+- **`--project-owner <file>`** — 需要时使用当前调用方自己的 bootstrap 凭证，覆盖自动所有者查找。
+
+共用规则见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。受支持的 Codex 会话自动使用已验证所有者和分配项目。Claude 和不支持自动查找所有者的宿主需提供自己的 bootstrap `--project-owner <own-file>`。相关调用应保持显式目标覆盖一致。
+
 ### 连接与过滤
 
 - **`--url, -u <url>`** - 覆盖自动发现到的 1MCP 服务器 URL

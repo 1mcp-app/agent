@@ -15,6 +15,10 @@ head:
 
 # CLI Setup Command
 
+Client hooks run `bootstrap` to establish ownership and fetch guidance through `instructions`. Agents run `instructions` separately only when current guidance is missing or needs refreshing; it does not create an owner credential. See [the startup workflow](/guide/worktrees-and-cross-project-sessions#bootstrap-and-instructions-which-one-runs).
+
+For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
+
 Install 1MCP CLI hooks and reference files for Codex or Claude.
 
 ## Synopsis
@@ -31,7 +35,7 @@ The `cli-setup` command installs lightweight bootstrap files that point Codex or
 - Managed `SessionStart` and `SubagentStart` bootstrap command hooks, plus `SessionEnd` caller cleanup
 - A startup file reference from `AGENTS.md` or `CLAUDE.md`
 
-`cli-setup` does not replace [`instructions`](./instructions.md). It makes sure the session is prepared to use `instructions`, `inspect`, and `run` in the right order.
+`cli-setup` does not replace [`instructions`](/commands/instructions). It makes sure the session is prepared to use `instructions`, `inspect`, and `run` in the right order.
 
 Think of `cli-setup` as the bridge from an existing agent workflow to 1MCP CLI mode. It teaches the client how to start, but the live discovery and execution flow still happens through `instructions`, `inspect`, and `run`.
 
@@ -125,9 +129,11 @@ Bootstrap parses its options from explicit CLI flags rather than inherited `ONE_
 
 Give every worker its absolute checkout path or project-set definition path in dispatch instructions. Before project-specific discovery or calls, the worker runs one of:
 
+For the Claude example, replace `/private/your-worker-owner.json` with that worker’s own startup credential; never reuse the parent’s credential.
+
 ```bash
 1mcp bootstrap --client codex --event SubagentStart --project /absolute/frontend-checkout
-1mcp bootstrap --client claude --event SubagentStart --project-owner /private/your-worker-owner.json --project-set /absolute/feature-projects.json
+1mcp bootstrap --client claude --event SubagentStart --project-owner /private/your-worker-owner.json --project-set /absolute/feature-projects.json --project backend
 1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend
 ```
 
@@ -139,11 +145,11 @@ Writing hook configuration does not establish that the client enabled or trusted
 
 ## See Also
 
-- **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Conceptual overview of the agent-facing CLI workflow
-- **[Instructions Command](./instructions.md)** - The bootstrap command that `cli-setup` points sessions toward
-- **[Inspect Command](./inspect.md)** - Discover tools and schemas
-- **[Run Command](./run.md)** - Invoke a selected tool
-- **[Codex Integration Guide](../guide/integrations/codex.md)** - End-to-end setup for Codex
+- **[CLI Mode Guide](/guide/integrations/cli-mode)** - Conceptual overview of the agent-facing CLI workflow
+- **[Instructions Command](/commands/instructions)** - Fetch or refresh runtime guidance directly when hooks have not delivered it
+- **[Inspect Command](/commands/inspect)** - Discover tools and schemas
+- **[Run Command](/commands/run)** - Invoke a selected tool
+- **[Codex Integration Guide](/guide/integrations/codex)** - End-to-end setup for Codex
 
 ## Preparation guidance
 

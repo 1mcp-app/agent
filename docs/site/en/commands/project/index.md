@@ -5,6 +5,8 @@ description: Release caller-owned checkout bindings, inspect blockers, and expli
 
 # Project Commands
 
+For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
+
 Use `project` to manage a checkout's use by the selected 1MCP runtime. [Project preparation](/commands/project/prepare) manages backend readiness and its jobs separately.
 
 ```bash
