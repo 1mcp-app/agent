@@ -72,10 +72,9 @@ jobs:
       - name: Test bounded release failure and recovery fixtures (no publication)
         run: pnpm test:release
 
-      # AUTH-07 gate: credential-file permission invariants (0600 files / 0700
-      # dirs, fail-closed read+write) as a named, separately inspectable step.
-      - name: Security permission gate (ticket-05)
-        run: pnpm test:security-permissions
+      # AUTH-07: scan permission modes here; runtime invariants run in the unit suite.
+      - name: Check credential-file permission modes
+        run: pnpm guard:perms
 
   unit-admin:
     runs-on: ubuntu-latest
