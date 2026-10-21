@@ -8,6 +8,7 @@ import { runConformancePreparation } from './conformance-preparation.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 let mode = 'baseline';
+let suite = 'all';
 const forwarded = [];
 
 for (let index = 0; index < args.length; index += 1) {
@@ -17,6 +18,11 @@ for (let index = 0; index < args.length; index += 1) {
     index += 1;
   } else if (argument.startsWith('--mode=')) {
     mode = argument.slice('--mode='.length);
+  } else if (argument === '--suite') {
+    suite = args[index + 1];
+    index += 1;
+  } else if (argument.startsWith('--suite=')) {
+    suite = argument.slice('--suite='.length);
   } else if (argument !== '--') {
     forwarded.push(argument);
   }
@@ -24,6 +30,11 @@ for (let index = 0; index < args.length; index += 1) {
 
 if (!['baseline', 'gate'].includes(mode)) {
   process.stderr.write('Conformance mode must be baseline or gate.\n');
+  process.exit(2);
+}
+
+if (!['all', 'harness', 'product'].includes(suite)) {
+  process.stderr.write('Conformance suite must be all, harness, or product.\n');
   process.exit(2);
 }
 
@@ -58,6 +69,23 @@ function run(command, commandArgs, cwd = root) {
   if (result.error) return 1;
   return result.status ?? 1;
 }
+
+const vitest = path.join(root, 'node_modules', 'vitest', 'vitest.mjs');
+
+function runHarnessTests() {
+  return run(process.execPath, [
+    vitest,
+    'run',
+    '--config',
+    'vitest.conformance.config.ts',
+    '--exclude',
+    'test/conformance/foundation/foundation.integration.test.ts',
+    ...forwarded,
+  ]);
+}
+
+// The CI static job has already built the app and installed the frozen fixtures.
+if (suite === 'harness') process.exit(runHarnessTests());
 
 async function waitForStableCleanSource() {
   const deadline = Date.now() + 10_000;
@@ -100,7 +128,6 @@ if (preparationFailure !== undefined) process.exit(preparationFailure);
 const preparationTestStatus = run(process.execPath, ['--test', 'test/conformance/runner/preparation.test.mjs']);
 if (preparationTestStatus !== 0) process.exit(preparationTestStatus);
 
-const vitest = path.join(root, 'node_modules', 'vitest', 'vitest.mjs');
 const transportStatus = run(process.execPath, [
   vitest,
   'run',
@@ -110,16 +137,11 @@ const transportStatus = run(process.execPath, [
 ]);
 if (transportStatus !== 0) process.exit(transportStatus);
 
-const conformanceChecksStatus = run(process.execPath, [
-  vitest,
-  'run',
-  '--config',
-  'vitest.conformance.config.ts',
-  '--exclude',
-  'test/conformance/foundation/foundation.integration.test.ts',
-  ...forwarded,
-]);
-if (conformanceChecksStatus !== 0) process.exit(conformanceChecksStatus);
+// Product CI runs independently of the harness tests on the static runner.
+if (suite === 'all') {
+  const conformanceChecksStatus = runHarnessTests();
+  if (conformanceChecksStatus !== 0) process.exit(conformanceChecksStatus);
+}
 
 if (!(await waitForStableCleanSource())) {
   process.stderr.write('Conformance exact-source stage requires a stable clean worktree.\n');

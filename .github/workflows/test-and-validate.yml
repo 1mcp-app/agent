@@ -76,6 +76,33 @@ jobs:
       - name: Check credential-file permission modes
         run: pnpm guard:perms
 
+      # Keep process-heavy harness tests serial on this runner while product
+      # conformance runs independently. Reuse the build from ci:static above.
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13.0'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.11.32'
+          enable-cache: ${{ !inputs.checkout_ref && !inputs.release_gate }}
+          cache-dependency-glob: test/conformance/fixtures/python/uv.lock
+
+      - name: Sync frozen Python fixture
+        working-directory: test/conformance/fixtures/python
+        run: uv sync --frozen
+
+      - name: Install frozen TypeScript peer fixtures
+        working-directory: test/conformance/fixtures/typescript
+        run: pnpm install --frozen-lockfile
+
+      - name: Test conformance harness
+        run: pnpm test:conformance:harness -- --reporter=minimal
+        env:
+          CI: true
+
   unit-admin:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -231,8 +258,8 @@ jobs:
         id: conformance-source
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Run no-retry conformance baseline and focused transports
-        run: pnpm test:conformance -- --mode "$CONFORMANCE_MODE" --reporter=minimal
+      - name: Run no-retry product conformance and focused transports
+        run: pnpm test:conformance -- --suite product --mode "$CONFORMANCE_MODE" --reporter=minimal
         env:
           CI: true
           GITHUB_SHA: ${{ steps.conformance-source.outputs.sha }}

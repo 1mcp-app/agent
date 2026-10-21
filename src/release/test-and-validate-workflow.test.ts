@@ -329,6 +329,22 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/commands/serve-background.test.ts');
   });
 
+  it('requires harness and product conformance without serializing their runners', () => {
+    const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
+      jobs: Record<string, { needs?: string[]; steps?: { run?: string }[] }>;
+    };
+    const packageJson = JSON.parse(readRepoFile('package.json')) as { scripts: Record<string, string> };
+    const staticJob = workflow.jobs.static;
+    const productJob = workflow.jobs['test-conformance'];
+    expect(staticJob.needs).toBeUndefined();
+    expect(productJob.needs).toBeUndefined();
+    expect(staticJob.steps?.some((step) => step.run?.includes('pnpm test:conformance:harness'))).toBe(true);
+    expect(packageJson.scripts['test:conformance:harness']).toBe('node scripts/run-conformance.mjs --suite harness');
+    expect(productJob.steps?.some((step) => step.run?.includes('--suite product --mode'))).toBe(true);
+    expect(workflow.jobs.ci.needs).toContain('static');
+    expect(workflow.jobs['release-result'].needs).toEqual(expect.arrayContaining(['static', 'test-conformance']));
+  });
+
   it('fails aggregate gates when any required job fails, is cancelled, or is skipped', () => {
     for (const [file, job, inputs] of [
       ['.github/workflows/test-and-validate.yml', 'ci', ['STATIC_RESULT', 'TEST_RESULT']],
