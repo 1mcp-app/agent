@@ -17,12 +17,12 @@ head:
 
 Display detailed information about a specific preset.
 
-For a complete overview of preset management, see the **[Preset Commands Overview](./index)**.
+For a complete overview of preset management, see the **[Preset Commands Overview](/commands/preset/)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent preset show <name>
+1mcp preset show <name>
 ```
 
 ## Arguments
@@ -56,10 +56,10 @@ The `preset show` command provides comprehensive information about a specific pr
 
 ```bash
 # Show details for a specific preset
-npx -y @1mcp/agent preset show development
+1mcp preset show development
 
 # Show production preset information
-npx -y @1mcp/agent preset show production
+1mcp preset show production
 ```
 
 ### Example Output
@@ -139,7 +139,7 @@ Convenient commands related to this preset:
 
 ```bash
 # Review preset before using
-npx -y @1mcp/agent preset show development
+1mcp preset show development
 
 # Copy the Client URL for your MCP client configuration
 # Use the Matching Servers info to verify correct servers are included
@@ -149,7 +149,7 @@ npx -y @1mcp/agent preset show development
 
 ```bash
 # Share preset details with team members
-npx -y @1mcp/agent preset show team-production
+1mcp preset show team-production
 
 # Team members can see exact configuration and matching servers
 ```
@@ -158,7 +158,7 @@ npx -y @1mcp/agent preset show team-production
 
 ```bash
 # Debug why a preset isn't working as expected
-npx -y @1mcp/agent preset show problematic-preset
+1mcp preset show problematic-preset
 
 # Check the Tag Query section for syntax issues
 # Review Matching Servers to see actual results
@@ -169,7 +169,7 @@ npx -y @1mcp/agent preset show problematic-preset
 ### Preset Not Found
 
 ```bash
-npx -y @1mcp/agent preset show nonexistent
+1mcp preset show nonexistent
 # Error: Preset 'nonexistent' not found
 ```
 
@@ -183,20 +183,20 @@ Common usage patterns:
 
 ```bash
 # 1. List presets to see available options
-npx -y @1mcp/agent preset list
+1mcp preset list
 
 # 2. Show detailed info for a specific preset
-npx -y @1mcp/agent preset show staging
+1mcp preset show staging
 
 # 3. Test the preset if needed
-npx -y @1mcp/agent preset test staging
+1mcp preset test staging
 
 # 4. Use the Client URL in your MCP client
 ```
 
 ## See Also
 
-- **[preset list](./list)** - Overview of all presets in table format
-- **[preset test](./test)** - Test preset server matching with additional details
-- **[preset url](./url)** - Get just the client URL for a preset
-- **[preset edit](./edit)** - Edit preset with interactive TUI
+- **[preset list](/commands/preset/list)** - Overview of all presets in table format
+- **[preset test](/commands/preset/test)** - Test preset server matching with additional details
+- **[preset url](/commands/preset/url)** - Get just the client URL for a preset
+- **[preset edit](/commands/preset/edit)** - Edit preset with interactive TUI

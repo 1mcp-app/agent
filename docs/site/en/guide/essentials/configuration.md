@@ -140,18 +140,18 @@ The `run` and `inspect` commands keep a lightweight session cache file outside t
 Example:
 
 ```bash
-ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid}.{scope} npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid}.{scope} 1mcp run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ```bash
 # HTTP transport (default)
-npx -y @1mcp/agent --transport http
+1mcp --transport http
 
 # Stdio transport for direct MCP client integration
-npx -y @1mcp/agent --transport stdio
+1mcp --transport stdio
 
 # Using environment variable
-ONE_MCP_TRANSPORT=stdio npx -y @1mcp/agent
+ONE_MCP_TRANSPORT=stdio 1mcp
 ```
 
 ### Network Configuration
@@ -177,13 +177,13 @@ Configure HTTP server settings for network access.
 
 ```bash
 # Custom port and host
-npx -y @1mcp/agent --port 3051 --host 0.0.0.0
+1mcp --port 3051 --host 0.0.0.0
 
 # External URL for reverse proxy setups
-npx -y @1mcp/agent --external-url https://mcp.example.com
+1mcp --external-url https://mcp.example.com
 
 # Environment variables for Docker
-ONE_MCP_HOST=0.0.0.0 ONE_MCP_PORT=3051 npx -y @1mcp/agent
+ONE_MCP_HOST=0.0.0.0 ONE_MCP_PORT=3051 1mcp
 ```
 
 ### Configuration Management
@@ -204,13 +204,13 @@ Control configuration file location and loading behavior.
 
 ```bash
 # Use specific config file
-npx -y @1mcp/agent --config ./my-config.json
+1mcp --config ./my-config.json
 
 # Use custom config directory
-npx -y @1mcp/agent --config-dir ./project-config
+1mcp --config-dir ./project-config
 
 # Environment variable for config directory
-ONE_MCP_CONFIG_DIR=/opt/1mcp/config npx -y @1mcp/agent
+ONE_MCP_CONFIG_DIR=/opt/1mcp/config 1mcp
 ```
 
 ### Security Configuration
@@ -246,10 +246,10 @@ Authentication, authorization, and security features.
 
 ```bash
 # Enable authentication with enhanced security
-npx -y @1mcp/agent --enable-auth --enable-enhanced-security
+1mcp --enable-auth --enable-enhanced-security
 
 # Custom session configuration
-npx -y @1mcp/agent \
+1mcp \
   --enable-auth \
   --session-ttl 720 \
   --rate-limit-window 10 \
@@ -258,7 +258,7 @@ npx -y @1mcp/agent \
 # Environment variables
 ONE_MCP_ENABLE_AUTH=true \
 ONE_MCP_ENABLE_ENHANCED_SECURITY=true \
-npx -y @1mcp/agent
+1mcp
 ```
 
 ### Network Security
@@ -280,13 +280,13 @@ Configure trust proxy settings for reverse proxy deployments.
 
 ```bash
 # Trust all proxies (CDN/Cloudflare)
-npx -y @1mcp/agent --trust-proxy true
+1mcp --trust-proxy true
 
 # Trust specific proxy IP
-npx -y @1mcp/agent --trust-proxy 192.168.1.100
+1mcp --trust-proxy 192.168.1.100
 
 # Trust IP range
-npx -y @1mcp/agent --trust-proxy 10.0.0.0/8
+1mcp --trust-proxy 10.0.0.0/8
 ```
 
 For detailed trust proxy configuration, see the **[Trust Proxy Reference](/reference/trust-proxy)**.
@@ -373,15 +373,15 @@ Control which backend MCP servers the runtime exposes.
 
 ```bash
 # Simple OR filtering
-npx -y @1mcp/agent --filter "network,filesystem"
+1mcp --filter "network,filesystem"
 
 # Advanced filtering
-npx -y @1mcp/agent --filter "network+api"
-npx -y @1mcp/agent --filter "(web,api)+production-test"
-npx -y @1mcp/agent --filter "web and api and not test"
+1mcp --filter "network+api"
+1mcp --filter "(web,api)+production-test"
+1mcp --filter "web and api and not test"
 
 # Environment variables
-ONE_MCP_FILTER="network+api" npx -y @1mcp/agent
+ONE_MCP_FILTER="network+api" 1mcp
 ```
 
 For client-side narrowing after the runtime is already running, use `--preset`, `--tags`, or `--tag-filter` with `instructions`, `inspect`, and `run`, or use `proxy --preset/--filter/--tags` for the maximum-compatibility stdio path.
@@ -414,18 +414,18 @@ Control MCP internal tools exposure for AI assistants.
 
 ```bash
 # Enable ALL internal tools
-npx -y @1mcp/agent --enable-internal-tools
+1mcp --enable-internal-tools
 
 # Enable only discovery and management tools
-npx -y @1mcp/agent --internal-tools "discovery,management"
+1mcp --internal-tools "discovery,management"
 
 # Enable only safe (read-only) tools
-npx -y @1mcp/agent --internal-tools "safe"
+1mcp --internal-tools "safe"
 
 # Environment variables
-ONE_MCP_ENABLE_INTERNAL_TOOLS=true npx -y @1mcp/agent
+ONE_MCP_ENABLE_INTERNAL_TOOLS=true 1mcp
 
-ONE_MCP_INTERNAL_TOOLS="discovery,management" npx -y @1mcp/agent
+ONE_MCP_INTERNAL_TOOLS="discovery,management" 1mcp
 ```
 
 **Important**: Internal tools are different from CLI commands. CLI commands are for human users, while internal tools are MCP protocol tools that AI assistants can use to automate server management tasks. For detailed information about available internal tools, see the **[Internal Tools Reference](/reference/internal-tools/)**.
@@ -450,15 +450,15 @@ Control performance and resource usage behavior.
 
 ```bash
 # Enable async loading for faster startup
-npx -y @1mcp/agent --enable-async-loading
+1mcp --enable-async-loading
 
 # Enable pagination for large server lists
-npx -y @1mcp/agent --pagination
+1mcp --pagination
 
 # Environment variables
 ONE_MCP_ENABLE_ASYNC_LOADING=true \
 ONE_MCP_PAGINATION=true \
-npx -y @1mcp/agent
+1mcp
 ```
 
 #### Startup-captured operational policies
@@ -571,15 +571,15 @@ With hot reload enabled, setting `disabled: true` on a static server in `mcp.jso
 
 ```bash
 # Enable config reload with custom debounce
-npx -y @1mcp/agent --enable-config-reload --config-reload-debounce 1000
+1mcp --enable-config-reload --config-reload-debounce 1000
 
 # Disable config reload (useful for production stability)
-npx -y @1mcp/agent --enable-config-reload false
+1mcp --enable-config-reload false
 
 # Environment variables
 ONE_MCP_ENABLE_CONFIG_RELOAD=true \
 ONE_MCP_CONFIG_RELOAD_DEBOUNCE=200 \
-npx -y @1mcp/agent
+1mcp
 ```
 
 ### Environment Variable Substitution
@@ -598,15 +598,11 @@ When enabled, you can use `${VAR_NAME}` or `$VAR_NAME` syntax in your JSON confi
 
 ```json
 {
-  "servers": [
-    {
-      "name": "database",
+  "mcpServers": {
+    "database": {
       "command": "python",
       "args": ["${DB_SERVER_PATH}", "--port", "$DB_PORT"]
     }
-  ],
-  "auth": {
-    "sessionStoragePath": "${SESSION_STORAGE_DIR}"
   }
 }
 ```
@@ -615,17 +611,16 @@ When enabled, you can use `${VAR_NAME}` or `$VAR_NAME` syntax in your JSON confi
 
 ```bash
 # Enable environment substitution (default)
-npx -y @1mcp/agent --enable-env-substitution
+1mcp --enable-env-substitution
 
 # Disable environment substitution
-npx -y @1mcp/agent --enable-env-substitution false
+1mcp --enable-env-substitution false
 
 # Environment variables
 DB_SERVER_PATH=/opt/db-server \
 DB_PORT=5432 \
-SESSION_STORAGE_DIR=/var/lib/1mcp/sessions \
 ONE_MCP_ENABLE_ENV_SUBSTITUTION=true \
-npx -y @1mcp/agent
+1mcp
 ```
 
 ### Session Persistence
@@ -660,23 +655,23 @@ Control HTTP session persistence for improved reliability across server restarts
 
 ```bash
 # Enable session persistence with default settings
-npx -y @1mcp/agent --enable-session-persistence
+1mcp --enable-session-persistence
 
 # Custom session persistence settings
-npx -y @1mcp/agent \
+1mcp \
   --enable-session-persistence \
   --session-persist-requests 50 \
   --session-persist-interval 10 \
   --session-background-flush 30
 
 # Disable session persistence
-npx -y @1mcp/agent --enable-session-persistence false
+1mcp --enable-session-persistence false
 
 # Environment variables
 ONE_MCP_ENABLE_SESSION_PERSISTENCE=true \
 ONE_MCP_SESSION_PERSIST_REQUESTS=200 \
 ONE_MCP_SESSION_PERSIST_INTERVAL=15 \
-npx -y @1mcp/agent
+1mcp
 ```
 
 ### Client Notifications
@@ -693,13 +688,13 @@ Control real-time notifications to connected clients about capability changes.
 
 ```bash
 # Enable client notifications (default)
-npx -y @1mcp/agent --enable-client-notifications
+1mcp --enable-client-notifications
 
 # Disable client notifications
-npx -y @1mcp/agent --enable-client-notifications false
+1mcp --enable-client-notifications false
 
 # Environment variable
-ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS=true npx -y @1mcp/agent
+ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS=true 1mcp
 ```
 
 ### Monitoring and Health
@@ -722,13 +717,13 @@ Configure health check endpoints and information detail levels.
 
 ```bash
 # Full health information for monitoring
-npx -y @1mcp/agent --health-info-level full
+1mcp --health-info-level full
 
 # Basic health information
-npx -y @1mcp/agent --health-info-level basic
+1mcp --health-info-level basic
 
 # Environment variable
-ONE_MCP_HEALTH_INFO_LEVEL=full npx -y @1mcp/agent
+ONE_MCP_HEALTH_INFO_LEVEL=full 1mcp
 ```
 
 For detailed health check information, see the **[Health Check Reference](/reference/health-check)**.
@@ -753,17 +748,17 @@ Control log output, levels, and destinations.
 
 ```bash
 # Debug logging
-npx -y @1mcp/agent --log-level debug
+1mcp --log-level debug
 
 # Log to file
-npx -y @1mcp/agent --log-file /var/log/1mcp.log
+1mcp --log-file /var/log/1mcp.log
 
 # Combined logging configuration
-npx -y @1mcp/agent --log-level debug --log-file app.log
+1mcp --log-level debug --log-file app.log
 
 # Environment variables
-ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent
-ONE_MCP_LOG_FILE=/var/log/1mcp.log npx -y @1mcp/agent
+ONE_MCP_LOG_LEVEL=debug 1mcp
+ONE_MCP_LOG_FILE=/var/log/1mcp.log 1mcp
 ```
 
 **Migration from Legacy LOG_LEVEL:**
@@ -771,19 +766,19 @@ The legacy `LOG_LEVEL` environment variable is still supported but deprecated:
 
 ```bash
 # ⚠️  Deprecated (shows warning)
-LOG_LEVEL=debug npx -y @1mcp/agent
+LOG_LEVEL=debug 1mcp
 
 # ✅ Recommended
-ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent
+ONE_MCP_LOG_LEVEL=debug 1mcp
 # or
-npx -y @1mcp/agent --log-level debug
+1mcp --log-level debug
 ```
 
 ---
 
 ## Environment Variables Reference
 
-All environment variables are prefixed with `ONE_MCP_` and override both configuration file and CLI settings:
+Runtime environment variables use the `ONE_MCP_` prefix. They override configuration-file defaults; explicit CLI flags take precedence over environment variables:
 
 - `ONE_MCP_TRANSPORT`
 - `ONE_MCP_CONFIG`
@@ -822,7 +817,7 @@ All environment variables are prefixed with `ONE_MCP_` and override both configu
 
 ```bash
 # Development with debug logging and full health info
-npx -y @1mcp/agent \
+1mcp \
   --log-level debug \
   --health-info-level full \
   --enable-async-loading \
@@ -833,14 +828,14 @@ ONE_MCP_LOG_LEVEL=debug \
 ONE_MCP_HEALTH_INFO_LEVEL=full \
 ONE_MCP_ENABLE_ASYNC_LOADING=true \
 ONE_MCP_ENABLE_CONFIG_RELOAD=true \
-npx -y @1mcp/agent
+1mcp
 ```
 
 ### Production Deployment
 
 ```bash
 # Production HTTP server with authentication
-npx -y @1mcp/agent \
+1mcp \
   --host 0.0.0.0 \
   --port 3051 \
   --enable-auth \
@@ -869,13 +864,13 @@ docker run -p 3051:3051 \
 
 ```bash
 # Only network-capable servers
-npx -y @1mcp/agent --filter "network"
+1mcp --filter "network"
 
 # Complex filtering: (web OR api) AND production, NOT test
-npx -y @1mcp/agent --filter "(web,api)+production-test"
+1mcp --filter "(web,api)+production-test"
 
 # Natural language filtering
-npx -y @1mcp/agent --filter "api and database and not test"
+1mcp --filter "api and database and not test"
 ```
 
 ### Advanced Feature Configuration
@@ -884,7 +879,7 @@ npx -y @1mcp/agent --filter "api and database and not test"
 # Full feature-enabled configuration with environment substitution
 API_KEY="${API_KEY}" \
 DB_CONNECTION="${DATABASE_URL}" \
-npx -y @1mcp/agent \
+1mcp \
   --enable-config-reload \
   --config-reload-debounce 1000 \
   --enable-env-substitution \
@@ -895,7 +890,7 @@ npx -y @1mcp/agent \
   --log-level info
 
 # Configuration reload only (disable other new features for stability)
-npx -y @1mcp/agent \
+1mcp \
   --enable-config-reload \
   --config-reload-debounce 2000 \
   --enable-env-substitution false \
@@ -903,7 +898,7 @@ npx -y @1mcp/agent \
   --enable-client-notifications false
 
 # Minimal configuration for high-performance environments
-npx -y @1mcp/agent \
+1mcp \
   --enable-config-reload false \
   --enable-env-substitution true \
   --enable-session-persistence false \

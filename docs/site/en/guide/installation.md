@@ -137,9 +137,20 @@ npm install -g @1mcp/agent
 # or
 pnpm add -g @1mcp/agent
 
-# Use directly
-npx @1mcp/agent --config mcp.json
+# Run the installed command
+1mcp --config mcp.json
 ```
+
+### Alternative: run without a global installation
+
+Examples throughout these docs assume `1mcp` is installed and available on PATH. If you prefer not to install it globally, replace `1mcp` with `npx -y @1mcp/agent` for a one-off command:
+
+```bash
+npx -y @1mcp/agent --version
+npx -y @1mcp/agent serve --config mcp.json
+```
+
+For a client launch configuration, the equivalent alternative is `"command": "npx"` with `"args": ["-y", "@1mcp/agent", "proxy"]`. GUI applications may need the absolute path to the installed executable if their PATH differs from your terminal's.
 
 ### Docker
 
@@ -271,11 +282,8 @@ node build/index.js --config mcp.json
 Verify installation:
 
 ```bash
-# Binary installation:
+# Binary or global npm/pnpm installation:
 1mcp --version
-
-# NPM installation:
-npx @1mcp/agent --version
 ```
 
 ## System Requirements

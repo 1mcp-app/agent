@@ -14,7 +14,7 @@ description: 为 Codex 或 Claude 安装 1MCP CLI 模式的引导文档和 hooks
 ## 概要
 
 ```bash
-npx -y @1mcp/agent cli-setup (--codex | --claude) [选项]
+1mcp cli-setup (--codex | --claude) [选项]
 ```
 
 ## 描述
@@ -74,19 +74,19 @@ npx -y @1mcp/agent cli-setup (--codex | --claude) [选项]
 ### 安装全局 Codex 配置
 
 ```bash
-npx -y @1mcp/agent cli-setup --codex
+1mcp cli-setup --codex
 ```
 
 ### 安装 Repo 级 Claude 配置
 
 ```bash
-npx -y @1mcp/agent cli-setup --claude --scope repo --repo-root .
+1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
 ### 同时安装全局和 Repo 级 Codex 配置
 
 ```bash
-npx -y @1mcp/agent cli-setup --codex --scope all
+1mcp cli-setup --codex --scope all
 ```
 
 ## Codex 后续配置

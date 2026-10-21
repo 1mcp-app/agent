@@ -1,153 +1,40 @@
 ---
-title: Server Management Guide - Registry-Based Installation and Configuration
-description: Learn how to manage MCP servers in 1MCP using the registry-based approach for server discovery, installation, and lifecycle management.
-head:
-  - [
-      'meta',
-      {
-        name: 'keywords',
-        content: 'MCP server management,registry installation,server discovery,lifecycle management',
-      },
-    ]
-  - ['meta', { property: 'og:title', content: '1MCP Server Management Guide - Registry-Based Approach' }]
-  - [
-      'meta',
-      {
-        property: 'og:description',
-        content: 'Complete guide to managing MCP servers in 1MCP using registry-based installation and configuration.',
-      },
-    ]
+title: Manage Backend Servers
+description: Choose a setup method, verify readiness, and maintain backend configuration.
 ---
 
-# Server Management Guide
+# Manage Backend Servers
 
-This guide provides a comprehensive overview of managing MCP servers within your 1MCP instance using the recommended registry-based approach for server discovery, installation, and lifecycle management.
+Choose the setup path that matches your backend, then verify the running runtime separately from the saved configuration.
 
-## Registry-Based Workflow (Recommended)
+## Choose a setup method
 
-The 1MCP registry provides a centralized repository for discovering, installing, and managing MCP servers with automatic dependency resolution and version management. This is the recommended approach for server management.
+| Starting point                                               | Command or guide                                           |
+| ------------------------------------------------------------ | ---------------------------------------------------------- |
+| An installed CodeGraph, Code Review Graph, or Serena backend | [mcp setup](/commands/mcp/setup)                           |
+| A server listed in a registry                                | [mcp install](/commands/mcp/install)                       |
+| A known executable or remote MCP URL                         | [mcp add](/commands/mcp/add)                               |
+| Existing desktop application configuration                   | [App consolidation](/guide/integrations/app-consolidation) |
 
-### Quick Start
-
-Install your first server from the registry:
-
-```bash
-# Search for available servers
-npx -y @1mcp/agent registry search filesystem --type=npm --transport=stdio
-
-# Install the filesystem server
-npx -y @1mcp/agent mcp install filesystem
-
-# Or use interactive installation
-npx -y @1mcp/agent mcp install --interactive
-```
-
-### Registry Workflow
-
-1. **Discovery** - Find servers that match your needs
-2. **Selection** - Choose servers with version compatibility
-3. **Installation** - Automatic dependency resolution and setup
-4. **Configuration** - Server-specific customization
-5. **Management** - Updates, removal, and lifecycle control
-
-### Registry Benefits
-
-- **Server Discovery** - Browse and search across hundreds of MCP servers
-- **Version Management** - Install specific versions with compatibility checking
-- **Dependency Resolution** - Automatic installation of required dependencies
-- **Security Validation** - Verified servers with integrity checks
-- **Update Management** - Easy updates with change tracking
-- **Interactive Installation** - Guided setup with the configuration wizard
-
-### Installation Methods
-
-#### Direct Installation
-
-Install servers by name from the registry:
+### Registry setup
 
 ```bash
-# Install latest version
-npx -y @1mcp/agent mcp install filesystem
-
-# Install specific version
-npx -y @1mcp/agent mcp install filesystem@1.2.0
-
-# Install with configuration
-npx -y @1mcp/agent mcp install git --repository /path/to/project
+1mcp registry search filesystem --type=npm --transport=stdio
+1mcp mcp install --interactive
 ```
 
-#### Interactive Wizard
+Select an actual registry result. For noninteractive setup, preview `1mcp mcp install <registry-id> --dry-run` before applying it. Registry setup writes a backend definition; it does not certify the package or prove that required credentials and runtime dependencies are available. See [mcp install](/commands/mcp/install) for version-selection limits.
 
-Launch the configuration wizard for guided installation:
+### Explicit launch command or URL
 
 ```bash
-# Start interactive installation
-npx -y @1mcp/agent mcp install --interactive
+1mcp mcp add custom-server --type=stdio -- node /absolute/path/server.js
+1mcp mcp add remote-api --type=http --url=https://mcp.example.com/mcp
 ```
 
-The wizard provides:
+Replace the example script or URL with your backend. STDIO launches a child process; HTTP connects to a separately hosted service. Legacy SSE is also supported, but use Streamable HTTP for new integrations when available.
 
-- Server browsing by category
-- Step-by-step configuration
-- Compatibility checking
-- Best practice recommendations
-
-#### Search and Install
-
-Search the registry and install from results:
-
-```bash
-# Search for database servers
-npx -y @1mcp/agent registry search database
-
-# Install search results
-npx -y @1mcp/agent registry search database --limit=3 --output=list | \
-  xargs -n1 npx -y @1mcp/agent mcp install
-```
-
-## Transport Types
-
-1MCP supports multiple transport types for connecting to MCP servers.
-
-### STDIO Transport
-
-This is the most common transport for local MCP servers. 1MCP starts the server as a child process and communicates with it over standard input and standard output.
-
-**Use Cases**: Running local tools like `mcp-server-filesystem` or `mcp-server-git`.
-
-**Configuration Example**:
-
-```bash
-npx -y @1mcp/agent mcp add filesystem --type=stdio --command="mcp-server-filesystem" --args="--root ~/"
-```
-
-**Key Features**:
-
-- **Process Management**: 1MCP manages the lifecycle of the server process.
-- **Environment Variables**: Pass environment variables directly to the server process.
-- **Working Directory**: Specify a custom working directory for the server.
-
-### Streamable HTTP Transport
-
-This transport connects to an MCP server that is already running and exposed via an HTTP endpoint.
-
-**Use Cases**: Connecting to remote MCP servers, or servers running as part of another application.
-
-**Configuration Example**:
-
-```bash
-npx -y @1mcp/agent mcp add remote-api --type=http --url="https://mcp.example.com/"
-```
-
-**Key Features**:
-
-- **Remote Access**: Connect to servers on your local network or the internet.
-- **Custom Headers**: Add custom HTTP headers for authentication or other purposes.
-- **Endpoint Configuration**: Configure the remote MCP endpoint and its request headers.
-
-### SSE Transport (Deprecated)
-
-Server-Sent Events is a deprecated transport type. It is recommended to use the HTTP transport instead.
+Keep the executable and its arguments separate. Set a working directory when the backend needs one, and supply only the environment values it needs. See [MCP Servers](/reference/mcp-servers).
 
 ## Configure a Custom Server in the Admin Console
 
@@ -161,102 +48,29 @@ Use **Server inventory → Configure Custom Server** when you need to add a stat
 
 Creation never replaces an existing static or Template Server target. If another writer creates the same name after preview, the confirmation is rejected and you must preview again. After a successful write, the Admin Console refreshes the inventory and opens the created source-qualified target. Template definitions become eligible after reload and create instances only when a later matching request supplies Request Context.
 
-## Server Configuration Details
+## Verify readiness
 
-Each server you define in 1MCP has a set of common configuration options:
+```bash
+1mcp mcp list
+1mcp mcp status custom-server
+1mcp inspect
+```
 
-- **Name**: A unique, human-readable name for the server (e.g., `my-git-server`).
-- **Transport**: The transport type (`stdio`, `http`, or deprecated `sse`).
-- **Command/URL**: The command to execute for `stdio` transports, or the URL for `http` and deprecated `sse` transports.
-- **Arguments**: An array of command-line arguments for `stdio` servers.
-- **Environment**: Key-value pairs of environment variables for `stdio` servers.
-- **Tags**: A list of tags for organizing and filtering servers.
-- **Timeout**: A connection timeout in milliseconds.
-- **Enabled/Disabled**: A flag to enable or disable the server without deleting its configuration.
+`mcp list` confirms saved definitions. Review the mutation's reload result and use `inspect` against the intended runtime to check visible server state and capabilities. Configuration success alone does not establish backend connectivity, authentication, or tool success. Start the runtime with [serve](/commands/serve) if it is not running.
 
-## Server Management Workflow
+For project-aware backends, first follow [Project checkouts](/guide/project-checkouts); setup alone does not establish project context or preparation readiness.
 
-### Registry-Based Workflow (Recommended)
+## Maintain configuration
 
-The modern workflow using the registry provides automatic dependency resolution and version management:
+```bash
+1mcp mcp update custom-server --tags=custom,development
+1mcp mcp disable custom-server
+1mcp mcp enable custom-server
+1mcp mcp uninstall custom-server
+```
 
-1.  **Discover Servers**: Search the registry for servers that meet your needs.
+Run only the action you intend. `update` edits configuration, `disable` retains the definition, and `uninstall` removes it with a backup by default. `uninstall` does not prompt for confirmation. Check its reported backup path and reload status. None of these commands is a package-manager upgrade operation.
 
-    ```bash
-    # Search for development servers
-    npx -y @1mcp/agent registry search development --type=npm
+## Operational practices
 
-    # Browse all available servers
-    npx -y @1mcp/agent mcp install --interactive
-    ```
-
-2.  **Install Servers**: Install servers with automatic configuration.
-
-    ```bash
-    # Install the filesystem server
-    npx -y @1mcp/agent mcp install filesystem
-
-    # Install specific version
-    npx -y @1mcp/agent mcp install git@1.2.0
-    ```
-
-3.  **Verify Installation**: Check that servers are properly installed and running.
-
-    ```bash
-    npx -y @1mcp/agent mcp list
-    npx -y @1mcp/agent mcp status filesystem
-    ```
-
-4.  **Manage Updates**: Keep servers updated with latest versions.
-
-    ```bash
-    # Inspect the installed server before updating
-    npx -y @1mcp/agent mcp status filesystem
-
-    # Update specific server
-    npx -y @1mcp/agent mcp update filesystem
-    ```
-
-5.  **Manage Lifecycle**: Enable, disable, or remove servers as needed.
-
-    ```bash
-    # Temporarily disable
-    npx -y @1mcp/agent mcp disable filesystem
-
-    # Re-enable
-    npx -y @1mcp/agent mcp enable filesystem
-
-    # Remove with backup
-    npx -y @1mcp/agent mcp uninstall filesystem
-    ```
-
-### Manual Configuration Workflow (Advanced)
-
-For custom servers not available in the registry:
-
-1.  **Add Server Manually**: Configure server details manually.
-
-    ```bash
-    npx -y @1mcp/agent mcp add custom-server --type=stdio --command="node server.js"
-    ```
-
-2.  **Configure Settings**: Set server-specific options.
-    ```bash
-    npx -y @1mcp/agent mcp update custom-server --tags=custom,experimental --args="--port=3000"
-    ```
-
-The registry-based approach is recommended for most users, with manual configuration reserved for custom or proprietary servers.
-
-## Best Practices
-
-### Configuration
-
-- **Use Descriptive Names**: Give your servers clear, descriptive names.
-- **Use Tags for Organization**: Apply a consistent tagging strategy to easily filter and manage your servers. Common tag categories include environment (`dev`, `prod`), function (`database`, `files`), and priority (`critical`, `optional`).
-- **Set Appropriate Timeouts**: Configure timeouts based on the expected responsiveness of the server. Local servers can have shorter timeouts than remote ones.
-
-### Security
-
-- **Validate Server Sources**: Only add MCP servers from trusted sources.
-- **Manage Secrets**: Use environment variables to pass secrets like API keys to your servers. Avoid hardcoding them in your configuration.
-- **Limit Permissions**: Run `stdio` servers with the minimum required permissions.
+Use descriptive names and consistent tags, restrict backend permissions, and keep credentials in supported environment references. Set connection and request timeouts for each backend. Review [recovery](/guide/advanced/performance) and [backend logs](/guide/advanced/backend-logs) before diagnosing repeated failures.

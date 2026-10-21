@@ -69,7 +69,7 @@ function nav(version: string): DefaultTheme.NavItem[] {
   return [
     { text: 'Guide', link: '/guide/getting-started' },
     { text: 'Commands', link: '/commands/' },
-    { text: 'Reference', link: '/reference/architecture' },
+    { text: 'Reference', link: '/reference/' },
     {
       text: version,
       items: [
@@ -84,65 +84,79 @@ function sidebar(): DefaultTheme.Sidebar {
   return {
     '/guide/': [
       {
-        text: 'Getting Started',
+        text: 'Start Here',
         items: [
           { text: 'Introduction', link: '/guide/getting-started' },
           { text: 'Quick Start', link: '/guide/quick-start' },
           { text: 'Installation', link: '/guide/installation' },
-        ],
-      },
-      {
-        text: 'Essential Concepts',
-        items: [
           { text: 'Core Features', link: '/guide/essentials/core-features' },
-          { text: 'Configuration', link: '/guide/essentials/configuration' },
-          { text: 'Project Checkouts and Sets', link: '/guide/project-checkouts' },
-          { text: 'Working Across Projects and Worktrees', link: '/guide/worktrees-and-cross-project-sessions' },
-          { text: 'Backend Preparation', link: '/guide/backend-preparation' },
-          { text: 'Server Management', link: '/guide/essentials/server-management' },
+          { text: 'All Features', link: '/guide/features' },
         ],
       },
       {
-        text: 'Integrations',
+        text: 'Connect Your Client',
+        collapsed: true,
         items: [
-          { text: 'Claude Desktop Integration', link: '/guide/integrations/claude-desktop' },
           { text: 'CLI Mode', link: '/guide/integrations/cli-mode' },
           { text: 'Codex Integration', link: '/guide/integrations/codex' },
+          { text: 'Claude Desktop Integration', link: '/guide/integrations/claude-desktop' },
           { text: 'App Consolidation', link: '/guide/integrations/app-consolidation' },
           { text: 'Developer Tools', link: '/guide/integrations/developer-tools' },
-          { text: 'Serena Integration', link: '/guide/integrations/serena' },
         ],
       },
       {
-        text: 'Advanced Features',
+        text: 'Configure Backends',
+        collapsed: true,
         items: [
-          { text: 'Authentication', link: '/guide/advanced/authentication' },
-          { text: 'Security', link: '/guide/advanced/security' },
-          { text: 'Performance', link: '/guide/advanced/performance' },
-          { text: 'Enterprise', link: '/guide/advanced/enterprise' },
-          { text: 'Fast Startup', link: '/guide/advanced/fast-startup' },
-          { text: 'Reverse Proxy', link: '/guide/advanced/reverse-proxy' },
-          { text: 'Cloud Deployment', link: '/guide/advanced/cloud-deployment' },
-          { text: 'Windows: Task Scheduler', link: '/guide/advanced/windows-task-scheduler' },
-          { text: 'Backend Logs', link: '/guide/advanced/backend-logs' },
-          { text: 'Logging and Trace Context', link: '/guide/advanced/observability' },
+          { text: 'Configuration', link: '/guide/essentials/configuration' },
+          { text: 'Server Management', link: '/guide/essentials/server-management' },
+          { text: 'Serena Integration', link: '/guide/integrations/serena' },
           { text: 'Server Filtering', link: '/guide/advanced/server-filtering' },
         ],
       },
       {
-        text: 'Customization',
+        text: 'Projects and Preparation',
+        collapsed: true,
         items: [
-          { text: 'Instructions Template', link: '/guide/custom-instructions-template' },
-          { text: 'Server Instructions Overrides', link: '/guide/server-instructions-overrides' },
+          { text: 'Project Checkouts and Sets', link: '/guide/project-checkouts' },
+          { text: 'Worktrees and Cross-Project Sessions', link: '/guide/worktrees-and-cross-project-sessions' },
           { text: 'MCP Server Templates', link: '/guide/mcp-server-templates' },
+          { text: 'Backend Preparation', link: '/guide/backend-preparation' },
         ],
       },
       {
-        text: 'Feature Overview',
-        items: [{ text: 'All Features', link: '/guide/features' }],
+        text: 'Deploy and Secure',
+        collapsed: true,
+        items: [
+          { text: 'Authentication', link: '/guide/advanced/authentication' },
+          { text: 'Security', link: '/guide/advanced/security' },
+          { text: 'Reverse Proxy', link: '/guide/advanced/reverse-proxy' },
+          { text: 'Cloud Deployment', link: '/guide/advanced/cloud-deployment' },
+          { text: 'Windows: Task Scheduler', link: '/guide/advanced/windows-task-scheduler' },
+          { text: 'Production Operations', link: '/guide/advanced/enterprise' },
+        ],
       },
       {
-        text: 'Development',
+        text: 'Monitor and Recover',
+        collapsed: true,
+        items: [
+          { text: 'Fast Startup', link: '/guide/advanced/fast-startup' },
+          { text: 'Performance and Recovery', link: '/guide/advanced/performance' },
+          { text: 'Backend Logs', link: '/guide/advanced/backend-logs' },
+          { text: 'Logging and Trace Context', link: '/guide/advanced/observability' },
+        ],
+      },
+      {
+        text: 'Customize Instructions',
+        collapsed: true,
+        items: [
+          { text: 'Instructions Template', link: '/guide/custom-instructions-template' },
+          { text: 'Server Instructions Overrides', link: '/guide/server-instructions-overrides' },
+        ],
+      },
+      {
+        text: 'Contribute',
+        collapsed: true,
         items: [{ text: 'Development Guide', link: '/guide/development' }],
       },
     ],
@@ -152,7 +166,7 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [{ text: 'Command Reference', link: '/commands/' }],
       },
       {
-        text: 'Server Management',
+        text: 'Runtime and Backends',
         items: [
           { text: 'serve', link: '/commands/serve' },
           { text: 'proxy', link: '/commands/proxy' },
@@ -175,6 +189,12 @@ function sidebar(): DefaultTheme.Sidebar {
               { text: 'tools', link: '/commands/mcp/tools' },
             ],
           },
+        ],
+      },
+      {
+        text: 'Discover Servers',
+        collapsed: true,
+        items: [
           {
             text: 'registry',
             link: '/commands/registry/',
@@ -185,6 +205,12 @@ function sidebar(): DefaultTheme.Sidebar {
               { text: 'versions', link: '/commands/registry/versions' },
             ],
           },
+        ],
+      },
+      {
+        text: 'Filter with Presets',
+        collapsed: true,
+        items: [
           {
             text: 'preset',
             link: '/commands/preset/',
@@ -207,6 +233,12 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'inspect', link: '/commands/inspect' },
           { text: 'run', link: '/commands/run' },
           { text: 'wait', link: '/commands/wait' },
+        ],
+      },
+      {
+        text: 'Project Lifecycle',
+        collapsed: true,
+        items: [
           {
             text: 'project',
             link: '/commands/project/',
@@ -218,6 +250,11 @@ function sidebar(): DefaultTheme.Sidebar {
               { text: 'resume', link: '/commands/project/resume' },
             ],
           },
+        ],
+      },
+      {
+        text: 'Setup and Access',
+        items: [
           { text: 'cli-setup', link: '/commands/cli-setup' },
           { text: 'auth', link: '/commands/auth' },
           { text: 'Runtime Target Contexts', link: '/commands/target' },
@@ -243,6 +280,10 @@ function sidebar(): DefaultTheme.Sidebar {
       },
     ],
     '/reference/': [
+      {
+        text: 'Overview',
+        items: [{ text: 'Reference Index', link: '/reference/' }],
+      },
       {
         text: 'Architecture',
         items: [

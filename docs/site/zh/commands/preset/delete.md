@@ -7,12 +7,12 @@ description: 从配置中删除不再使用的命名预设。
 
 从您的配置中删除预设。
 
-有关预设管理的完整概述，请参阅 **[预设命令概述](./index)**。
+有关预设管理的完整概述，请参阅 **[预设命令概述](/zh/commands/preset/)**。
 
 ## 概要
 
 ```bash
-npx -y @1mcp/agent preset delete <name>
+1mcp preset delete <name>
 ```
 
 ## 参数
@@ -38,16 +38,16 @@ npx -y @1mcp/agent preset delete <name>
 
 ```bash
 # 删除特定预设
-npx -y @1mcp/agent preset delete old-staging
+1mcp preset delete old-staging
 
 # 删除开发预设
-npx -y @1mcp/agent preset delete temp-dev
+1mcp preset delete temp-dev
 ```
 
 ### 示例输出
 
 ```bash
-npx -y @1mcp/agent preset delete old-staging
+1mcp preset delete old-staging
 
 ⚠️  Delete preset 'old-staging'?
    This action cannot be undone.
@@ -64,7 +64,7 @@ npx -y @1mcp/agent preset delete old-staging
 ### 确认拒绝
 
 ```bash
-npx -y @1mcp/agent preset delete production
+1mcp preset delete production
 
 ⚠️  Delete preset 'production'?
    This action cannot be undone.
@@ -84,28 +84,28 @@ npx -y @1mcp/agent preset delete production
 
 ```bash
 # 审查未使用的预设
-npx -y @1mcp/agent preset list
+1mcp preset list
 
 # 删除在预设列表中显示的未使用预设
-npx -y @1mcp/agent preset delete unused-preset
-npx -y @1mcp/agent preset delete old-experiment
+1mcp preset delete unused-preset
+1mcp preset delete old-experiment
 ```
 
 ### 开发工作流程
 
 ```bash
 # 测试后清理临时预设
-npx -y @1mcp/agent preset delete test-temp
-npx -y @1mcp/agent preset delete debug-session
-npx -y @1mcp/agent preset delete experiment-2024
+1mcp preset delete test-temp
+1mcp preset delete debug-session
+1mcp preset delete experiment-2024
 ```
 
 ### 团队环境管理
 
 ```bash
 # 删除已弃用的团队预设
-npx -y @1mcp/agent preset delete legacy-prod
-npx -y @1mcp/agent preset delete old-team-config
+1mcp preset delete legacy-prod
+1mcp preset delete old-team-config
 ```
 
 ## 安全考虑
@@ -123,10 +123,10 @@ npx -y @1mcp/agent preset delete old-team-config
 
 ```bash
 # 删除前导出预设配置（手动备份）
-npx -y @1mcp/agent preset show important-preset > backup-important-preset.txt
+1mcp preset show important-preset > backup-important-preset.txt
 
 # 然后根据需要删除
-npx -y @1mcp/agent preset delete important-preset
+1mcp preset delete important-preset
 ```
 
 ## 错误处理
@@ -134,7 +134,7 @@ npx -y @1mcp/agent preset delete important-preset
 ### 预设未找到
 
 ```bash
-npx -y @1mcp/agent preset delete nonexistent
+1mcp preset delete nonexistent
 # Error: Preset 'nonexistent' not found
 ```
 
@@ -143,7 +143,7 @@ npx -y @1mcp/agent preset delete nonexistent
 如果存在文件系统权限问题：
 
 ```bash
-npx -y @1mcp/agent preset delete locked-preset
+1mcp preset delete locked-preset
 # Error: Unable to delete preset: Permission denied
 ```
 
@@ -152,7 +152,7 @@ npx -y @1mcp/agent preset delete locked-preset
 如果预设配置文件已损坏：
 
 ```bash
-npx -y @1mcp/agent preset delete corrupted-preset
+1mcp preset delete corrupted-preset
 # Error: Unable to read preset configuration file
 ```
 
@@ -162,24 +162,24 @@ npx -y @1mcp/agent preset delete corrupted-preset
 
 ```bash
 # 1. 审查所有预设
-npx -y @1mcp/agent preset list
+1mcp preset list
 
 # 2. 识别未使用的预设（创建日期较早）
 # 3. 与团队验证预设确实未使用
 # 4. 删除未使用的预设
-npx -y @1mcp/agent preset delete unused-1
-npx -y @1mcp/agent preset delete unused-2
+1mcp preset delete unused-1
+1mcp preset delete unused-2
 
 # 5. 验证清理
-npx -y @1mcp/agent preset list
+1mcp preset list
 ```
 
 ### 项目更改后
 
 ```bash
 # 当项目需求更改时，删除过时的预设
-npx -y @1mcp/agent preset delete old-architecture
-npx -y @1mcp/agent preset delete deprecated-stack
+1mcp preset delete old-architecture
+1mcp preset delete deprecated-stack
 ```
 
 ## 最佳实践
@@ -197,8 +197,8 @@ npx -y @1mcp/agent preset delete deprecated-stack
 
 ```bash
 # 避免批量删除脚本 - 为安全起见单独删除
-npx -y @1mcp/agent preset delete preset1
-npx -y @1mcp/agent preset delete preset2
+1mcp preset delete preset1
+1mcp preset delete preset2
 ```
 
 ### 团队协调
@@ -222,13 +222,13 @@ npx -y @1mcp/agent preset delete preset2
 
 ```bash
 # 删除前导出预设详细信息以备潜在恢复
-npx -y @1mcp/agent preset show critical-preset > critical-preset-backup.json
-npx -y @1mcp/agent preset delete critical-preset
+1mcp preset show critical-preset > critical-preset-backup.json
+1mcp preset delete critical-preset
 ```
 
 ## 另请参阅
 
-- **[preset list](./list)** - 删除前审查预设
-- **[preset show](./show)** - 导出预设详细信息以备份
-- **[preset create](./create)** - 重新创建已删除的预设
-- **[智能交互模式](./)** - 交互式重新创建已删除的预设
+- **[preset list](/zh/commands/preset/list)** - 删除前审查预设
+- **[preset show](/zh/commands/preset/show)** - 导出预设详细信息以备份
+- **[preset create](/zh/commands/preset/create)** - 重新创建已删除的预设
+- **[智能交互模式](/zh/commands/preset/)** - 交互式重新创建已删除的预设

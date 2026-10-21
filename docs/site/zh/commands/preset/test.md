@@ -7,12 +7,12 @@ description: 验证预设的服务器筛选条件是否符合当前配置。
 
 针对您当前的服务器配置测试预设。
 
-有关预设管理的完整概述，请参阅 **[预设命令概述](./index)**。
+有关预设管理的完整概述，请参阅 **[预设命令概述](/zh/commands/preset/)**。
 
 ## 概要
 
 ```bash
-npx -y @1mcp/agent preset test <name>
+1mcp preset test <name>
 ```
 
 ## 参数
@@ -20,6 +20,11 @@ npx -y @1mcp/agent preset test <name>
 - **`<name>`**
   - 要测试的预设名称。
   - **必需**：是
+
+## 全局选项
+
+- **`--config, -c <路径>`** - 指定配置文件路径
+- **`--config-dir, -d <路径>`** - 指定配置目录
 
 ## 描述
 
@@ -38,16 +43,16 @@ npx -y @1mcp/agent preset test <name>
 
 ```bash
 # 测试开发预设
-npx -y @1mcp/agent preset test development
+1mcp preset test development
 
 # 测试生产预设
-npx -y @1mcp/agent preset test production
+1mcp preset test production
 ```
 
 ### 示例输出
 
 ```bash
-npx -y @1mcp/agent preset test development
+1mcp preset test development
 
 🔍 Testing preset 'development':
    Matching servers: webserver, apiserver, devtools
@@ -57,7 +62,7 @@ npx -y @1mcp/agent preset test development
 ### 没有匹配的服务器
 
 ```bash
-npx -y @1mcp/agent preset test strict-production
+1mcp preset test strict-production
 
 🔍 Testing preset 'strict-production':
    Matching servers: none
@@ -93,15 +98,15 @@ npx -y @1mcp/agent preset test strict-production
 
 ```bash
 # 验证新创建的预设工作正常
-npx -y @1mcp/agent preset create team-dev --filter "web,api,development"
-npx -y @1mcp/agent preset test team-dev
+1mcp preset create team-dev --filter "web,api,development"
+1mcp preset test team-dev
 ```
 
 ### 故障排除
 
 ```bash
 # 调试预设为什么不按预期工作
-npx -y @1mcp/agent preset test problematic-preset
+1mcp preset test problematic-preset
 
 # 与可用标签比较以识别问题
 ```
@@ -110,8 +115,8 @@ npx -y @1mcp/agent preset test problematic-preset
 
 ```bash
 # 添加或修改服务器后，测试现有预设
-npx -y @1mcp/agent preset test development
-npx -y @1mcp/agent preset test production
+1mcp preset test development
+1mcp preset test production
 
 # 确保预设仍然匹配预期的服务器
 ```
@@ -120,9 +125,9 @@ npx -y @1mcp/agent preset test production
 
 ```bash
 # 在部署配置更改前验证所有预设
-for preset in $(npx -y @1mcp/agent preset list --format=names); do
+for preset in $(1mcp preset list --format=names); do
   echo "Testing $preset..."
-  npx -y @1mcp/agent preset test $preset
+  1mcp preset test $preset
 done
 ```
 
@@ -132,23 +137,23 @@ done
 
 ```bash
 # 1. 修改服务器配置（添加/删除服务器或标签）
-npx -y @1mcp/agent mcp add newserver --type=stdio --tags=web,api
+1mcp mcp add newserver --type=stdio --tags=web,api
 
 # 2. 测试现有预设以查看影响
-npx -y @1mcp/agent preset test web-services
+1mcp preset test web-services
 
 # 3. 根据需要更新预设
-npx -y @1mcp/agent preset edit web-services
+1mcp preset edit web-services
 ```
 
 ### 客户端配置前
 
 ```bash
 # 1. 测试预设以确保它匹配预期的服务器
-npx -y @1mcp/agent preset test production
+1mcp preset test production
 
 # 2. 为客户端配置生成 URL
-npx -y @1mcp/agent preset url production
+1mcp preset url production
 
 # 3. 使用验证的预设 URL 配置客户端
 ```
@@ -158,7 +163,7 @@ npx -y @1mcp/agent preset url production
 ### 预设未找到
 
 ```bash
-npx -y @1mcp/agent preset test nonexistent
+1mcp preset test nonexistent
 # Error: Preset 'nonexistent' not found
 ```
 
@@ -167,7 +172,7 @@ npx -y @1mcp/agent preset test nonexistent
 如果预设的标签查询中有语法错误：
 
 ```bash
-npx -y @1mcp/agent preset test broken-preset
+1mcp preset test broken-preset
 # Error: Invalid tag query syntax in preset 'broken-preset': unexpected token
 ```
 
@@ -176,7 +181,7 @@ npx -y @1mcp/agent preset test broken-preset
 如果服务器配置有问题：
 
 ```bash
-npx -y @1mcp/agent preset test development
+1mcp preset test development
 # Warning: Some servers in configuration have validation errors
 # Matching servers: webserver (2 servers skipped due to errors)
 ```
@@ -203,7 +208,9 @@ npx -y @1mcp/agent preset test development
 
 ## 另请参阅
 
-- **[preset show](./show)** - 显示详细的预设信息，包括服务器匹配
-- **[preset create](./create)** - 创建具有特定标签条件的预设
-- **[智能交互模式](./)** - 根据测试结果交互式修改预设
-- **[mcp status](../mcp/status)** - 检查整体服务器配置健康状况
+- **[preset edit](/zh/commands/preset/edit)** - 使用交互式界面修改预设
+
+- **[preset show](/zh/commands/preset/show)** - 显示详细的预设信息，包括服务器匹配
+- **[preset create](/zh/commands/preset/create)** - 创建具有特定标签条件的预设
+- **[智能交互模式](/zh/commands/preset/)** - 根据测试结果交互式修改预设
+- **[mcp status](/zh/commands/mcp/status)** - 检查整体服务器配置健康状况

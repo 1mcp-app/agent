@@ -70,7 +70,7 @@ description: 管理用于选择 MCP 服务器的命名筛选预设。
 
 ## 命令
 
-### [智能交互模式](./)（无子命令）
+### [智能交互模式](/zh/commands/preset/)（无子命令）
 
 智能交互模式，自动检测现有预设并提供创建新或编辑现有预设的选项。
 
@@ -78,7 +78,7 @@ description: 管理用于选择 MCP 服务器的命名筛选预设。
 1mcp preset                              # 自动检测并提供选项
 ```
 
-### [edit](./edit)
+### [edit](/zh/commands/preset/edit)
 
 以可视化服务器选择交互式编辑现有预设。
 
@@ -86,7 +86,7 @@ description: 管理用于选择 MCP 服务器的命名筛选预设。
 1mcp preset edit development              # 编辑现有预设
 ```
 
-### [create](./create)
+### [create](/zh/commands/preset/create)
 
 使用过滤表达式进行命令行预设创建。
 
@@ -95,7 +95,7 @@ description: 管理用于选择 MCP 服务器的命名筛选预设。
 1mcp preset create prod --filter "web AND database AND monitoring"
 ```
 
-### [list](./list)
+### [list](/zh/commands/preset/list)
 
 以格式化表格显示所有可用的预设。
 
@@ -103,7 +103,7 @@ description: 管理用于选择 MCP 服务器的命名筛选预设。
 1mcp preset list
 ```
 
-### [show](./show)
+### [show](/zh/commands/preset/show)
 
 显示特定预设的详细信息。
 
@@ -111,7 +111,7 @@ description: 管理用于选择 MCP 服务器的命名筛选预设。
 1mcp preset show development
 ```
 
-### [url](./url)
+### [url](/zh/commands/preset/url)
 
 为预设生成客户端 URL。
 
@@ -119,7 +119,7 @@ description: 管理用于选择 MCP 服务器的命名筛选预设。
 1mcp preset url development
 ```
 
-### [test](./test)
+### [test](/zh/commands/preset/test)
 
 针对您当前的服务器配置测试预设。
 
@@ -127,7 +127,7 @@ description: 管理用于选择 MCP 服务器的命名筛选预设。
 1mcp preset test development
 ```
 
-### [delete](./delete)
+### [delete](/zh/commands/preset/delete)
 
 从您的配置中删除预设。
 
@@ -195,6 +195,14 @@ description: 管理用于选择 MCP 服务器的命名筛选预设。
 1mcp preset create prod-monitored --filter "production AND (web OR api) AND monitoring"
 ```
 
+### 智能交互模式
+
+运行 `1mcp preset` 可查看配置目录并检测已有预设，然后选择编辑、新建或取消。选择服务器后保存预设并生成 URL。
+
+```bash
+1mcp preset
+```
+
 ### URL 配置示例
 
 在不同的 MCP 客户端配置中使用预设：
@@ -207,8 +215,8 @@ description: 管理用于选择 MCP 服务器的命名筛选预设。
 {
   "mcpServers": {
     "1mcp-development": {
-      "command": "npx",
-      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "development"]
+      "command": "1mcp",
+      "args": ["proxy", "--preset", "development"]
     }
   }
 }

@@ -7,12 +7,12 @@ description: 显示指定预设的筛选条件和详细信息。
 
 显示特定预设的详细信息。
 
-有关预设管理的完整概述，请参阅 **[预设命令概述](./index)**。
+有关预设管理的完整概述，请参阅 **[预设命令概述](/zh/commands/preset/)**。
 
 ## 概要
 
 ```bash
-npx -y @1mcp/agent preset show <name>
+1mcp preset show <name>
 ```
 
 ## 参数
@@ -46,10 +46,10 @@ npx -y @1mcp/agent preset show <name>
 
 ```bash
 # 显示特定预设的详细信息
-npx -y @1mcp/agent preset show development
+1mcp preset show development
 
 # 显示生产预设信息
-npx -y @1mcp/agent preset show production
+1mcp preset show production
 ```
 
 ### 示例输出
@@ -129,7 +129,7 @@ npx -y @1mcp/agent preset show production
 
 ```bash
 # 在使用前审查预设
-npx -y @1mcp/agent preset show development
+1mcp preset show development
 
 # 将客户端 URL 复制到您的 MCP 客户端配置中
 # 使用匹配服务器信息验证包含正确的服务器
@@ -139,7 +139,7 @@ npx -y @1mcp/agent preset show development
 
 ```bash
 # 与团队成员共享预设详细信息
-npx -y @1mcp/agent preset show team-production
+1mcp preset show team-production
 
 # 团队成员可以看到确切的配置和匹配的服务器
 ```
@@ -148,7 +148,7 @@ npx -y @1mcp/agent preset show team-production
 
 ```bash
 # 调试预设为什么不按预期工作
-npx -y @1mcp/agent preset show problematic-preset
+1mcp preset show problematic-preset
 
 # 检查标签查询部分的语法问题
 # 查看匹配服务器以查看实际结果
@@ -159,7 +159,7 @@ npx -y @1mcp/agent preset show problematic-preset
 ### 预设未找到
 
 ```bash
-npx -y @1mcp/agent preset show nonexistent
+1mcp preset show nonexistent
 # Error: Preset 'nonexistent' not found
 ```
 
@@ -173,20 +173,22 @@ npx -y @1mcp/agent preset show nonexistent
 
 ```bash
 # 1. 列出预设以查看可用选项
-npx -y @1mcp/agent preset list
+1mcp preset list
 
 # 2. 显示特定预设的详细信息
-npx -y @1mcp/agent preset show staging
+1mcp preset show staging
 
 # 3. 如果需要测试预设
-npx -y @1mcp/agent preset test staging
+1mcp preset test staging
 
 # 4. 在您的 MCP 客户端中使用客户端 URL
 ```
 
 ## 另请参阅
 
-- **[preset list](./list)** - 表格格式的所有预设概览
-- **[preset test](./test)** - 测试预设服务器匹配，包含其他详细信息
-- **[preset url](./url)** - 仅获取预设的客户端 URL
-- **[智能交互模式](./)** - 自动检测现有预设并提供编辑选项
+- **[preset edit](/zh/commands/preset/edit)** - 使用交互式界面修改预设
+
+- **[preset list](/zh/commands/preset/list)** - 表格格式的所有预设概览
+- **[preset test](/zh/commands/preset/test)** - 测试预设服务器匹配，包含其他详细信息
+- **[preset url](/zh/commands/preset/url)** - 仅获取预设的客户端 URL
+- **[智能交互模式](/zh/commands/preset/)** - 自动检测现有预设并提供编辑选项

@@ -22,10 +22,10 @@ Use this command when a server is useful overall, but one or more of its tools s
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent mcp tools
-npx -y @1mcp/agent mcp tools list [server] [--disabled]
-npx -y @1mcp/agent mcp tools disable <server> <tool>
-npx -y @1mcp/agent mcp tools enable <server> <tool>
+1mcp mcp tools
+1mcp mcp tools list [server] [--disabled]
+1mcp mcp tools disable <server> <tool>
+1mcp mcp tools enable <server> <tool>
 ```
 
 ## Description
@@ -35,7 +35,7 @@ npx -y @1mcp/agent mcp tools enable <server> <tool>
 If `1mcp serve` is already running, it reloads `mcp.json` changes through config hot reload. You can verify the current state with:
 
 ```bash
-npx -y @1mcp/agent mcp tools list <server> --disabled
+1mcp mcp tools list <server> --disabled
 ```
 
 ## Arguments
@@ -63,19 +63,19 @@ npx -y @1mcp/agent mcp tools list <server> --disabled
 
 ```bash
 # Open the interactive tool browser
-npx -y @1mcp/agent mcp tools
+1mcp mcp tools
 
 # Show disabled tool counts for all servers
-npx -y @1mcp/agent mcp tools list
+1mcp mcp tools list
 
 # Show disabled tools for one server
-npx -y @1mcp/agent mcp tools list filesystem --disabled
+1mcp mcp tools list filesystem --disabled
 
 # Disable one tool without disabling the server
-npx -y @1mcp/agent mcp tools disable filesystem write_file
+1mcp mcp tools disable filesystem write_file
 
 # Re-enable the tool later
-npx -y @1mcp/agent mcp tools enable filesystem write_file
+1mcp mcp tools enable filesystem write_file
 ```
 
 ## Configuration Behavior

@@ -9,12 +9,12 @@ description: 检查桌面应用当前是否已整合到 1MCP。
 
 此命令检查应用程序是配置为直接连接到其自己的 MCP 服务器，还是连接到中央 1MCP 实例。
 
-有关整合工作流程的完整概述，请参阅 **[应用程序整合指南](../../guide/integrations/app-consolidation)**。
+有关整合工作流程的完整概述，请参阅 **[应用程序整合指南](/zh/guide/integrations/app-consolidation)**。
 
 ## 摘要
 
 ```bash
-npx -y @1mcp/agent app status [app-name] [options]
+1mcp app status [app-name] [options]
 ```
 
 ## 参数
@@ -31,15 +31,15 @@ npx -y @1mcp/agent app status [app-name] [options]
 
 ```bash
 # 显示所有应用程序的状态
-npx -y @1mcp/agent app status
+1mcp app status
 
 # 显示特定应用程序的状态
-npx -y @1mcp/agent app status claude-desktop
+1mcp app status claude-desktop
 
 # 显示详细的状态信息
-ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent app status
+ONE_MCP_LOG_LEVEL=debug 1mcp app status
 ```
 
 ## 另请参阅
 
-- **[应用程序整合指南](../../guide/integrations/app-consolidation#the-consolidation-workflow)**
+- **[应用程序整合指南](/zh/guide/integrations/app-consolidation)**

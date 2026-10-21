@@ -139,8 +139,8 @@ Direct MCP exposure still makes sense for MCP-native clients that are intentiona
 
 ## See Also
 
-- [Codex Integration](./codex.md)
-- [Developer Tools](./developer-tools.md)
-- [Instructions Command](/commands/instructions.md)
-- [Inspect Command](/commands/inspect.md)
-- [Run Command](/commands/run.md)
+- [Codex Integration](/guide/integrations/codex)
+- [Developer Tools](/guide/integrations/developer-tools)
+- [Instructions Command](/commands/instructions)
+- [Inspect Command](/commands/inspect)
+- [Run Command](/commands/run)

@@ -11,12 +11,12 @@ head:
 
 Removes an MCP server from the 1MCP configuration.
 
-For a complete overview of server management, see the **[Server Management Guide](../../guide/essentials/server-management)**.
+For a complete overview of server management, see the **[Server Management Guide](/guide/essentials/server-management)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent mcp remove <name> [options]
+1mcp mcp remove <name> [options]
 ```
 
 ## Arguments
@@ -41,12 +41,12 @@ This command supports all global options:
 
 ```bash
 # Remove a server
-npx -y @1mcp/agent mcp remove my-server
+1mcp mcp remove my-server
 
 # Remove a server without prompting for confirmation
-npx -y @1mcp/agent mcp remove old-server --yes
+1mcp mcp remove old-server --yes
 ```
 
 ## See Also
 
-- **[Server Management Guide](../../guide/essentials/server-management)**
+- **[Server Management Guide](/guide/essentials/server-management)**

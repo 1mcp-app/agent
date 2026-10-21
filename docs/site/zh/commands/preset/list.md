@@ -7,12 +7,12 @@ description: 列出已配置预设及其筛选摘要。
 
 以格式化表格显示所有可用的预设。
 
-有关预设管理的完整概述，请参阅 **[预设命令概述](./index)**。
+有关预设管理的完整概述，请参阅 **[预设命令概述](/zh/commands/preset/)**。
 
 ## 概要
 
 ```bash
-npx -y @1mcp/agent preset list
+1mcp preset list
 ```
 
 ## 全局选项
@@ -46,7 +46,7 @@ npx -y @1mcp/agent preset list
 
 ```bash
 # 列出所有预设
-npx -y @1mcp/agent preset list
+1mcp preset list
 ```
 
 ### 示例输出
@@ -107,16 +107,16 @@ list 命令与其他预设命令配合良好：
 
 ```bash
 # 1. 列出所有预设以查看可用的选项
-npx -y @1mcp/agent preset list
+1mcp preset list
 
 # 2. 显示特定预设的详细信息
-npx -y @1mcp/agent preset show production
+1mcp preset show production
 
 # 3. 测试预设以查看匹配的服务器
-npx -y @1mcp/agent preset test production
+1mcp preset test production
 
 # 4. 为客户端配置生成 URL
-npx -y @1mcp/agent preset url production
+1mcp preset url production
 ```
 
 ## 使用技巧
@@ -128,7 +128,7 @@ npx -y @1mcp/agent preset url production
 
 ## 另请参阅
 
-- **[preset show](./show)** - 显示详细的预设信息（完整查询、匹配服务器）
-- **[preset create](./create)** - 从命令行创建新预设
-- **[智能交互模式](./)** - 使用交互式 TUI 创建预设
-- **[preset delete](./delete)** - 删除未使用的预设
+- **[preset show](/zh/commands/preset/show)** - 显示详细的预设信息（完整查询、匹配服务器）
+- **[preset create](/zh/commands/preset/create)** - 从命令行创建新预设
+- **[智能交互模式](/zh/commands/preset/)** - 使用交互式 TUI 创建预设
+- **[preset delete](/zh/commands/preset/delete)** - 删除未使用的预设

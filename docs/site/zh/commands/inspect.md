@@ -10,12 +10,12 @@ description: 使用 inspect 命令列出服务器、检查服务器工具，并�
 ## 概要
 
 ```bash
-npx -y @1mcp/agent inspect [target] [选项]
+1mcp inspect [target] [选项]
 ```
 
 ## 描述
 
-`inspect` 是 CLI 工作流中的发现和 schema 查看步骤。通常在 [`instructions`](./instructions.md) 之后、[`run`](./run.md) 之前使用。
+`inspect` 是 CLI 工作流中的发现和 schema 查看步骤。通常在 [`instructions`](/zh/commands/instructions) 之后、[`run`](/zh/commands/run) 之前使用。
 
 根据 target 的不同，`inspect` 可以：
 
@@ -97,25 +97,25 @@ npx -y @1mcp/agent inspect [target] [选项]
 ### 列出全部服务器
 
 ```bash
-npx -y @1mcp/agent inspect
+1mcp inspect
 ```
 
 ### 列出某个服务器的工具
 
 ```bash
-npx -y @1mcp/agent inspect filesystem
+1mcp inspect filesystem
 ```
 
 ### 查看工具 schema
 
 ```bash
-npx -y @1mcp/agent inspect filesystem/read_file
+1mcp inspect filesystem/read_file
 ```
 
 ### 使用 JSON 输出进行脚本处理
 
 ```bash
-npx -y @1mcp/agent inspect filesystem --format json
+1mcp inspect filesystem --format json
 ```
 
 ### 通过 Runtime Target Context 查看
@@ -127,13 +127,13 @@ npx -y @1mcp/agent inspect filesystem --format json
 ### 一次拉取服务器的全部工具
 
 ```bash
-npx -y @1mcp/agent inspect filesystem --all
+1mcp inspect filesystem --all
 ```
 
 ### 继续分页列表
 
 ```bash
-npx -y @1mcp/agent inspect filesystem --limit 20 --cursor next-page-token
+1mcp inspect filesystem --limit 20 --cursor next-page-token
 ```
 
 ## 适用场景
@@ -148,11 +148,11 @@ npx -y @1mcp/agent inspect filesystem --limit 20 --cursor next-page-token
 
 ## 另请参阅
 
-- **[CLI 模式指南](../guide/integrations/cli-mode.md)** - 为什么推荐先缩小范围再执行
-- **[Instructions 命令](./instructions.md)** - 先读取当前工作流和服务器清单
-- **[Run 命令](./run.md)** - 在确认 schema 后调用工具
-- **[Serve 命令](./serve.md)** - 启动 `inspect` 所查询的 1MCP 服务器
-- **[配置深入指南](../guide/essentials/configuration.md)** - 包含 CLI 会话缓存等全局配置
+- **[CLI 模式指南](/zh/guide/integrations/cli-mode)** - 为什么推荐先缩小范围再执行
+- **[Instructions 命令](/zh/commands/instructions)** - 先读取当前工作流和服务器清单
+- **[Run 命令](/zh/commands/run)** - 在确认 schema 后调用工具
+- **[Serve 命令](/zh/commands/serve)** - 启动 `inspect` 所查询的 1MCP 服务器
+- **[配置深入指南](/zh/guide/essentials/configuration)** - 包含 CLI 会话缓存等全局配置
 
 ### 工具输出与分页
 
