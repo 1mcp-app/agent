@@ -38,11 +38,6 @@
   "files": [
     "build"
   ],
-  "husky": {
-    "hooks": {
-      "pre-commit": "lint-staged"
-    }
-  },
   "lint-staged": {
     "*.{ts,tsx}": [
       "bash -c 'tsc --noEmit --project tsconfig.test.json && tsc --noEmit --project web/admin/tsconfig.json'"
