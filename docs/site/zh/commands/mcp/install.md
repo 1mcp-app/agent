@@ -1,219 +1,59 @@
 ---
 title: mcp install
-description: 从 1MCP 注册表安装 MCP 服务器
-head:
-  - ['meta', { name: 'keywords', content: 'MCP 安装,注册表服务器安装,交互式向导,服务器发现' }]
-  - ['meta', { property: 'og:title', content: '1MCP 安装命令 - 注册表服务器安装' }]
-  - ['meta', { property: 'og:description', content: '使用交互式向导和版本管理从注册表安装 MCP 服务器。' }]
+description: 根据注册表条目生成后端配置。
 ---
 
 # mcp install
 
-从 1MCP 注册表安装 MCP 服务器，具有自动依赖解析和版本管理功能。安装命令提供交互式向导引导安装和按名称直接安装服务器。
+查询注册表条目并向 `mcp.json` 写入后端定义。这里的安装是配置启动命令或远程端点。软件包可能在后端启动时才下载；此命令本身不认证软件包完整性，也不解析依赖图。
 
-> **注意**：这是向配置中添加 MCP 服务器推荐的方式。对于手动配置，请参阅 [add 命令](add.md)。
-
-## 命令语法
-
-启动交互式安装向导：
+## 语法
 
 ```bash
-npx -y @1mcp/agent mcp install
+1mcp mcp install
+1mcp mcp install <registry-id> [--dry-run] [--force]
+1mcp mcp install <registry-id>@<version>
 ```
 
-按名称从注册表安装服务器：
+不提供 ID 或使用 `--interactive` 时，命令会打开安装向导。请使用 [registry search](/zh/commands/registry/search) 返回的 ID；示例名称并不保证所选注册表中存在该条目。
+
+## 选项
+
+| 选项                      | 行为                                        |
+| ------------------------- | ------------------------------------------- |
+| `--interactive, -i`       | 打开安装向导                                |
+| `--dry-run`               | 验证目标，不写入；输出名称/版本和注册表来源 |
+| `--force`                 | 替换已有静态服务器配置；不能替换模板        |
+| `--verbose, -v`           | 启用详细日志                                |
+| `--config, -c <path>`     | 指定配置文件                                |
+| `--config-dir, -d <path>` | 指定配置目录                                |
+
+注册表连接选项见[注册表命令](/zh/commands/registry/)。
+
+## 发现、预览、应用
 
 ```bash
-npx -y @1mcp/agent mcp install <server-name>
+1mcp registry search filesystem
+1mcp mcp install <registry-id> --dry-run
+1mcp mcp install <registry-id>
+1mcp mcp list
 ```
 
-安装特定版本：
+执行安装命令前，将 `<registry-id>` 替换为实际搜索结果。配置中的本地名称由注册表 ID 派生。dry-run 输出目标名称/版本和注册表来源，不显示生成的可执行文件、参数或 URL。使用 `1mcp registry show <registry-id> --format json` 检查注册表元数据。如果需要在写入前检查准确的启动配置，请改用 [mcp add](/zh/commands/mcp/add) 提供明确的命令或 URL。安装后，检查所选 `mcp.json` 中保存的条目。
 
-```bash
-npx -y @1mcp/agent mcp install <server-name>@<version>
-```
+当条目包含软件包时，解析器优先选择 npm 包；否则选择远程端点，并优先使用 Streamable HTTP。不支持的软件包类型会报错，不会改用其他包管理器安装。
 
-预览安装而不进行更改：
+`@<version>` 选择注册表元数据，本身不会将生成的 npm 包参数固定为该版本。请检查注册表元数据；需要固定软件包版本时，使用 [mcp add](/zh/commands/mcp/add) 配置明确带版本的包。
 
-```bash
-npx -y @1mcp/agent mcp install <server-name> --dry-run
-```
+## 验证就绪状态
 
-强制重新安装：
+检查命令报告的配置和重载结果，然后对目标运行时执行 `1mcp inspect`。定义已保存不代表后端已经启动或完成认证。请按后端的设置文档及[配置参考](/zh/reference/mcp-servers) 补充必要的凭据和服务器参数。
 
-```bash
-npx -y @1mcp/agent mcp install <server-name> --force
-```
+`mcp update` 修改配置，不是注册表软件包升级命令。替换注册表生成的定义前，先验证目标条目并检查其注册表元数据，再使用 `--force`。
 
-## 参数
+## 相关命令
 
-- **`<server-name>`** (可选)
-  - 服务器名称或 name@version 进行安装。可以包含完整的注册表 ID（例如：`io.github.user/filesystem`）。
-  - **必需**: 否
-
-## 全局选项
-
-此命令支持所有全局选项：
-
-- **`--config, -c <路径>`** - 指定配置文件路径
-- **`--config-dir, -d <路径>`** - 配置目录路径
-
-## 命令特定选项
-
-- **`--interactive, -i`**
-  - 启动交互式安装向导。当未提供服务器名称时，这是默认选项。
-
-- **`--force`**
-  - 即使服务器已存在也强制安装。覆盖现有配置。
-
-- **`--dry-run`**
-  - 显示将要安装的内容，而不对配置进行任何更改。
-
-- **`--verbose, -v`**
-  - 显示详细的安装信息。
-
-## 示例
-
-### 基本服务器安装
-
-安装文件系统服务器的最新版本：
-
-```bash
-npx -y @1mcp/agent mcp install filesystem
-```
-
-安装特定版本：
-
-```bash
-npx -y @1mcp/agent mcp install filesystem@1.2.0
-```
-
-### 交互式向导安装
-
-启动交互式向导来浏览和安装服务器：
-
-```bash
-npx -y @1mcp/agent mcp install --interactive
-```
-
-向导将指导您完成以下步骤：
-
-1. **服务器发现** - 按类别浏览可用服务器
-2. **版本选择** - 选择兼容版本
-3. **配置** - 设置服务器特定选项
-4. **安装** - 确认并安装及其依赖
-
-### 安装预览
-
-预览将要安装的内容而不进行更改：
-
-```bash
-npx -y @1mcp/agent mcp install filesystem --dry-run
-
-# 输出:
-# 📦 安装预览: filesystem@1.2.0
-#
-# 服务器: filesystem - 文件系统访问和管理
-# 版本: 1.2.0
-# 类别: 系统
-# 标签: filesystem, files, local
-#
-# 依赖: 无
-# 配置: 将提示输入根目录
-#
-# 使用 --verbose 获取详细信息
-```
-
-### 强制重新安装
-
-替换现有服务器配置：
-
-```bash
-npx -y @1mcp/agent mcp install filesystem --force
-```
-
-### 详细安装
-
-查看包含依赖解析的详细安装过程：
-
-```bash
-npx -y @1mcp/agent mcp install airtable --verbose
-
-# 输出:
-# 🔍 解析 airtable@2.1.0 的依赖...
-# ✓ 依赖检查完成
-# 📥 下载服务器元数据...
-# ✓ 验证服务器配置
-# ⚙️  生成配置...
-# ✓ 服务器成功安装为 'airtable'
-```
-
-## 交互式工作流程
-
-当使用 `--interactive` 或不带参数运行时，安装命令会启动引导向导，帮助您：
-
-1. **搜索** 按名称或浏览类别查找服务器
-2. **选择** 服务器并查看其功能
-3. **选择** 版本（稳定版与最新版）
-4. **配置** 服务器特定参数
-5. **确认** 安装
-
-## 注册表功能
-
-- **服务器发现**：搜索和浏览可用的 MCP 服务器
-- **版本管理**：安装特定版本并检查兼容性
-- **依赖解析**：自动处理所需的依赖
-- **安全验证**：验证服务器完整性和真实性
-
-## 配置输出
-
-已安装的服务器会添加到您的 `mcp.json` 配置中，包含注册表元数据：
-
-```json
-{
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"],
-      "tags": ["filesystem", "files", "local"],
-      "_registry": {
-        "name": "filesystem",
-        "version": "1.2.0",
-        "installedAt": "2024-01-15T10:30:00Z",
-        "source": "1mcp-registry"
-      }
-    }
-  }
-}
-```
-
-## 错误处理
-
-安装命令为常见场景提供有用的错误消息：
-
-```bash
-# 服务器未找到
-npx -y @1mcp/agent mcp install nonexistent-server
-# 错误：在注册表中找不到服务器 'nonexistent-server'
-# 建议：filesystem, git, database, search
-
-# 版本不可用
-npx -y @1mcp/agent mcp install filesystem@99.99.99
-# 错误：'filesystem' 的版本 99.99.99 不可用
-# 可用版本：1.2.0, 1.1.0, 1.0.0
-
-# 已安装
-npx -y @1mcp/agent mcp install filesystem
-# 错误：服务器 'filesystem' 已安装
-# 使用 --force 重新安装或使用 mcp update 升级
-```
-
-## 另请参阅
-
-- **[mcp setup](/zh/commands/mcp/setup)** - 配置已安装的受支持后端
-
-- **[注册表搜索](../registry/search.md)** - 在注册表中搜索可用服务器
-- **[mcp uninstall](uninstall.md)** - 移除已安装的服务器
-- **[mcp update](update.md)** - 更新已安装的服务器
-- **[服务器管理指南](../../guide/essentials/server-management.md)** - 完整的服务器管理概述
-- **[注册表命令](../registry/)** - 完整的注册表命令文档
+- [mcp setup](/zh/commands/mcp/setup) — 配置已安装的受支持后端
+- [mcp add](/zh/commands/mcp/add) — 提供明确的启动命令或 URL
+- [mcp uninstall](/zh/commands/mcp/uninstall) — 移除定义
+- [服务器管理](/zh/guide/essentials/server-management)

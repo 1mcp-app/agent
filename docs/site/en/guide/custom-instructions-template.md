@@ -140,11 +140,11 @@ This format helps LLMs understand which instructions come from which server and 
 
 ### Configuration Variables
 
-| Variable                             | Type   | Description            | Default                                                                          |
-| ------------------------------------ | ------ | ---------------------- | -------------------------------------------------------------------------------- |
-| <span v-pre>`{{title}}`</span>       | string | Title for the template | `"1MCP - Model Context Protocol Proxy"`                                          |
-| <span v-pre>`{{toolPattern}}`</span> | string | Tool naming pattern    | `"{server}_1mcp_{tool}"`                                                         |
-| <span v-pre>`{{examples}}`</span>    | array  | Array of tool examples | See [examples reference](/en/reference/instructions-template/variables#examples) |
+| Variable                             | Type   | Description            | Default                                                                       |
+| ------------------------------------ | ------ | ---------------------- | ----------------------------------------------------------------------------- |
+| <span v-pre>`{{title}}`</span>       | string | Title for the template | `"1MCP - Model Context Protocol Proxy"`                                       |
+| <span v-pre>`{{toolPattern}}`</span> | string | Tool naming pattern    | `"{server}_1mcp_{tool}"`                                                      |
+| <span v-pre>`{{examples}}`</span>    | array  | Array of tool examples | See [examples reference](/reference/instructions-template/variables#examples) |
 
 ## Using Custom Templates
 
@@ -404,8 +404,8 @@ You can test your templates by:
 
 Custom templates allow you to override, filter, or customize server instructions using Handlebars logic. This gives you complete control over how server instructions are presented to the LLM.
 
-For detailed guidance on server instruction overrides including patterns, techniques, and examples, see the dedicated [Server Instruction Overrides](/en/guide/server-instructions-overrides) guide.
+For detailed guidance on server instruction overrides including patterns, techniques, and examples, see the dedicated [Server Instruction Overrides](/guide/server-instructions-overrides) guide.
 
 ## Example Templates
 
-See the [Template Examples](/en/reference/instructions-template/examples) page for complete template examples for different use cases.
+See the [Template Examples](/reference/instructions-template/examples) page for complete template examples for different use cases.

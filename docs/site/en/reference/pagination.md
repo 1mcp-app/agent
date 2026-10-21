@@ -38,10 +38,10 @@ Enable pagination with the `--pagination` or `-p` flag:
 
 ```bash
 # Enable pagination for HTTP transport
-npx -y @1mcp/agent --config mcp.json --pagination
+1mcp --config mcp.json --pagination
 
 # With short flag
-npx -y @1mcp/agent --config mcp.json -p
+1mcp --config mcp.json -p
 ```
 
 ### 2. Environment Variable
@@ -50,7 +50,7 @@ Set the `ONE_MCP_PAGINATION` environment variable:
 
 ```bash
 export ONE_MCP_PAGINATION=true
-npx -y @1mcp/agent --config mcp.json
+1mcp --config mcp.json
 ```
 
 ### 3. HTTP Query Parameter
@@ -243,7 +243,7 @@ Partial discovery retains the last complete configured-tool inventory for inspec
 
 ```bash
 # Quick development with pagination
-npx -y @1mcp/agent --config dev.json --pagination --log-level debug
+1mcp --config dev.json --pagination --log-level debug
 ```
 
 ### Production Setup
@@ -251,7 +251,7 @@ npx -y @1mcp/agent --config dev.json --pagination --log-level debug
 ```bash
 # Production with environment variables
 export ONE_MCP_PAGINATION=true
-npx -y @1mcp/agent --config production.json
+1mcp --config production.json
 ```
 
 ### Docker Environment
@@ -305,7 +305,7 @@ pnpm inspector
 
 ```bash
 # Enable debug logging to see pagination flow
-npx -y @1mcp/agent --config mcp.json --pagination --log-level debug
+1mcp --config mcp.json --pagination --log-level debug
 ```
 
 Look for log messages like:

@@ -133,8 +133,8 @@ CLI 模式把 agent 的工作方式从：
 
 ## 另请参阅
 
-- [Codex 集成](./codex.md)
-- [开发者工具](./developer-tools.md)
-- [Instructions 命令](/zh/commands/instructions.md)
-- [Inspect 命令](/zh/commands/inspect.md)
-- [Run 命令](/zh/commands/run.md)
+- [Codex 集成](/zh/guide/integrations/codex)
+- [开发者工具](/zh/guide/integrations/developer-tools)
+- [Instructions 命令](/zh/commands/instructions)
+- [Inspect 命令](/zh/commands/inspect)
+- [Run 命令](/zh/commands/run)

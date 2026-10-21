@@ -51,12 +51,12 @@ description: 参考 mcp.json 中 MCP 服务器、传输和共享默认值的配�
 1. **命令行标志：**
 
    ```bash
-   npx -y @1mcp/agent --config-dir /custom/config/path
+   1mcp --config-dir /custom/config/path
    ```
 
 2. **环境变量：**
    ```bash
-   ONE_MCP_CONFIG_DIR=/custom/config/path npx -y @1mcp/agent
+   ONE_MCP_CONFIG_DIR=/custom/config/path 1mcp
    ```
 
 当您覆盖配置目录时，代理将：
@@ -69,7 +69,7 @@ description: 参考 mcp.json 中 MCP 服务器、传输和共享默认值的配�
 
 ```bash
 # 使用项目特定的配置目录
-npx -y @1mcp/agent --config-dir ./project-config
+1mcp --config-dir ./project-config
 ```
 
 这为需要隔离配置的项目创建了一个自包含的配置设置。
@@ -264,9 +264,9 @@ MCP 工具通常采用 `{server}_1mcp_{tool}` 名称。如果限定名称超过 
 可以使用 [`mcp tools`](/zh/commands/mcp/tools) 管理此字段：
 
 ```bash
-npx -y @1mcp/agent mcp tools disable filesystem write_file
-npx -y @1mcp/agent mcp tools enable filesystem write_file
-npx -y @1mcp/agent mcp tools list filesystem --disabled
+1mcp mcp tools disable filesystem write_file
+1mcp mcp tools enable filesystem write_file
+1mcp mcp tools list filesystem --disabled
 ```
 
 `mcp tools` 的 list、enable 和 disable 子命令会更新 `mcp.json`。正在运行的 `1mcp serve` 实例会通过配置热重载观察到变化。
@@ -670,6 +670,6 @@ MCP 服务器模板支持动态、上下文感知的服务器配置。您可以�
 
 ## 另请参阅
 
-- **[配置深入指南](../guide/essentials/configuration.md)** - CLI 标志和环境变量
-- **[Serve 命令参考](../commands/serve.md)** - 命令行使用示例
-- **[安全指南](security.md)** - MCP 服务器的安全最佳实践
+- **[配置深入指南](/zh/guide/essentials/configuration)** - CLI 标志和环境变量
+- **[Serve 命令参考](/zh/commands/serve)** - 命令行使用示例
+- **[安全指南](/zh/reference/security)** - MCP 服务器的安全最佳实践

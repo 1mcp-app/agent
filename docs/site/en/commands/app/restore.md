@@ -20,12 +20,12 @@ head:
 
 Restores an application to its pre-consolidation state using a backup file.
 
-For a complete overview of the consolidation and restore workflow, see the **[App Consolidation Guide](../../guide/integrations/app-consolidation)**.
+For a complete overview of the consolidation and restore workflow, see the **[App Consolidation Guide](/guide/integrations/app-consolidation)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent app restore [app-name] [options]
+1mcp app restore [app-name] [options]
 ```
 
 ## Arguments
@@ -51,15 +51,15 @@ npx -y @1mcp/agent app restore [app-name] [options]
 
 ```bash
 # Restore the latest backup for Claude Desktop
-npx -y @1mcp/agent app restore claude-desktop
+1mcp app restore claude-desktop
 
 # Restore all consolidated applications
-npx -y @1mcp/agent app restore --all
+1mcp app restore --all
 
 # List available backups for Cursor
-npx -y @1mcp/agent app restore cursor --list
+1mcp app restore cursor --list
 ```
 
 ## See Also
 
-- **[App Consolidation Guide](../../guide/integrations/app-consolidation#backup-and-restore-system)**
+- **[App Consolidation Guide](/guide/integrations/app-consolidation#backups-and-restore)**

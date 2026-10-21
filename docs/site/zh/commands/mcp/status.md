@@ -7,12 +7,12 @@ description: 查看一个或全部已配置 MCP 服务器的连接状态和详�
 
 检查已配置的 MCP 服务器的状态和详细信息。
 
-有关服务器管理的完整概述，请参阅 **[服务器管理指南](../../guide/essentials/server-management)**。
+有关服务器管理的完整概述，请参阅 **[服务器管理指南](/zh/guide/essentials/server-management)**。
 
 ## 摘要
 
 ```bash
-npx -y @1mcp/agent mcp status [name] [options]
+1mcp mcp status [name] [options]
 ```
 
 ## 参数
@@ -44,18 +44,18 @@ npx -y @1mcp/agent mcp status [name] [options]
 
 ```bash
 # 检查所有服务器的状态
-npx -y @1mcp/agent mcp status
+1mcp mcp status
 
 # 检查特定服务器的状态
-npx -y @1mcp/agent mcp status my-server
+1mcp mcp status my-server
 
 # 获取详细的状态信息
-npx -y @1mcp/agent mcp status --verbose
+1mcp mcp status --verbose
 
 # 查看某个模板的全部活动实例
-npx -y @1mcp/agent mcp status github --verbose
+1mcp mcp status github --verbose
 ```
 
 ## 另请参阅
 
-- **[服务器管理指南](../../guide/essentials/server-management)**
+- **[服务器管理指南](/zh/guide/essentials/server-management)**

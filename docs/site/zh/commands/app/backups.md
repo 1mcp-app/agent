@@ -7,12 +7,12 @@ description: 列出、清理和验证应用整合过程中创建的配置备份�
 
 管理在整合过程中创建的配置备份。
 
-有关备份和恢复系统的完整概述，请参阅 **[应用整合指南](../../guide/integrations/app-consolidation#backup-and-restore-system)**。
+有关备份和恢复系统的完整概述，请参阅 **[应用整合指南](/zh/guide/integrations/app-consolidation#备份和恢复)**。
 
 ## 摘要
 
 ```bash
-npx -y @1mcp/agent app backups [app-name] [options]
+1mcp app backups [app-name] [options]
 ```
 
 ## 参数
@@ -32,18 +32,18 @@ npx -y @1mcp/agent app backups [app-name] [options]
 
 ```bash
 # 列出所有可用的备份
-npx -y @1mcp/agent app backups
+1mcp app backups
 
 # 列出特定应用的备份
-npx -y @1mcp/agent app backups claude-desktop
+1mcp app backups claude-desktop
 
 # 删除所有超过30天的备份
-npx -y @1mcp/agent app backups --cleanup=30
+1mcp app backups --cleanup=30
 
 # 验证所有备份的完整性
-npx -y @1mcp/agent app backups --verify
+1mcp app backups --verify
 ```
 
 ## 另请参阅
 
-- **[应用整合指南](../../guide/integrations/app-consolidation#backup-and-restore-system)**
+- **[应用整合指南](/zh/guide/integrations/app-consolidation#备份和恢复)**

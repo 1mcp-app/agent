@@ -12,7 +12,7 @@ description: 获取 CLI 模式 agent 工作流和当前服务器发现信息。
 ## 概要
 
 ```bash
-npx -y @1mcp/agent instructions [选项]
+1mcp instructions [选项]
 ```
 
 ## 描述
@@ -66,19 +66,19 @@ npx -y @1mcp/agent instructions [选项]
 ### 显示完整 CLI Playbook
 
 ```bash
-npx -y @1mcp/agent instructions
+1mcp instructions
 ```
 
 ### 只显示过滤后的服务器集合
 
 ```bash
-npx -y @1mcp/agent instructions --tags backend
+1mcp instructions --tags backend
 ```
 
 ### 使用已保存的预设
 
 ```bash
-npx -y @1mcp/agent instructions --preset development
+1mcp instructions --preset development
 ```
 
 ### 使用 Runtime Target Context
@@ -92,9 +92,9 @@ npx -y @1mcp/agent instructions --preset development
 读取 `instructions` 后，继续执行：
 
 ```bash
-npx -y @1mcp/agent inspect <server>
-npx -y @1mcp/agent inspect <server>/<tool>
-npx -y @1mcp/agent run <server>/<tool> --args '<json>'
+1mcp inspect <server>
+1mcp inspect <server>/<tool>
+1mcp run <server>/<tool> --args '<json>'
 ```
 
 如果需要身份验证，playbook 会提示用户或 agent 使用以下命令重试：
@@ -105,8 +105,8 @@ npx -y @1mcp/agent run <server>/<tool> --args '<json>'
 
 ## 另请参阅
 
-- **[CLI 模式指南](../guide/integrations/cli-mode.md)** - 为什么推荐这种渐进式工作流
-- **[Inspect 命令](./inspect.md)** - 发现工具并查看 schema
-- **[Run 命令](./run.md)** - 调用选中的工具
-- **[CLI Setup 命令](./cli-setup.md)** - 为 Codex 或 Claude 安装启动钩子和引导文档
-- **[Serve 命令](./serve.md)** - 启动提供这些指令输出的 1MCP 服务器
+- **[CLI 模式指南](/zh/guide/integrations/cli-mode)** - 为什么推荐这种渐进式工作流
+- **[Inspect 命令](/zh/commands/inspect)** - 发现工具并查看 schema
+- **[Run 命令](/zh/commands/run)** - 调用选中的工具
+- **[CLI Setup 命令](/zh/commands/cli-setup)** - 为 Codex 或 Claude 安装启动钩子和引导文档
+- **[Serve 命令](/zh/commands/serve)** - 启动提供这些指令输出的 1MCP 服务器

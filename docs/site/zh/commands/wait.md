@@ -8,7 +8,7 @@ description: 在调用工具前等待已配置的静态 MCP 服务器连接完�
 通过已认证的 `/api/v1/inspect` 状态契约，等待已启用的已配置静态 MCP 服务器变为 `connected` 且 `available: true`。
 
 ```bash
-npx -y @1mcp/agent wait [server] [options]
+1mcp wait [server] [options]
 ```
 
 不指定服务器时，`wait` 会等待所有匹配的已配置静态服务器。模板和已禁用服务器会被排除。模板目标返回 `server_not_load_tracked`，未知目标返回 `server_not_found`。

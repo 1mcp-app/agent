@@ -7,12 +7,12 @@ description: 交互式编辑已有预设的服务器选择和描述。
 
 以可视化服务器选择交互式编辑现有预设。
 
-有关预设管理的完整概述，请参阅 **[预设命令概述](./index)**。
+有关预设管理的完整概述，请参阅 **[预设命令概述](/zh/commands/preset/)**。
 
 ## 概要
 
 ```bash
-npx -y @1mcp/agent preset edit <name> [选项]
+1mcp preset edit <name> [选项]
 ```
 
 ## 参数
@@ -61,23 +61,23 @@ npx -y @1mcp/agent preset edit <name> [选项]
 
 ```bash
 # 编辑开发预设
-npx -y @1mcp/agent preset edit development
+1mcp preset edit development
 
 # 编辑生产预设
-npx -y @1mcp/agent preset edit production
+1mcp preset edit production
 ```
 
 ### 使用描述更新进行编辑
 
 ```bash
 # 编辑预设并更新描述
-npx -y @1mcp/agent preset edit staging --description "更新的暂存环境，包含监控"
+1mcp preset edit staging --description "更新的暂存环境，包含监控"
 ```
 
 ### 示例输出
 
 ```bash
-npx -y @1mcp/agent preset edit development
+1mcp preset edit development
 
 📁 配置目录：/Users/user/.config/1mcp
 
@@ -123,7 +123,7 @@ npx -y @1mcp/agent preset edit development
 ### 预设未找到
 
 ```bash
-npx -y @1mcp/agent preset edit nonexistent
+1mcp preset edit nonexistent
 # 错误：未找到预设 'nonexistent'
 ```
 
@@ -132,7 +132,7 @@ npx -y @1mcp/agent preset edit nonexistent
 如果预设配置损坏或无法访问：
 
 ```bash
-npx -y @1mcp/agent preset edit broken-preset
+1mcp preset edit broken-preset
 # 错误：无法加载预设 'broken-preset'
 ```
 
@@ -142,25 +142,25 @@ npx -y @1mcp/agent preset edit broken-preset
 
 ```bash
 # 1. 查看当前预设
-npx -y @1mcp/agent preset show development
+1mcp preset show development
 
 # 2. 编辑预设以添加新服务器
-npx -y @1mcp/agent preset edit development
+1mcp preset edit development
 
 # 3. 测试更新的预设
-npx -y @1mcp/agent preset test development
+1mcp preset test development
 
 # 4. 为客户端获取更新的 URL
-npx -y @1mcp/agent preset url development
+1mcp preset url development
 ```
 
 ### 团队环境管理
 
 ```bash
 # 当服务器配置更改时更新团队预设
-npx -y @1mcp/agent preset edit team-dev
-npx -y @1mcp/agent preset edit team-prod
-npx -y @1mcp/agent preset edit team-staging
+1mcp preset edit team-dev
+1mcp preset edit team-prod
+1mcp preset edit team-staging
 ```
 
 ## 与其他命令的比较
@@ -181,11 +181,11 @@ npx -y @1mcp/agent preset edit team-staging
 
 ```bash
 # 编辑预设以使用 AND 逻辑而不是 OR
-npx -y @1mcp/agent preset edit production
+1mcp preset edit production
 # 在交互模式中：将策略从 OR 切换到 AND 逻辑
 
 # 编辑预设以排除实验服务器
-npx -y @1mcp/agent preset edit development
+1mcp preset edit development
 # 在交互模式中：选择 Advanced 策略并添加 NOT 条件
 ```
 
@@ -195,7 +195,7 @@ npx -y @1mcp/agent preset edit development
 # 使用类似更改更新多个预设
 for preset in dev staging prod; do
   echo "正在编辑 $preset..."
-  npx -y @1mcp/agent preset edit $preset
+  1mcp preset edit $preset
 done
 ```
 
@@ -224,8 +224,8 @@ done
 
 ## 另请参阅
 
-- **[智能交互模式](./)** - 自动检测现有预设并提供编辑选项
-- **[preset show](./show)** - 编辑前显示详细预设信息
-- **[preset test](./test)** - 进行更改后测试预设
-- **[preset create](./create)** - 创建新预设
-- **[preset list](./list)** - 列出所有可用预设
+- **[智能交互模式](/zh/commands/preset/)** - 自动检测现有预设并提供编辑选项
+- **[preset show](/zh/commands/preset/show)** - 编辑前显示详细预设信息
+- **[preset test](/zh/commands/preset/test)** - 进行更改后测试预设
+- **[preset create](/zh/commands/preset/create)** - 创建新预设
+- **[preset list](/zh/commands/preset/list)** - 列出所有可用预设

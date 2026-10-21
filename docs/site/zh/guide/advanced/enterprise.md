@@ -1,305 +1,60 @@
 ---
-title: 企业版与运维 - 生产环境部署指南
-description: 在企业环境中部署 1MCP。单实例部署、扩展、监控、反向代理设置和运维最佳实践。
-head:
-  - ['meta', { name: 'keywords', content: '1MCP 企业版,生产部署,扩展,监控,反向代理' }]
-  - ['meta', { property: 'og:title', content: '1MCP 企业版与运维指南' }]
-  - ['meta', { property: 'og:description', content: '在企业环境中部署 1MCP 的完整指南。' }]
+title: 生产运维
+description: 规划自托管 1MCP 运行时的部署、配置、就绪检查与恢复。
 ---
 
-# 企业版与运维
+# 生产运维
 
-> **🏢 生产就绪**：适用于关键任务环境的企业级部署、监控和运营功能
+1MCP 运行时管理后端连接，并为本地 STDIO 后端管理子进程。容量规划应同时考虑代理与后端。托管、升级、备份、监控和恢复仍由运维人员负责。
 
-## 🔧 单实例部署
+## 选择部署方式
 
-**功能描述**：作为单个进程运行，管理多个 MCP 服务器连接
-**适用场景**：简单、可靠的部署，资源开销最小
-**优势特点**：部署简单、进程管理便捷、配置统一
+- [云端部署](/zh/guide/advanced/cloud-deployment) 介绍使用 Caddy 发布 HTTPS 服务。
+- [反向代理](/zh/guide/advanced/reverse-proxy) 介绍转发、公共 URL 和代理信任。
+- [Windows 任务计划程序](/zh/guide/advanced/windows-task-scheduler) 介绍 Windows 无人值守启动。
 
-**部署架构**：
+暴露服务前请配置认证并限制网络访问。仅信任实际使用的反向代理，参阅[安全指南](/zh/guide/advanced/security)。
 
-```mermaid
-graph TB
-    AI[AI 助手] --> MCP[1MCP 实例<br/>:3050]
+## 分离配置与凭据
 
-    subgraph "MCP 服务器"
-        S1[服务器 1]
-        S2[服务器 2]
-        S3[服务器 N...]
-    end
+后端定义放在 `mcp.json`，运行时设置放在 `config.toml`。显式 CLI 参数优先于 `ONE_MCP_*` 环境变量，环境变量优先于配置默认值。参阅[配置指南](/zh/guide/essentials/configuration)。
 
-    MCP --> S1
-    MCP --> S2
-    MCP --> S3
-```
-
-**⏱️ 设置时间**：5 分钟
-**🎯 适用场景**：个人使用、小团队、简单部署
-**✅ 获得收益**：简单部署、易于管理、可靠运行
-
----
-
-## ⚡ 异步加载与实时更新
-
-**功能描述**：异步加载 MCP 服务器，实时发送功能通知
-**适用场景**：立即访问服务器，其他 MCP 服务器在后台启动
-**优势特点**：启动更快、渐进式功能发现、listChanged 通知
-
-**加载策略**：
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant 1MCP
-    participant Server1
-    participant Server2
-
-    Client->>1MCP: 连接
-    1MCP-->>Client: 立即连接
-
-    par 后台加载
-        1MCP->>Server1: 启动服务器 1
-        Server1-->>1MCP: 服务器就绪
-        1MCP-->>Client: listChanged 通知 (工具)
-    and
-        1MCP->>Server2: 启动服务器 2
-        Server2-->>1MCP: 服务器就绪
-        1MCP-->>Client: listChanged 通知 (资源)
-    end
-```
-
-**配置示例**：
-
-```bash
-# 通过 CLI 标志启用异步加载
-npx -y @1mcp/agent --config mcp.json --enable-async-loading
-
-# 或通过环境变量
-export ONE_MCP_ENABLE_ASYNC_LOADING=true
-npx -y @1mcp/agent --config mcp.json
-```
-
-**实际效果**：
-
-- **启动时间**：立即连接 vs. 等待所有服务器
-- **渐进式加载**：服务器上线时功能逐步显示
-- **更好的用户体验**：不会被启动缓慢的服务器阻塞
-- **批量通知**：防止初始化期间对客户端的垃圾信息
-
-**⏱️ 设置时间**：单个 CLI 标志
-**🎯ЗИ适用场景**：快速启动、更好的用户体验、大型服务器配置
-**✅ 获得收益**：立即连接、渐进式功能、实时更新、批量通知
-
----
-
-## 📋 安全操作日志
-
-**功能描述**：记录安全相关操作，包括身份验证和范围验证
-**适用场景**：跟踪 OAuth 操作和安全事件以进行监控
-**优势特点**：范围操作的结构化日志、身份验证事件、访问控制
-
-**安全日志示例**：
-
-```bash
-# 范围验证事件
-INFO: Scope operation: scope_validation_success {
-  "operation": "scope_validation_success",
-  "clientId": "app-client",
-  "requestedScopes": ["tag:filesystem"],
-  "grantedScopes": ["tag:filesystem", "tag:memory"],
-  "success": true
-}
-
-# 授权事件
-INFO: Scope operation: authorization_granted {
-  "operation": "authorization_granted",
-  "clientId": "app-client",
-  "requestedScopes": ["tag:web"],
-  "success": true
-}
-```
-
-**⏱️ 设置时间**：内置安全日志
-**🎯 适用场景**：安全监控、访问追踪、OAuth 调试
-**✅ 获得收益**：安全事件日志、范围操作追踪、身份验证监控
-
----
-
-## 💊 健康监控与可观测性
-
-**功能描述**：全面的健康检查端点，包含系统指标和服务器状态
-**适用场景**：监控生产部署、启用自动健康检查和调试
-**优势特点**：实时系统状态、自动告警、负载均衡器集成
-
-**健康检查端点**：
-
-```bash
-# 完整健康状态
-GET /health
-
-# 存活探针（Kubernetes 就绪）
-GET /health/live
-
-# 就绪探针（配置已加载）
-GET /health/ready
-```
-
-**健康响应示例**：
-
-```json
-{
-  "status": "healthy",
-  "timestamp": "2025-01-30T12:00:00.000Z",
-  "version": "0.15.0",
-  "system": {
-    "uptime": 3600,
-    "memory": {
-      "used": 50.5,
-      "total": 100.0,
-      "percentage": 50.5
-    }
-  },
-  "servers": {
-    "total": 3,
-    "healthy": 2,
-    "unhealthy": 1,
-    "details": [
-      {
-        "name": "filesystem-server",
-        "status": "connected",
-        "healthy": true,
-        "lastConnected": "2025-01-30T11:30:00.000Z",
-        "tags": ["filesystem"]
-      },
-      {
-        "name": "web-server",
-        "status": "error",
-        "healthy": false,
-        "lastError": "Connection timeout",
-        "tags": ["network", "web"]
-      }
-    ]
-  },
-  "configuration": {
-    "loaded": true,
-    "serverCount": 3,
-    "enabledCount": 2,
-    "disabledCount": 1,
-    "authEnabled": true,
-    "transport": "http"
-  }
-}
-```
-
-**健康状态级别**：
-
-- **`healthy`** (200) - 所有系统正常运行
-- **`degraded`** (200) - 存在一些问题但功能正常
-- **`unhealthy`** (503) - 影响服务的严重问题
-
-**集成示例**：
-
-```yaml
-# Kubernetes 部署
-livenessProbe:
-  httpGet:
-    path: /health/live
-    port: 3050
-  initialDelaySeconds: 30
-  periodSeconds: 10
-
-readinessProbe:
-  httpGet:
-    path: /health/ready
-    port: 3050
-  initialDelaySeconds: 5
-  periodSeconds: 5
-
-# Docker Compose 健康检查
-healthcheck:
-  test: ['CMD', 'curl', '-f', 'http://localhost:3050/health']
-  interval: 30s
-  timeout: 10s
-  retries: 3
-```
-
-**⏱️ 设置时间**：立即可用（内置）
-**🎯 适用场景**：生产监控、DevOps 自动化、服务器问题调试
-**✅ 获得收益**：系统指标、服务器状态、Kubernetes 探针、负载均衡器健康检查
-
----
-
-## 🔧 高级配置管理
-
-**功能描述**：环境特定配置、密钥管理、功能开关
-**适用场景**：管理跨开发、测试、生产的复杂部署
-**优势特点**：配置模板化、密钥注入、环境隔离
-
-**配置层次结构**：
-
-```
-1. 环境变量（最高优先级）
-2. CLI 参数
-3. 配置文件
-4. 默认值（最低优先级）
-```
-
-**密钥管理示例**：
+后端环境变量引用示例：
 
 ```json
 {
   "mcpServers": {
     "database": {
-      "command": ["mcp-postgres"],
+      "command": "mcp-postgres",
       "env": {
-        "DATABASE_URL": "${DATABASE_URL}", // 来自环境变量
-        "API_KEY": "${SECRET:api-key}" // 来自密钥存储
+        "DATABASE_URL": "${DATABASE_URL}"
       }
     }
   }
 }
 ```
 
-**⏱️ 设置时间**：高级配置 30 分钟
-**🎯 适用场景**：多环境部署、密钥管理、配置即代码
-**✅ 获得收益**：环境分离、密钥安全、配置模板化
+此示例要求已安装后端可执行文件，并在所选运行时的环境或受支持的环境文件中提供 `DATABASE_URL`。环境变量引用不会从外部密钥存储获取凭据。文件位置和继承规则见[环境管理](/zh/reference/mcp-servers#高级环境管理)。
 
----
+## 分别检查运行时和后端就绪状态
 
-## 企业部署模式
+| 信号            | 能确认的事实                               |
+| --------------- | ------------------------------------------ |
+| `/health/live`  | HTTP 进程响应存活探针                      |
+| `/health/ready` | 运行时可以接受流量；不要求所有后端均已就绪 |
+| `/health/mcp`   | 后端加载诊断；信息级别过滤仅适用于监督数据 |
+| `1mcp inspect`  | 所选客户端可见的能力和服务器状态           |
 
-### Kubernetes 部署
+`/health` 响应默认使用最少信息级别。即使在此级别，诊断用的 `/health/mcp` 路由仍可能暴露后端错误信息和授权 URL，且不受 MCP 认证保护。请在网络或反向代理边界限制这些路由的访问。具体响应结构、状态码和探针示例见[健康检查 API](/zh/reference/health-check)。请配置监控系统采集这些信号并发送告警；这里不表示产品内置告警 Webhook。
 
-- **健康探针**：内置存活性和就绪性端点
-- **ConfigMaps**：外部配置管理
-- **Secrets**：安全凭证注入
-- **服务发现**：自动服务器检测
+异步加载允许运行时在所有后端连接完成前提供服务。调用前请确认任务所需的后端已就绪，参阅[快速启动](/zh/guide/advanced/fast-startup)。
 
-### Docker Compose
+## 规划恢复与升级
 
-- **多环境**：开发、测试、生产配置
-- **卷挂载**：配置和日志持久化
-- **服务依赖**：正确的启动顺序
+使用[后端日志](/zh/guide/advanced/backend-logs)和[追踪上下文](/zh/guide/advanced/observability)调查故障。STDIO 监督需要显式启用且重试有界，参阅[性能与恢复](/zh/guide/advanced/performance)。后端重启并不意味着失败的工具调用可以安全重放。
 
-### 负载均衡器集成
+升级前备份所选配置并规划客户端重连方式。更新后分别验证运行时就绪、后端发现和一项有代表性的已授权操作。
 
-- **健康检查**：`/health` 端点用于负载均衡器监控
-- **会话亲和性**：跨实例的 OAuth 会话管理
-- **优雅关闭**：干净的连接终止
+## 多实例
 
-### 监控和告警
-
-- **日志聚合**：用于集中收集的结构化日志
-- **指标导出**：用于监控系统的健康数据
-- **告警集成**：关键事件的 Webhook 通知
-
-### 下一步
-
-- **核心功能** → [核心功能](/guide/essentials/core-features)
-- **安全设置** → [安全功能](/guide/advanced/security)
-- **开发** → [开发者功能](/guide/integrations/developer-tools)
-
----
-
-> **🏢 企业提示**：这些功能专为生产部署而设计。从基本部署开始，然后随着基础设施需求的增长添加监控和高级配置。
+1MCP 不提供分布式会话存储、集群协调器或负载均衡器。不要假定共享配置文件或粘性路由会复制 OAuth 状态、项目所有权或后端连接。将每个运行时视为独立的运维范围，并在依赖外部路由和恢复方案前进行验证。

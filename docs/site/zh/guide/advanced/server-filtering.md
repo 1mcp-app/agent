@@ -28,11 +28,13 @@ head:
 {
   "mcpServers": {
     "file_server": {
-      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
       "tags": ["filesystem", "read-only"]
     },
     "search_server": {
-      "command": ["uvx", "mcp-server-fetch"],
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
       "tags": ["search", "web"]
     }
   }
@@ -52,14 +54,14 @@ head:
 
 ```bash
 # 仅暴露带有 "filesystem" 标签的服务器
-npx -y @1mcp/agent --filter "filesystem"
+1mcp --filter "filesystem"
 
 # 暴露带有 "filesystem" 或 "web" 标签的服务器（OR 逻辑）
-npx -y @1mcp/agent --filter "filesystem,web"
+1mcp --filter "filesystem,web"
 
 # 暴露符合复杂表达式的服务器
-npx -y @1mcp/agent --filter "(filesystem,web)+prod-test"
-npx -y @1mcp/agent --filter "api and not test"
+1mcp --filter "(filesystem,web)+prod-test"
+1mcp --filter "api and not test"
 ```
 
 #### 符号参考

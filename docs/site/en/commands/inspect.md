@@ -20,12 +20,12 @@ Inspect servers or tools from a running 1MCP `serve` instance.
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent inspect [target] [options]
+1mcp inspect [target] [options]
 ```
 
 ## Description
 
-The `inspect` command is the discovery and schema step in the CLI workflow. Use it after [`instructions`](./instructions.md) and before [`run`](./run.md).
+The `inspect` command is the discovery and schema step in the CLI workflow. Use it after [`instructions`](/commands/instructions) and before [`run`](/commands/run).
 
 Depending on the target, `inspect` can:
 
@@ -107,25 +107,25 @@ A complete search with no matches succeeds. Check completeness and loading/unava
 ### List All Servers
 
 ```bash
-npx -y @1mcp/agent inspect
+1mcp inspect
 ```
 
 ### List a Server's Tools
 
 ```bash
-npx -y @1mcp/agent inspect filesystem
+1mcp inspect filesystem
 ```
 
 ### Inspect a Tool Schema
 
 ```bash
-npx -y @1mcp/agent inspect filesystem/read_file
+1mcp inspect filesystem/read_file
 ```
 
 ### Use JSON Output for Scripting
 
 ```bash
-npx -y @1mcp/agent inspect filesystem --format json
+1mcp inspect filesystem --format json
 ```
 
 ### Inspect Through a Runtime Target Context
@@ -137,13 +137,13 @@ npx -y @1mcp/agent inspect filesystem --format json
 ### Fetch Every Tool for a Server
 
 ```bash
-npx -y @1mcp/agent inspect filesystem --all
+1mcp inspect filesystem --all
 ```
 
 ### Continue a Paginated Listing
 
 ```bash
-npx -y @1mcp/agent inspect filesystem --limit 20 --cursor next-page-token
+1mcp inspect filesystem --limit 20 --cursor next-page-token
 ```
 
 ## When to Use Inspect
@@ -158,11 +158,11 @@ Use `inspect` when you need to:
 
 ## See Also
 
-- **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Why progressive server and tool inspection is recommended
-- **[Instructions Command](./instructions.md)** - Start with the current CLI playbook and server inventory
-- **[Run Command](./run.md)** - Call a tool after you have inspected its schema
-- **[Serve Command](./serve.md)** - Start the 1MCP server that `inspect` queries
-- **[Configuration Deep Dive](../guide/essentials/configuration.md)** - Global flags including CLI session cache configuration
+- **[CLI Mode Guide](/guide/integrations/cli-mode)** - Why progressive server and tool inspection is recommended
+- **[Instructions Command](/commands/instructions)** - Start with the current CLI playbook and server inventory
+- **[Run Command](/commands/run)** - Call a tool after you have inspected its schema
+- **[Serve Command](/commands/serve)** - Start the 1MCP server that `inspect` queries
+- **[Configuration Deep Dive](/guide/essentials/configuration)** - Global flags including CLI session cache configuration
 
 ### Tool output and pagination
 

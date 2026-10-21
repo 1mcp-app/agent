@@ -7,13 +7,13 @@ description: 在不删除配置的情况下启用或禁用 MCP 服务器。
 
 启用或禁用 MCP 服务器，而无需删除其配置。
 
-有关服务器管理的完整概述，请参阅 **[服务器管理指南](../../guide/essentials/server-management)**。
+有关服务器管理的完整概述，请参阅 **[服务器管理指南](/zh/guide/essentials/server-management)**。
 
 ## 摘要
 
 ```bash
-npx -y @1mcp/agent mcp enable <name>
-npx -y @1mcp/agent mcp disable <name>
+1mcp mcp enable <name>
+1mcp mcp disable <name>
 ```
 
 ## 参数
@@ -30,12 +30,12 @@ npx -y @1mcp/agent mcp disable <name>
 
 ```bash
 # 禁用服务器
-npx -y @1mcp/agent mcp disable my-server
+1mcp mcp disable my-server
 
 # 稍后重新启用服务器
-npx -y @1mcp/agent mcp enable my-server
+1mcp mcp enable my-server
 ```
 
 ## 另请参阅
 
-- **[服务器管理指南](../../guide/essentials/server-management)**
+- **[服务器管理指南](/zh/guide/essentials/server-management)**

@@ -134,18 +134,18 @@ Agent 支持三种配置方法，按以下优先级顺序应用：
 示例：
 
 ```bash
-ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid}.{scope} npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid}.{scope} 1mcp run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ```bash
 # HTTP 传输（默认）
-npx -y @1mcp/agent --transport http
+1mcp --transport http
 
 # 用于直接 MCP 客户端集成的 Stdio 传输
-npx -y @1mcp/agent --transport stdio
+1mcp --transport stdio
 
 # 使用环境变量
-ONE_MCP_TRANSPORT=stdio npx -y @1mcp/agent
+ONE_MCP_TRANSPORT=stdio 1mcp
 ```
 
 ### 网络配置
@@ -171,13 +171,13 @@ ONE_MCP_TRANSPORT=stdio npx -y @1mcp/agent
 
 ```bash
 # 自定义端口和主机
-npx -y @1mcp/agent --port 3051 --host 0.0.0.0
+1mcp --port 3051 --host 0.0.0.0
 
 # 用于反向代理设置的外部 URL
-npx -y @1mcp/agent --external-url https://mcp.example.com
+1mcp --external-url https://mcp.example.com
 
 # 用于 Docker 的环境变量
-ONE_MCP_HOST=0.0.0.0 ONE_MCP_PORT=3051 npx -y @1mcp/agent
+ONE_MCP_HOST=0.0.0.0 ONE_MCP_PORT=3051 1mcp
 ```
 
 ### 配置管理
@@ -198,13 +198,13 @@ ONE_MCP_HOST=0.0.0.0 ONE_MCP_PORT=3051 npx -y @1mcp/agent
 
 ```bash
 # 使用特定的配置文件
-npx -y @1mcp/agent --config ./my-config.json
+1mcp --config ./my-config.json
 
 # 使用自定义配置目录
-npx -y @1mcp/agent --config-dir ./project-config
+1mcp --config-dir ./project-config
 
 # 配置目录的环境变量
-ONE_MCP_CONFIG_DIR=/opt/1mcp/config npx -y @1mcp/agent
+ONE_MCP_CONFIG_DIR=/opt/1mcp/config 1mcp
 ```
 
 ### 安全配置
@@ -240,10 +240,10 @@ ONE_MCP_CONFIG_DIR=/opt/1mcp/config npx -y @1mcp/agent
 
 ```bash
 # 启用带增强安全性的身份验证
-npx -y @1mcp/agent --enable-auth --enable-enhanced-security
+1mcp --enable-auth --enable-enhanced-security
 
 # 自定义会话配置
-npx -y @1mcp/agent \
+1mcp \
   --enable-auth \
   --session-ttl 720 \
   --rate-limit-window 10 \
@@ -252,7 +252,7 @@ npx -y @1mcp/agent \
 # 环境变量
 ONE_MCP_ENABLE_AUTH=true \
 ONE_MCP_ENABLE_ENHANCED_SECURITY=true \
-npx -y @1mcp/agent
+1mcp
 ```
 
 ### 网络安全
@@ -274,13 +274,13 @@ npx -y @1mcp/agent
 
 ```bash
 # 信任所有代理（CDN/Cloudflare）
-npx -y @1mcp/agent --trust-proxy true
+1mcp --trust-proxy true
 
 # 信任特定代理 IP
-npx -y @1mcp/agent --trust-proxy 192.168.1.100
+1mcp --trust-proxy 192.168.1.100
 
 # 信任 IP 范围
-npx -y @1mcp/agent --trust-proxy 10.0.0.0/8
+1mcp --trust-proxy 10.0.0.0/8
 ```
 
 有关详细的信任代理配置，请参阅 **[信任代理参考](/zh/reference/trust-proxy)**。
@@ -367,15 +367,15 @@ native 模式启动时自动保护符合条件的现有入站和上游记录。�
 
 ```bash
 # 简单 OR 过滤
-npx -y @1mcp/agent --filter "network,filesystem"
+1mcp --filter "network,filesystem"
 
 # 高级过滤
-npx -y @1mcp/agent --filter "network+api"
-npx -y @1mcp/agent --filter "(web,api)+production-test"
-npx -y @1mcp/agent --filter "web and api and not test"
+1mcp --filter "network+api"
+1mcp --filter "(web,api)+production-test"
+1mcp --filter "web and api and not test"
 
 # 环境变量
-ONE_MCP_FILTER="network+api" npx -y @1mcp/agent
+ONE_MCP_FILTER="network+api" 1mcp
 ```
 
 如果运行时已经启动，而你只想对客户端侧做进一步收窄，请优先在 `instructions`、`inspect`、`run` 上使用 `--preset` 与 `--filter`，或在最大兼容性的 stdio 路径上使用 `proxy --preset/--filter`。`--tags` 与 `--tag-filter` 仍可作为兼容旧用法的别名使用，但应优先采用统一的 `--filter` 与 `ONE_MCP_FILTER`。
@@ -408,18 +408,18 @@ ONE_MCP_FILTER="network+api" npx -y @1mcp/agent
 
 ```bash
 # 启用所有内部工具
-npx -y @1mcp/agent --enable-internal-tools
+1mcp --enable-internal-tools
 
 # 仅启用发现和管理工具
-npx -y @1mcp/agent --internal-tools "discovery,management"
+1mcp --internal-tools "discovery,management"
 
 # 仅启用安全（只读）工具
-npx -y @1mcp/agent --internal-tools "safe"
+1mcp --internal-tools "safe"
 
 # 环境变量
-ONE_MCP_ENABLE_INTERNAL_TOOLS=true npx -y @1mcp/agent
+ONE_MCP_ENABLE_INTERNAL_TOOLS=true 1mcp
 
-ONE_MCP_INTERNAL_TOOLS="discovery,management" npx -y @1mcp/agent
+ONE_MCP_INTERNAL_TOOLS="discovery,management" 1mcp
 ```
 
 **重要提示**：内部工具与 CLI 命令不同。CLI 命令是为人类用户设计的，而内部工具是 MCP 协议工具，AI 助手可以用来自动化服务器管理任务。有关可用内部工具的详细信息，请参阅**[内部工具参考](/zh/reference/internal-tools/)**。
@@ -444,15 +444,15 @@ ONE_MCP_INTERNAL_TOOLS="discovery,management" npx -y @1mcp/agent
 
 ```bash
 # 启用异步加载以加快启动速度
-npx -y @1mcp/agent --enable-async-loading
+1mcp --enable-async-loading
 
 # 为大型服务器列表启用分页
-npx -y @1mcp/agent --pagination
+1mcp --pagination
 
 # 环境变量
 ONE_MCP_ENABLE_ASYNC_LOADING=true \
 ONE_MCP_PAGINATION=true \
-npx -y @1mcp/agent
+1mcp
 ```
 
 #### 启动时捕获的运行策略
@@ -565,15 +565,15 @@ trust = "verified"
 
 ```bash
 # 启用配置重载并自定义防抖时间
-npx -y @1mcp/agent --enable-config-reload --config-reload-debounce 1000
+1mcp --enable-config-reload --config-reload-debounce 1000
 
 # 禁用配置重载（适用于生产环境稳定性）
-npx -y @1mcp/agent --enable-config-reload false
+1mcp --enable-config-reload false
 
 # 环境变量
 ONE_MCP_ENABLE_CONFIG_RELOAD=true \
 ONE_MCP_CONFIG_RELOAD_DEBOUNCE=200 \
-npx -y @1mcp/agent
+1mcp
 ```
 
 ### 环境变量替换
@@ -592,15 +592,11 @@ npx -y @1mcp/agent
 
 ```json
 {
-  "servers": [
-    {
-      "name": "database",
+  "mcpServers": {
+    "database": {
       "command": "python",
       "args": ["${DB_SERVER_PATH}", "--port", "$DB_PORT"]
     }
-  ],
-  "auth": {
-    "sessionStoragePath": "${SESSION_STORAGE_DIR}"
   }
 }
 ```
@@ -609,17 +605,16 @@ npx -y @1mcp/agent
 
 ```bash
 # 启用环境变量替换（默认）
-npx -y @1mcp/agent --enable-env-substitution
+1mcp --enable-env-substitution
 
 # 禁用环境变量替换
-npx -y @1mcp/agent --enable-env-substitution false
+1mcp --enable-env-substitution false
 
 # 环境变量
 DB_SERVER_PATH=/opt/db-server \
 DB_PORT=5432 \
-SESSION_STORAGE_DIR=/var/lib/1mcp/sessions \
 ONE_MCP_ENABLE_ENV_SUBSTITUTION=true \
-npx -y @1mcp/agent
+1mcp
 ```
 
 ### 会话持久化
@@ -654,23 +649,23 @@ npx -y @1mcp/agent
 
 ```bash
 # 启用会话持久化并使用默认设置
-npx -y @1mcp/agent --enable-session-persistence
+1mcp --enable-session-persistence
 
 # 自定义会话持久化设置
-npx -y @1mcp/agent \
+1mcp \
   --enable-session-persistence \
   --session-persist-requests 50 \
   --session-persist-interval 10 \
   --session-background-flush 30
 
 # 禁用会话持久化
-npx -y @1mcp/agent --enable-session-persistence false
+1mcp --enable-session-persistence false
 
 # 环境变量
 ONE_MCP_ENABLE_SESSION_PERSISTENCE=true \
 ONE_MCP_SESSION_PERSIST_REQUESTS=200 \
 ONE_MCP_SESSION_PERSIST_INTERVAL=15 \
-npx -y @1mcp/agent
+1mcp
 ```
 
 ### 客户端通知
@@ -687,13 +682,13 @@ npx -y @1mcp/agent
 
 ```bash
 # 启用客户端通知（默认）
-npx -y @1mcp/agent --enable-client-notifications
+1mcp --enable-client-notifications
 
 # 禁用客户端通知
-npx -y @1mcp/agent --enable-client-notifications false
+1mcp --enable-client-notifications false
 
 # 环境变量
-ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS=true npx -y @1mcp/agent
+ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS=true 1mcp
 ```
 
 ### 监控和健康
@@ -716,13 +711,13 @@ ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS=true npx -y @1mcp/agent
 
 ```bash
 # 用于监控的完整健康信息
-npx -y @1mcp/agent --health-info-level full
+1mcp --health-info-level full
 
 # 基本健康信息
-npx -y @1mcp/agent --health-info-level basic
+1mcp --health-info-level basic
 
 # 环境变量
-ONE_MCP_HEALTH_INFO_LEVEL=full npx -y @1mcp/agent
+ONE_MCP_HEALTH_INFO_LEVEL=full 1mcp
 ```
 
 有关详细的健康检查信息，请参阅 **[健康检查参考](/zh/reference/health-check)**。
@@ -747,17 +742,17 @@ ONE_MCP_HEALTH_INFO_LEVEL=full npx -y @1mcp/agent
 
 ```bash
 # 调试日志
-npx -y @1mcp/agent --log-level debug
+1mcp --log-level debug
 
 # 记录到文件
-npx -y @1mcp/agent --log-file /var/log/1mcp.log
+1mcp --log-file /var/log/1mcp.log
 
 # 组合日志配置
-npx -y @1mcp/agent --log-level debug --log-file app.log
+1mcp --log-level debug --log-file app.log
 
 # 环境变量
-ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent
-ONE_MCP_LOG_FILE=/var/log/1mcp.log npx -y @1mcp/agent
+ONE_MCP_LOG_LEVEL=debug 1mcp
+ONE_MCP_LOG_FILE=/var/log/1mcp.log 1mcp
 ```
 
 **从传统 LOG_LEVEL 迁移：**
@@ -765,19 +760,19 @@ ONE_MCP_LOG_FILE=/var/log/1mcp.log npx -y @1mcp/agent
 
 ```bash
 # ⚠️ 已弃用（显示警告）
-LOG_LEVEL=debug npx -y @1mcp/agent
+LOG_LEVEL=debug 1mcp
 
 # ✅ 推荐
-ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent
+ONE_MCP_LOG_LEVEL=debug 1mcp
 # 或
-npx -y @1mcp/agent --log-level debug
+1mcp --log-level debug
 ```
 
 ---
 
 ## 环境变量参考
 
-所有环境变量都以 `ONE_MCP_` 为前缀，并覆盖配置文件和 CLI 设置：
+运行时环境变量使用 `ONE_MCP_` 前缀，覆盖配置文件的默认值；显式 CLI 参数优先于环境变量：
 
 - `ONE_MCP_TRANSPORT`
 - `ONE_MCP_CONFIG`
@@ -816,7 +811,7 @@ npx -y @1mcp/agent --log-level debug
 
 ```bash
 # 带调试日志和完整健康信息的开发
-npx -y @1mcp/agent \
+1mcp \
   --log-level debug \
   --health-info-level full \
   --enable-async-loading \
@@ -827,14 +822,14 @@ ONE_MCP_LOG_LEVEL=debug \
 ONE_MCP_HEALTH_INFO_LEVEL=full \
 ONE_MCP_ENABLE_ASYNC_LOADING=true \
 ONE_MCP_ENABLE_CONFIG_RELOAD=true \
-npx -y @1mcp/agent
+1mcp
 ```
 
 ### 生产部署
 
 ```bash
 # 带身份验证的生产 HTTP 服务器
-npx -y @1mcp/agent \
+1mcp \
   --host 0.0.0.0 \
   --port 3051 \
   --enable-auth \
@@ -863,13 +858,13 @@ docker run -p 3051:3051 \
 
 ```bash
 # 仅网络功能服务器
-npx -y @1mcp/agent --filter "network"
+1mcp --filter "network"
 
 # 复杂过滤：（web 或 api）且 production，非 test
-npx -y @1mcp/agent --filter "(web,api)+production-test"
+1mcp --filter "(web,api)+production-test"
 
 # 自然语言过滤
-npx -y @1mcp/agent --filter "api and database and not test"
+1mcp --filter "api and database and not test"
 ```
 
 ### 高级功能配置
@@ -878,7 +873,7 @@ npx -y @1mcp/agent --filter "api and database and not test"
 # 启用所有高级功能并支持环境替换的完整配置
 API_KEY="${API_KEY}" \
 DB_CONNECTION="${DATABASE_URL}" \
-npx -y @1mcp/agent \
+1mcp \
   --enable-config-reload \
   --config-reload-debounce 1000 \
   --enable-env-substitution \
@@ -889,7 +884,7 @@ npx -y @1mcp/agent \
   --log-level info
 
 # 仅配置重载（禁用其他新功能以确保稳定性）
-npx -y @1mcp/agent \
+1mcp \
   --enable-config-reload \
   --config-reload-debounce 2000 \
   --enable-env-substitution false \
@@ -897,7 +892,7 @@ npx -y @1mcp/agent \
   --enable-client-notifications false
 
 # 高性能环境的最小配置
-npx -y @1mcp/agent \
+1mcp \
   --enable-config-reload false \
   --enable-env-substitution true \
   --enable-session-persistence false \

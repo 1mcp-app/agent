@@ -62,25 +62,25 @@ The local approach uses a two-component setup: a running 1MCP HTTP server and a 
 
 ```bash
 # 1. Optionally add some servers first (with tags for filtering)
-npx -y @1mcp/agent mcp add context7 --tags=documentation,docs -- npx -y @upstash/context7-mcp
-npx -y @1mcp/agent mcp add sequential --tags=thinking,analysis -- npx -y @modelcontextprotocol/server-sequential-thinking
+1mcp mcp add context7 --tags=documentation,docs -- npx -y @upstash/context7-mcp
+1mcp mcp add sequential --tags=thinking,analysis -- npx -y @modelcontextprotocol/server-sequential-thinking
 
 # 2. Create a preset for filtered server access (recommended)
-npx -y @1mcp/agent preset create claude-desktop --filter "documentation OR thinking"
+1mcp preset create claude-desktop --filter "documentation OR thinking"
 
 # 3. Start 1MCP HTTP server in background
-npx -y @1mcp/agent serve &
+1mcp serve &
 
 # 4. Consolidate Claude Desktop to use 1MCP proxy
-npx -y @1mcp/agent app consolidate claude-desktop --dry-run  # Preview
-npx -y @1mcp/agent app consolidate claude-desktop
+1mcp app consolidate claude-desktop --dry-run  # Preview
+1mcp app consolidate claude-desktop
 ```
 
-Then restart Claude Desktop. Backups are created automatically; restore anytime:
+Before restarting Claude Desktop, replace the generated package-runner launcher with the [installed-command configuration](#installed-command-configuration) below. Consolidation currently writes an `npx` launcher, so this manual step is needed to use your installed `1mcp`. Backups are created automatically; restore anytime:
 
 ```bash
-npx -y @1mcp/agent app backups claude-desktop
-npx -y @1mcp/agent app restore claude-desktop
+1mcp app backups claude-desktop
+1mcp app restore claude-desktop
 ```
 
 #### Global Preset Configuration
@@ -89,7 +89,7 @@ For server filtering, the proxy command uses global presets. You can specify whi
 
 ```bash
 # Test with a specific preset
-npx -y @1mcp/agent proxy --preset claude-desktop
+1mcp proxy --preset claude-desktop
 ```
 
 This enables global server filtering that applies to all Claude Desktop conversations.
@@ -99,8 +99,8 @@ This enables global server filtering that applies to all Claude Desktop conversa
 1. Start server
 
 ```bash
-npx -y @1mcp/agent serve --transport http --port 3001 --external-url https://your-domain.com # dev
-npx -y @1mcp/agent serve --transport http --port 3001 --enable-auth --external-url https://your-domain.com  # prod
+1mcp serve --transport http --port 3001 --external-url https://your-domain.com # dev
+1mcp serve --transport http --port 3001 --enable-auth --external-url https://your-domain.com  # prod
 ```
 
 Served paths: `/mcp` (Streamable HTTP), `/sse` + `/messages` (SSE), `/oauth` (OAuth), `/health` (health).
@@ -176,21 +176,21 @@ You can now use these tools directly in your conversations with Claude.
 
 ```bash
 # Start
-npx -y @1mcp/agent serve --transport http --port 3001 --external-url https://your-domain.com
+1mcp serve --transport http --port 3001 --external-url https://your-domain.com
 
 # Enable auth (recommended for production)
-npx -y @1mcp/agent serve --transport http --port 3001 --enable-auth --external-url https://your-domain.com
+1mcp serve --transport http --port 3001 --enable-auth --external-url https://your-domain.com
 
 # Filter exposed servers
-npx -y @1mcp/agent serve --transport http --port 3001 --filter "context7,sequential" --external-url https://your-domain.com
+1mcp serve --transport http --port 3001 --filter "context7,sequential" --external-url https://your-domain.com
 
 # Bind to all interfaces (behind reverse proxy)
-npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-url https://your-domain.com
+1mcp serve --transport http --port 3001 --host 0.0.0.0 --external-url https://your-domain.com
 ```
 
 ### Authentication
 
-- Enable: `npx -y @1mcp/agent serve --transport http --port 3001 --enable-auth`
+- Enable: `1mcp serve --transport http --port 3001 --enable-auth`
 - Configure Client ID/Secret in Claude Desktop if needed; OAuth flow is automatic
 
 ## Troubleshooting
@@ -216,13 +216,13 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
 
    ```bash
    # Check server status
-   npx -y @1mcp/agent mcp status
+   1mcp mcp status
 
    # Start HTTP server (if not running)
-   npx -y @1mcp/agent serve &
+   1mcp serve &
 
    # Test proxy command in another terminal
-   npx -y @1mcp/agent proxy --log-level=debug
+   1mcp proxy --log-level=debug
    ```
 
 #### "Consolidation Failed" Error
@@ -234,7 +234,7 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
 1. **Use Force Flag**: Skip connectivity validation
 
    ```bash
-   npx -y @1mcp/agent app consolidate claude-desktop --force
+   1mcp app consolidate claude-desktop --force
    ```
 
 2. **Check Permissions**: Ensure write access to Claude Desktop's config directory
@@ -247,10 +247,10 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
 
    ```bash
    # Restore from backup
-   npx -y @1mcp/agent app restore claude-desktop
+   1mcp app restore claude-desktop
 
    # Or manually reset
-   npx -y @1mcp/agent app consolidate claude-desktop --force
+   1mcp app consolidate claude-desktop --force
    ```
 
 #### "Configuration Backup Failed" Error
@@ -263,7 +263,7 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
 2. **Check Permissions**: Verify write access to backup directory
 3. **Use Force Mode**: Proceed without backup (use with caution)
    ```bash
-   npx -y @1mcp/agent app consolidate claude-desktop --force --backup-only
+   1mcp app consolidate claude-desktop --force --backup-only
    ```
 
 #### Proxy Connection Issues
@@ -279,31 +279,31 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
    curl http://localhost:3050/health
 
    # Start server if not running
-   npx -y @1mcp/agent serve &
+   1mcp serve &
    ```
 
 2. **Test Proxy Command Directly**: Verify proxy can connect to the server
 
    ```bash
    # Test proxy with debug logging
-   npx -y @1mcp/agent proxy --log-level=debug
+   1mcp proxy --log-level=debug
    ```
 
 3. **Verify Preset and Tags**: Ensure servers have tags that match preset filters
 
    ```bash
    # List servers with their tags
-   npx -y @1mcp/agent mcp list
+   1mcp mcp list
 
    # Check which servers are included in preset
-   npx -y @1mcp/agent preset show claude-desktop
+   1mcp preset show claude-desktop
    ```
 
 4. **Test Proxy with Preset**: Verify proxy works with the specified preset
 
    ```bash
    # Test proxy with the preset used in Claude Desktop
-   npx -y @1mcp/agent proxy --preset claude-desktop --log-level=debug
+   1mcp proxy --preset claude-desktop --log-level=debug
    ```
 
 #### Server Discovery Issues
@@ -323,7 +323,7 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
 
    ```bash
    # Test proxy with specific server URL
-   npx -y @1mcp/agent proxy --url http://localhost:3050/mcp
+   1mcp proxy --url http://localhost:3050/mcp
    ```
 
 3. **Check Firewalls**: Ensure local firewall isn't blocking connections
@@ -339,7 +339,7 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
 1. **Check Server Status**: Ensure your 1MCP server is running
 
    ```bash
-   npx -y @1mcp/agent mcp status  # Check if servers are running
+   1mcp mcp status  # Check if servers are running
    ```
 
 2. **Verify URL**: Ensure the URL is correct and accessible
@@ -360,7 +360,7 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
 1. **Check Server Configuration**: Verify MCP servers are properly configured
 
    ```bash
-   npx -y @1mcp/agent mcp list  # List configured servers
+   1mcp mcp list  # List configured servers
    ```
 
 2. **Restart Both**: Restart both 1MCP and Claude Desktop
@@ -390,7 +390,7 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
 2. **Check Server Logs**:
 
    ```bash
-   ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent serve --transport http --port 3001
+   ONE_MCP_LOG_LEVEL=debug 1mcp serve --transport http --port 3001
    ```
 
 3. **Health Check**:
@@ -434,7 +434,7 @@ Control which tools are available by filtering servers:
 
 ```bash
 # Only expose specific capabilities
-npx -y @1mcp/agent serve --transport http --port 3001 --filter "context7,sequential"
+1mcp serve --transport http --port 3001 --filter "context7,sequential"
 ```
 
 ## Best Practices
@@ -463,36 +463,38 @@ npx -y @1mcp/agent serve --transport http --port 3001 --filter "context7,sequent
 npm install -g @1mcp/agent
 
 # 2. Add some useful MCP servers (with tags for filtering)
-npx -y @1mcp/agent mcp add context7 --tags=documentation,docs -- npx -y @upstash/context7-mcp
-npx -y @1mcp/agent mcp add sequential --tags=thinking,analysis -- npx -y @modelcontextprotocol/server-sequential-thinking
-npx -y @1mcp/agent mcp add playwright --tags=browser,testing -- npx -y @playwright/mcp
+1mcp mcp add context7 --tags=documentation,docs -- npx -y @upstash/context7-mcp
+1mcp mcp add sequential --tags=thinking,analysis -- npx -y @modelcontextprotocol/server-sequential-thinking
+1mcp mcp add playwright --tags=browser,testing -- npx -y @playwright/mcp
 
 # 3. Create a preset for Claude Desktop
-npx -y @1mcp/agent preset create claude-desktop --filter "documentation OR thinking OR browser"
+1mcp preset create claude-desktop --filter "documentation OR thinking OR browser"
 
 # 4. Start 1MCP HTTP server
-npx -y @1mcp/agent serve
+1mcp serve
 
 # 5. In another terminal, preview consolidation
-npx -y @1mcp/agent app consolidate claude-desktop --dry-run
+1mcp app consolidate claude-desktop --dry-run
 
 # 6. Consolidate Claude Desktop configuration
-npx -y @1mcp/agent app consolidate claude-desktop
+1mcp app consolidate claude-desktop
 
-# 7. Restart Claude Desktop
+# 7. Apply the installed-command configuration below, then restart Claude Desktop
 
 # 8. Verify tools are available in Claude Desktop
-npx -y @1mcp/agent mcp status  # Check server health
+1mcp mcp status  # Check server health
 ```
 
-Your Claude Desktop will now use the following configuration automatically:
+<a id="installed-command-configuration"></a>
+
+Consolidation currently writes an `npx` package-runner launcher. To use your installed `1mcp`, close Claude Desktop and replace that launcher with the configuration below before restarting it. This is a manual adjustment, not the automatic consolidation output. Use an absolute executable path if Claude Desktop cannot find `1mcp` on PATH; the package-runner alternative is documented in [Installation](/guide/installation).
 
 ```json
 {
   "mcpServers": {
     "1mcp": {
-      "command": "npx",
-      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "claude-desktop"]
+      "command": "1mcp",
+      "args": ["proxy", "--preset", "claude-desktop"]
     }
   }
 }
@@ -506,8 +508,8 @@ You can specify any preset when configuring Claude Desktop:
 {
   "mcpServers": {
     "1mcp": {
-      "command": "npx",
-      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "my-custom-preset"]
+      "command": "1mcp",
+      "args": ["proxy", "--preset", "my-custom-preset"]
     }
   }
 }
@@ -517,13 +519,13 @@ Create different presets for different use cases:
 
 ```bash
 # Development preset
-npx -y @1mcp/agent preset create dev --filter "filesystem OR git OR testing"
+1mcp preset create dev --filter "filesystem OR git OR testing"
 
 # Documentation preset
-npx -y @1mcp/agent preset create docs --filter "documentation OR writing"
+1mcp preset create docs --filter "documentation OR writing"
 
 # Analysis preset
-npx -y @1mcp/agent preset create analysis --filter "data OR thinking"
+1mcp preset create analysis --filter "data OR thinking"
 ```
 
 ### Remote + ngrok
@@ -533,14 +535,14 @@ For development setups where you need remote access:
 ```bash
 # 1. Install and configure 1MCP
 npm install -g @1mcp/agent
-npx -y @1mcp/agent mcp add context7 -- npx -y @upstash/context7-mcp
-npx -y @1mcp/agent mcp add sequential -- npx -y @modelcontextprotocol/server-sequential-thinking
+1mcp mcp add context7 -- npx -y @upstash/context7-mcp
+1mcp mcp add sequential -- npx -y @modelcontextprotocol/server-sequential-thinking
 
 # 2. Expose via ngrok
 ngrok http 3001
 
 # 3. Start server, use the URL from ngrok
-npx -y @1mcp/agent serve --transport http --port 3001 --external-url https://abc123.ngrok-free.app
+1mcp serve --transport http --port 3001 --external-url https://abc123.ngrok-free.app
 
 # 4. Add connector in Claude Desktop:
 #    - Name: "My 1MCP Server"
@@ -553,7 +555,7 @@ npx -y @1mcp/agent serve --transport http --port 3001 --external-url https://abc
 
 ```bash
 # 1. Start 1MCP server (bind to localhost for security)
-npx -y @1mcp/agent serve --transport http --port 3001 --enable-auth --external-url https://your-domain.com
+1mcp serve --transport http --port 3001 --enable-auth --external-url https://your-domain.com
 
 # 2. Configure nginx to proxy HTTPS to HTTP
 # 3. Add connector in Claude Desktop:
@@ -570,9 +572,9 @@ If you encounter issues:
 
 1. Check the [troubleshooting section](#troubleshooting) above
 2. For **local configuration issues**:
-   - Try `npx -y @1mcp/agent app consolidate claude-desktop --force`
-   - Check `npx -y @1mcp/agent mcp status` for server health
-   - Use `npx -y @1mcp/agent app restore claude-desktop` to rollback
+   - Try `1mcp app consolidate claude-desktop --force`
+   - Check `1mcp mcp status` for server health
+   - Use `1mcp app restore claude-desktop` to rollback
 3. For **remote connector issues**:
    - Review Anthropic's documentation on:
      - [Custom connectors via remote MCP servers](https://support.anthropic.com/en/articles/11503834-building-custom-connectors-via-remote-mcp-servers)
@@ -603,5 +605,5 @@ If you encounter issues:
 - Learn about the [Proxy Command](/commands/proxy) for detailed configuration options
 - Explore [server filtering options](/guide/advanced/server-filtering) for presets and tags
 - Set up [server management](/guide/essentials/server-management) for your MCP servers
-- Configure [app consolidation](./app-consolidation) for seamless management of other apps
+- Configure [app consolidation](/guide/integrations/app-consolidation) for seamless management of other apps
 - Learn about [authentication configuration](/guide/advanced/authentication) for remote setups

@@ -67,12 +67,12 @@ The agent supports overriding the entire config directory location, which affect
 1. **Command Line Flag:**
 
    ```bash
-   npx -y @1mcp/agent --config-dir /custom/config/path
+   1mcp --config-dir /custom/config/path
    ```
 
 2. **Environment Variable:**
    ```bash
-   ONE_MCP_CONFIG_DIR=/custom/config/path npx -y @1mcp/agent
+   ONE_MCP_CONFIG_DIR=/custom/config/path 1mcp
    ```
 
 When you override the config directory, the agent will:
@@ -85,7 +85,7 @@ When you override the config directory, the agent will:
 
 ```bash
 # Use a project-specific config directory
-npx -y @1mcp/agent --config-dir ./project-config
+1mcp --config-dir ./project-config
 ```
 
 This creates a self-contained configuration setup for projects that need isolated configurations.
@@ -280,9 +280,9 @@ MCP tool names normally use `{server}_1mcp_{tool}`. If that name exceeds 64 char
 Manage this field with [`mcp tools`](/commands/mcp/tools):
 
 ```bash
-npx -y @1mcp/agent mcp tools disable filesystem write_file
-npx -y @1mcp/agent mcp tools enable filesystem write_file
-npx -y @1mcp/agent mcp tools list filesystem --disabled
+1mcp mcp tools disable filesystem write_file
+1mcp mcp tools enable filesystem write_file
+1mcp mcp tools list filesystem --disabled
 ```
 
 The `mcp tools` list, enable, and disable subcommands update `mcp.json`. A running `1mcp serve` instance picks up the change through config hot reload.
@@ -690,6 +690,6 @@ For complete documentation on templates, see the [MCP Server Templates Guide](/g
 
 ## See Also
 
-- **[Configuration Deep Dive](../guide/essentials/configuration.md)** - CLI flags and environment variables
-- **[Serve Command Reference](../commands/serve.md)** - Command-line usage examples
-- **[Security Guide](security.md)** - Security best practices for MCP servers
+- **[Configuration Deep Dive](/guide/essentials/configuration)** - CLI flags and environment variables
+- **[Serve Command Reference](/commands/serve)** - Command-line usage examples
+- **[Security Guide](/reference/security)** - Security best practices for MCP servers

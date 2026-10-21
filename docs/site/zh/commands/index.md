@@ -17,6 +17,8 @@ head:
 
 客户端启动钩子通过 `bootstrap` 交付运行时指引。仅在缺少指引或需要刷新时单独运行 `instructions`。检出目录选择和调用方凭证见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。
 
+示例使用已安装的 `1mcp` 命令。请按[安装指南](/zh/guide/installation)将其加入 PATH；该指南也介绍作为替代方式的 `npx`。
+
 ## 快速参考
 
 ### 主要命令
@@ -56,10 +58,10 @@ head:
 除了全局选项外，每个命令可能还有特定的选项。使用任何命令的 `--help` 查看所有可用选项：
 
 ```bash
-npx -y @1mcp/agent mcp add --help
-npx -y @1mcp/agent preset create --help
-npx -y @1mcp/agent serve --help
-npx -y @1mcp/agent inspect --help
+1mcp mcp add --help
+1mcp preset create --help
+1mcp serve --help
+1mcp inspect --help
 ```
 
 ## 命令组
@@ -69,10 +71,10 @@ npx -y @1mcp/agent inspect --help
 独立终端会话可按以下命令通过运行中的 `1mcp serve` 实例发现并调用工具。使用钩子的智能体会话应复用 bootstrap 交付的指引，仅在缺少指引或需要刷新时运行 `instructions`。使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。
 
 ```bash
-npx -y @1mcp/agent instructions
-npx -y @1mcp/agent inspect context7
-npx -y @1mcp/agent inspect context7/query-docs
-npx -y @1mcp/agent run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 - **[instructions](/zh/commands/instructions)** - 打印 CLI playbook 和当前服务器清单
@@ -99,9 +101,9 @@ npx -y @1mcp/agent run context7/query-docs --args '{"libraryId":"/mongodb/docs",
 管理桌面应用程序 MCP 配置。将来自各种桌面应用程序的 MCP 服务器整合到 1MCP 中。
 
 ```bash
-npx -y @1mcp/agent app consolidate claude-desktop    # 整合 Claude Desktop 服务器
-npx -y @1mcp/agent app restore claude-desktop        # 恢复原始配置
-npx -y @1mcp/agent app list                          # 列出支持的应用程序
+1mcp app consolidate claude-desktop    # 整合 Claude Desktop 服务器
+1mcp app restore claude-desktop        # 恢复原始配置
+1mcp app list                          # 列出支持的应用程序
 ```
 
 ### [MCP 命令](/zh/commands/mcp/)
@@ -109,10 +111,10 @@ npx -y @1mcp/agent app list                          # 列出支持的应用程�
 在您的 1MCP 实例中管理 MCP 服务器配置。
 
 ```bash
-npx -y @1mcp/agent mcp add myserver --type=stdio --command=node --args=server.js
-npx -y @1mcp/agent mcp list                       # 列出已配置的服务器
-npx -y @1mcp/agent mcp status                     # 检查服务器状态
-npx -y @1mcp/agent mcp tools list filesystem --disabled
+1mcp mcp add myserver --type=stdio --command=node --args=server.js
+1mcp mcp list                       # 列出已配置的服务器
+1mcp mcp status                     # 检查服务器状态
+1mcp mcp tools list filesystem --disabled
 ```
 
 ### [Preset 命令](/zh/commands/preset/)
@@ -120,10 +122,10 @@ npx -y @1mcp/agent mcp tools list filesystem --disabled
 管理用于动态过滤和上下文切换的服务器预设。
 
 ```bash
-npx -y @1mcp/agent preset create dev --filter "web,api,database"
-npx -y @1mcp/agent preset list                    # 列出所有预设
-npx -y @1mcp/agent preset show development        # 显示预设详细信息
-npx -y @1mcp/agent preset edit staging           # 编辑预设配置
+1mcp preset create dev --filter "web,api,database"
+1mcp preset list                    # 列出所有预设
+1mcp preset show development        # 显示预设详细信息
+1mcp preset edit staging           # 编辑预设配置
 ```
 
 ### [Serve 命令](/zh/commands/serve)
@@ -131,9 +133,9 @@ npx -y @1mcp/agent preset edit staging           # 编辑预设配置
 使用各种配置选项启动 1MCP 服务器。
 
 ```bash
-npx -y @1mcp/agent serve                            # 使用默认设置启动
-npx -y @1mcp/agent serve --port=3052                # 在自定义端口上启动
-npx -y @1mcp/agent serve --transport=stdio          # 使用 stdio 传输
+1mcp serve                            # 使用默认设置启动
+1mcp serve --port=3052                # 在自定义端口上启动
+1mcp serve --transport=stdio          # 使用 stdio 传输
 ```
 
 ### [Proxy 命令](/zh/commands/proxy)
@@ -141,9 +143,9 @@ npx -y @1mcp/agent serve --transport=stdio          # 使用 stdio 传输
 启动 STDIO 代理，将仅支持 STDIO 传输的 MCP 客户端连接到运行中的 1MCP HTTP 服务器。
 
 ```bash
-npx -y @1mcp/agent proxy                            # 自动发现并连接
-npx -y @1mcp/agent proxy --url http://localhost:3051/mcp  # 连接到特定 URL
-npx -y @1mcp/agent proxy --filter "web,api"         # 使用标签过滤连接
+1mcp proxy                            # 自动发现并连接
+1mcp proxy --url http://localhost:3051/mcp  # 连接到特定 URL
+1mcp proxy --filter "web,api"         # 使用标签过滤连接
 ```
 
 ### Runtime Target 和 Admin 会话
@@ -165,8 +167,8 @@ npx -y @1mcp/agent proxy --filter "web,api"         # 使用标签过滤连接
 当你希望 Codex 或 Claude 会话自动带上 1MCP 引导文档和 hooks 时，使用 `cli-setup`：
 
 ```bash
-npx -y @1mcp/agent cli-setup --codex
-npx -y @1mcp/agent cli-setup --claude --scope repo --repo-root .
+1mcp cli-setup --codex
+1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
 ## 什么时候离开这个章节
@@ -185,34 +187,34 @@ npx -y @1mcp/agent cli-setup --claude --scope repo --repo-root .
 
 ```bash
 # 启动 1MCP 服务器
-npx -y @1mcp/agent serve
+1mcp serve
 
 # 打印当前 CLI 工作流和服务器清单
-npx -y @1mcp/agent instructions
+1mcp instructions
 
 # 先查看服务器，再查看工具
-npx -y @1mcp/agent inspect filesystem
-npx -y @1mcp/agent inspect filesystem/read_file
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
 
 # 调用刚刚检查过的工具
-npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+1mcp run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ### 高级用法
 
 ```bash
 # 使用自定义配置启动
-npx -y @1mcp/agent serve --config=/custom/path/config.json --port=3052
+1mcp serve --config=/custom/path/config.json --port=3052
 
 # 安装 Codex 引导文档和 hooks
-npx -y @1mcp/agent cli-setup --codex
+1mcp cli-setup --codex
 
 # 通过 preset 以 JSON 格式查看工具信息
-npx -y @1mcp/agent inspect filesystem --preset development --format json
+1mcp inspect filesystem --preset development --format json
 
 # 覆盖会话缓存路径后执行工具
 ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid} \
-  npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+  1mcp run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ## 环境变量

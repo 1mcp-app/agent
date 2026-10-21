@@ -1,103 +1,32 @@
 ---
 title: Discovery Tools
-description: MCP internal tools for discovering and searching MCP servers, registries, and server information
-head:
-  - ['meta', { name: 'keywords', content: 'MCP discovery,server search,registry,AI assistant' }]
-  - ['meta', { property: 'og:title', content: 'Discovery Tools - 1MCP Internal Tools' }]
-  - ['meta', { property: 'og:description', content: 'MCP internal tools for server discovery and registry management' }]
+description: Registry lookup tools and the limits of their returned metadata.
 ---
 
 # Discovery Tools
 
-Discovery tools enable AI assistants to find, evaluate, and gather information about MCP servers from various sources. These tools provide comprehensive search capabilities, registry management, and detailed server information retrieval.
+These tools are exposed when the corresponding internal tools are enabled. Start with the [internal tools overview](/reference/internal-tools/) for invocation and access requirements.
 
-## Tools Overview
+## mcp_search
 
-### mcp_search
+Search registry metadata using `query`, `status` (default `active`), `type`, `transport`, `limit` (default `20`), and `cursor`. Results include installation hints and prerequisite indicators.
 
-Search MCP registries for servers matching specific criteria. Supports advanced filtering, categorization, and fuzzy matching to find relevant servers for any use case.
+The input schema also accepts `tags`, `category`, `offset`, and `format`, but the current handler does not apply these fields. It does not provide popularity sorting or a local fuzzy-search guarantee. `total` is the number of returned entries, not the registry's total size. An `installable` hint means metadata contains a package or remote endpoint; it does not prove that installation, credentials, or startup will succeed.
 
-### mcp_registry_status
+## mcp_registry_status
 
-Check the availability and health of MCP registries. Provides performance metrics, uptime information, and connectivity status to ensure reliable registry access.
+Check connectivity through the configured registry adapter. `includeStats` defaults to `false`. The response can include response time and a last-check timestamp, not a historical uptime series. The `registry` input labels the result; it does not switch the adapter to an arbitrary URL.
 
-### mcp_registry_info
+## mcp_registry_info and mcp_registry_list
 
-Get detailed information about specific MCP registries including supported features, authentication requirements, and server statistics.
+These handlers currently return static placeholder registry descriptions and counts. Do not treat their entries, online labels, or package counts as live discovery, verified endpoints, or availability evidence. Use [registry commands](/commands/registry/) for the supported registry workflow.
 
-### mcp_registry_list
+## mcp_info
 
-List all available MCP registries with their capabilities and access requirements. Helps identify the best registry sources for different types of servers.
+Look up a registry entry by required `name` and optional `version`. This is not an inspection of a running backend. The current response uses placeholder runtime status, transport, and generated capability names; it must not be used as a callable tool inventory. The schema accepts `includeCapabilities`, `includeConfig`, and `format`, but the current handler does not condition the result on these fields.
 
-### mcp_info
+Use [inspect](/commands/inspect) for actual visible capabilities and [mcp status](/commands/mcp/status) for runtime status.
 
-Retrieve comprehensive information about specific MCP servers including capabilities, requirements, version history, and compatibility details.
+## Suggested workflow
 
-## Usage Patterns
-
-### Server Discovery Workflow
-
-AI assistants typically follow this discovery pattern:
-
-1. **Registry Check**: Use `mcp_registry_status` to verify registry availability
-2. **Server Search**: Use `mcp_search` with relevant filters and categories
-3. **Server Details**: Use `mcp_info` to get detailed information about promising servers
-4. **Registry Information**: Use `mcp_registry_info` and `mcp_registry_list` to understand available sources
-
-### Search Strategies
-
-AI assistants can effectively search for servers by:
-
-- Using specific queries with relevant keywords and categories
-- Applying filters for tags, capabilities, and compatibility
-- Leveraging fuzzy matching for approximate search terms
-- Sorting results by relevance, popularity, or recency
-
-### Registry Management
-
-AI assistants manage registry operations by:
-
-- Checking multiple registry status for reliability
-- Comparing server availability across different registries
-- Monitoring registry performance and response times
-- Identifying the most appropriate registry for specific needs
-
-## AI Assistant Use Cases
-
-### Automated Server Discovery
-
-AI assistants can automatically find suitable servers by analyzing user requirements, searching with appropriate parameters, evaluating server capabilities against needs, and recommending optimal server choices.
-
-### Registry Health Monitoring
-
-AI assistants can monitor registry availability, track performance metrics over time, identify connectivity issues, and report registry problems for attention.
-
-### Server Evaluation
-
-AI assistants can evaluate servers by comparing capabilities, checking version compatibility, analyzing dependency requirements, and assessing community metrics like popularity and ratings.
-
-## Tool Interactions
-
-Discovery tools work effectively in combination:
-
-- **Discovery Process**: `mcp_registry_status` → `mcp_search` → `mcp_info`
-- **Registry Analysis**: `mcp_registry_list` → `mcp_registry_info` → `mcp_registry_status`
-- **Server Research**: `mcp_search` (with filters) → `mcp_info` (for details)
-- **Health Monitoring**: Regular `mcp_registry_status` checks for reliability
-
-## Best Practices for AI Assistants
-
-1. **Check registry status** before performing searches
-2. **Use specific search terms** with relevant filters
-3. **Compare multiple sources** using different registries
-4. **Verify server compatibility** before recommendations
-5. **Monitor search performance** and adjust query complexity
-6. **Cache server information** when appropriate for efficiency
-7. **Use fallback registries** when primary sources are unavailable
-8. **Validate search results** for relevance and accuracy
-
-## See Also
-
-- [Installation Tools](./installation) - Server lifecycle management
-- [Management Tools](./management) - Server operational control
-- [MCP Commands Reference](../../commands/mcp/) - CLI discovery commands
+Search for an entry, review its prerequisites, and validate the proposed target with [mcp install](/commands/mcp/install). After setup, verify discovery against the intended running runtime. Registry metadata alone does not establish runtime readiness or trust in a backend.

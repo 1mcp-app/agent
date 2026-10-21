@@ -9,12 +9,12 @@ description: 扫描受支持桌面应用中的可检测 MCP 配置。
 
 此命令会扫描您的系统以查找支持的应用程序，并报告哪些应用程序具有可检测的 MCP 服务器配置。
 
-有关整合工作流程的完整概述，请参阅 **[应用程序整合指南](../../guide/integrations/app-consolidation)**。
+有关整合工作流程的完整概述，请参阅 **[应用程序整合指南](/zh/guide/integrations/app-consolidation)**。
 
 ## 摘要
 
 ```bash
-npx -y @1mcp/agent app discover [options]
+1mcp app discover [options]
 ```
 
 ## 选项
@@ -29,12 +29,12 @@ npx -y @1mcp/agent app discover [options]
 
 ```bash
 # 发现所有已安装的具有 MCP 配置的应用程序
-npx -y @1mcp/agent app discover
+1mcp app discover
 
 # 包括具有配置文件但没有服务器的应用程序
-npx -y @1mcp/agent app discover --show-empty
+1mcp app discover --show-empty
 ```
 
 ## 另请参阅
 
-- **[应用程序整合指南](../../guide/integrations/app-consolidation#the-consolidation-workflow)**
+- **[应用程序整合指南](/zh/guide/integrations/app-consolidation)**
