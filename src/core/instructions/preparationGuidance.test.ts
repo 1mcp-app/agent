@@ -15,7 +15,7 @@ describe('preparation guidance delivery', () => {
       expect(content).toContain(`1mcp project prepare ${action} <backend>`);
     }
     expect(content).toContain('same runtime (--url/--context)');
-    expect(content).toContain('assigned --project/--project-set');
+    expect(content).toContain('the assigned session project is the default');
     expect(content).toContain('preserve --operation');
     expect(content).toContain('existing user authorization and runtime permissions');
     expect(content).toContain('never executes or replays the original tool call');

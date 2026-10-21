@@ -15,7 +15,7 @@ head:
 
 # Project Prepare Command
 
-For caller release, checkout drain, status and resume, see [Project lifecycle](/commands/project/). Retain your bootstrap `--project-owner` credential reference on preparation and subsequent tool calls.
+For caller release, checkout drain, status and resume, see [Project lifecycle](/commands/project/). Supported Codex sessions use their verified owner and assigned project automatically. Other hosts retain their own bootstrap `--project-owner` reference on preparation and subsequent tool calls. Per-call target overrides must stay consistent through preparation and the fresh tool call.
 
 Make a configured backend ready for a selected checkout and operation, for example by initializing an index or synchronizing changed source. Preparation uses integration commands and action permissions configured by the runtime operator. It requires a runtime with the HTTP preparation endpoint; there is no upstream MCP fallback.
 

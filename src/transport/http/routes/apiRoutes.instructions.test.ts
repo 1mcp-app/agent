@@ -294,8 +294,16 @@ describe('apiRoutes /api/instructions', () => {
 
   it('includes only contextual template connections belonging to the request session', async () => {
     const aggregator = new InstructionAggregator();
-    aggregator.setInstructions({ source: 'mcpTemplates', name: 'contextual' }, 'own', 'contextual:request-session');
-    aggregator.setInstructions({ source: 'mcpTemplates', name: 'contextual' }, 'other', 'contextual:other-session');
+    aggregator.setInstructions(
+      { source: 'mcpTemplates', name: 'contextual' },
+      'OWN_SESSION_ONLY_INSTRUCTIONS',
+      'contextual:request-session',
+    );
+    aggregator.setInstructions(
+      { source: 'mcpTemplates', name: 'contextual' },
+      'FOREIGN_SESSION_ONLY_INSTRUCTIONS',
+      'contextual:other-session',
+    );
     mockedBuildServerSummaries.mockImplementation(async (connections: Map<string, { name: string }>) =>
       Array.from(connections.values()).map((connection) => ({
         server: connection.name,
@@ -325,10 +333,14 @@ describe('apiRoutes /api/instructions', () => {
     const response = await request(app).get('/api/v1/instructions');
 
     expect(response.status).toBe(200);
-    expect(response.body.rendered).toContain('own');
-    expect(response.body.rendered).not.toContain('other');
+    expect(response.body.rendered).toContain('OWN_SESSION_ONLY_INSTRUCTIONS');
+    expect(response.body.rendered).not.toContain('FOREIGN_SESSION_ONLY_INSTRUCTIONS');
     expect(response.body.formatting.details).toEqual([
-      expect.objectContaining({ server: 'contextual', instructions: 'own', hasInstructions: true }),
+      expect.objectContaining({
+        server: 'contextual',
+        instructions: 'OWN_SESSION_ONLY_INSTRUCTIONS',
+        hasInstructions: true,
+      }),
     ]);
   });
 

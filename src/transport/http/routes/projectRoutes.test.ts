@@ -407,11 +407,13 @@ describe('Project lifecycle HTTP controls', () => {
     const operator = createProjectOwnerCredential(f.capability, undefined, 'operator');
     expect((await f.invoke('drain', operator)).output).toMatchObject({ results: [{ complete: false }] });
     await expect(f.manager.registerBindingContext('late', contextB)).rejects.toThrow('draining');
-    await f.invoke('release', ownerA);
+    expect((await f.invoke('release', ownerA)).output).toMatchObject({ results: [{ ownerReleased: false }] });
     expect(f.manager.getBindingContext(bindingA)).toBeDefined();
     finish();
     await work;
-    await f.invoke('release', ownerA);
+    expect((await f.invoke('release', ownerA)).output).toMatchObject({
+      results: [{ complete: false, ownerReleased: true }],
+    });
     expect(f.manager.getBindingContext(bindingA)).toBeUndefined();
     expect(f.manager.getBindingContext(bindingB)).toBeDefined();
     expect((await f.invoke('status', ownerB)).output).toMatchObject({

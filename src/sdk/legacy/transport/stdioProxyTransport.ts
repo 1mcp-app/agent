@@ -27,6 +27,7 @@ const modernClientInfoSchema = z.object({ name: z.string(), version: z.string(),
  */
 export interface StdioProxyTransportOptions {
   serverUrl: string;
+  onClosed?: () => Promise<void>;
   bearerToken?: string;
   preset?: string;
   filter?: string;
@@ -462,6 +463,7 @@ export class StdioProxyTransport {
       for (const outcome of outcomes) {
         if (outcome.status === 'rejected') logger.error('stdioProxyTransport.error.closing.stdio.proxy.7c69038d');
       }
+      if (outcomes.every((outcome) => outcome.status === 'fulfilled')) await this.options.onClosed?.();
       logger.info('stdioProxyTransport.stdio.proxy.closed.abcc8556');
     })();
     return this.closePromise;

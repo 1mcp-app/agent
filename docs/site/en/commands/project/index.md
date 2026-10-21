@@ -10,13 +10,13 @@ For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Wo
 Use `project` to manage a checkout's use by the selected 1MCP runtime. [Project preparation](/commands/project/prepare) manages backend readiness and its jobs separately.
 
 ```bash
-1mcp project status --project /work/frontend --format json --project-owner /private/session-owner.json
-1mcp project release --project /work/frontend --project-owner /private/session-owner.json --format json
-1mcp project drain --project /work/frontend --wait-ms 5000 --format json --project-owner /private/session-owner.json
-1mcp project resume --project /work/frontend --format json --project-owner /private/session-owner.json
+1mcp project status --project /work/frontend --format json
+1mcp project release --format json
+1mcp project drain --project /work/frontend --wait-ms 5000 --format json
+1mcp project resume --project /work/frontend --format json
 ```
 
-Replace the example owner file with the credential reference supplied by your session's bootstrap. Release never assumes that callers using the same checkout are the same owner.
+In a supported Codex session, release uses your verified owner and assigned current project automatically. Otherwise supply your own bootstrap `--project-owner <absolute-file>` and, when needed, explicit project selectors. Release never assumes that callers using the same checkout are the same owner.
 
 ## Actions and authority
 
@@ -36,13 +36,13 @@ On Windows, live stdio backends remain blockers when verified graceful terminati
 
 ## Options and results
 
-All actions support `--format text|json`, `--project`, runtime `--context` or `--url`, and the usual configuration/filter options. Keep the same runtime throughout removal.
+Lifecycle actions support `--format text|json`, `--project`, runtime `--context` or `--url`, and the usual configuration/filter options. Keep the same runtime throughout removal.
 
-- `--project-owner <absolute-file>` selects the private credential created for this session or worker. Retain it across CLI invocations. Do not share a parent's credential with workers.
+- `--project-owner <absolute-file>` selects the private credential created for this session or worker. Supported Codex sessions resolve it automatically; other hosts retain it across CLI invocations. Do not share a parent's credential with workers.
 - `--wait-ms <0–60000>` is a bounded drain wait. Omission returns the current state immediately. A timeout leaves admission closed.
 - `drain` and `resume` require exactly one checkout. `release` and `status` accept explicitly selected members of `--project-set` and return separate checkout results. Unresolved selection is rejected.
 
-JSON output contains a `results` array. Each entry includes `checkoutPath`, `admission` (`open` or `draining`), `complete`, and `blockers`. HTTP success or accepting a drain request does not mean cleanup is complete.
+JSON output contains a `results` array. Each entry includes `checkoutPath`, `admission` (`open` or `draining`), `complete`, and `blockers`. `release` also reports `ownerReleased`: true proves this caller no longer needs release authority for that selection, even if other owners or shared resources remain. False or missing proof retains terminal-cleanup retry state. HTTP success or accepting a drain request does not mean cleanup is complete.
 
 `status` exits zero after a successful inspection even when blocked. `drain` exits zero only when every selected result is complete; pending work, blockers, timeout and errors return nonzero. `release` also returns nonzero while checkout cleanup remains pending. Command errors use the CLI's structured error envelope with `--format json`.
 
@@ -59,8 +59,16 @@ Admission stays closed across runtime restart and deletion/recreation of the can
 
 ## Session and worker hooks
 
-[CLI setup](/commands/cli-setup) installs startup ownership wiring and `SessionEnd` cleanup. Bootstrap provides a separate credential reference for each session and worker; later calls must retain `--project-owner`. End cleanup uses only that owner's recorded runtime/checkout selections.
+[CLI setup](/commands/cli-setup) installs startup ownership and root `SessionEnd` cleanup. Codex `CODEX_THREAD_ID` locates its exact private hook record and owner credential, including thread-only worker shells. If present, root `CODEX_SESSION_ID` must agree. Both IDs can also locate legacy credentials directly. Normal local MCP calls omit owner and project flags. The root keeps its verified startup checkout; workers require explicit dispatch assignments. Per-call project/worktree overrides never change that default. Claude and hosts without a trustworthy locator or both-ID integration retain their own `--project-owner` fallback. Unintegrated CLI calls continue to use cwd.
 
-`Stop` and `SubagentStop` are not reliable terminal-worker events and do not release ownership. Workers should explicitly release when their assigned work is finished. Verified automatic worker-end coverage is currently unavailable. Unsupported clients, cloud orchestration without command hooks, disabled/untrusted hooks, omitted owner flags, runtime failures and hook timeouts remain coverage gaps. Idle expiry remains recovery for crashes and missed hooks; it is not removal readiness.
+Verified terminal cleanup releases only recorded selections and deletes private owner state and its exact thread locator after safe release. Failed, pending, or uncertain releases preserve a terminal journal and credential. Retry only an ended owner's recorded targets with:
+
+```bash
+1mcp project recover --project-owner /private/ended-session-owner.json
+```
+
+`recover` accepts no project/runtime selectors and grants no operator authority. It requires prior verified terminal evidence and checks each recorded runtime identity. Other owners and shared resources remain protected. Records with no terminal evidence, including a live worker, are never swept by age or parent termination. Stale locks require inspection before recovery.
+
+`Stop`, `SubagentStop`, and ordinary turn completion do not end ownership. Workers explicitly release when their assignment is finished; manual release preserves credentials for continued use. Automatic worker-terminal coverage is unavailable. Missing hooks, unsupported clients, unavailable identity variables, runtime failures, and hook deadlines remain coverage gaps. New sessions keep owner state beneath `<os-temp>/1mcp-owners-<user-and-config-hash>/project-owners`, separate from runtime configuration. Hooks and calls must share the same OS temporary directory. Existing sessions keep their original config-directory records until cleanup. Temporary records are not durable across OS cleanup or reboot; their absence does not prove release. Permission denial or partial records fail the call rather than dropping ownership. Idle expiry may release runtime bindings after crashes, but never proves terminal credential cleanup or manager removal readiness.
 
 Event semantics: [Codex hooks](https://learn.chatgpt.com/docs/hooks) and [Claude Code hooks](https://code.claude.com/docs/en/hooks). Installing hook configuration alone does not verify delivery in a live client.

@@ -285,32 +285,24 @@ describe('instructionsDistribution', () => {
     expect(DEFAULT_CLI_INSTRUCTION_TEMPLATE).toContain('1mcp auth login --context <name> --token <token>');
   });
 
-  it('limits inspection project selectors to dynamic, project-dependent servers in every playbook', () => {
+  it('aligns installed and runtime playbooks with supported session defaults and recovery', () => {
     for (const content of [
       renderManagedDocContent(),
       DEFAULT_CLI_INSTRUCTION_TEMPLATE,
       formatInstructionsOutput({ servers: [], details: [] }),
     ]) {
+      expect(content).toContain('Normal calls omit --project-owner and --project.');
+      expect(content).toContain('CODEX_THREAD_ID (current agent) locates an exact private hook-written thread record');
+      expect(content).toContain('A per-call --project or --project-set override never changes that default.');
       expect(content).toContain(
-        'Read the server type in the `1mcp instructions` server summary or `1mcp inspect <server>` metadata:',
+        'Claude and Codex hosts without a trustworthy thread locator or both-ID integration require',
       );
-      expect(content).toContain(
-        '`type: external` identifies a static server; `type: template` identifies a dynamic server.',
-      );
-      expect(content).toContain(
-        'Retain the assigned project selectors during discovery that may include dynamic servers, and when the server type is missing or unknown.',
-      );
-      expect(content).toContain('Omit them only for a target confirmed as static.');
-      expect(content).toContain(
-        'Static-server inspection (`1mcp inspect <server>` or `1mcp inspect <server>/<tool>`) does not require `--project` or `--project-set`.',
-      );
-      expect(content).toContain(
-        'Retain the assigned project selectors when inspecting dynamic, project-dependent servers.',
+      expect(content).toContain('Recovery requires a recorded SessionEnd');
+      expect(content).toContain('scoped write permission');
+      expect(content).not.toContain(
+        'Retain the bootstrap-provided --project-owner credential reference on every call.',
       );
     }
-    expect(renderManagedDocContent()).toContain(
-      'Retain the assigned `--project` and/or `--project-set` selectors for project-specific instructions and tool calls.',
-    );
   });
 
   it('renders global Codex startup references as absolute managed-doc references', () => {
