@@ -316,6 +316,13 @@ jobs:
         env:
           CI: true
 
+      # Token CLI assertions have a three-second startup deadline; reuse this idle runner.
+      - name: Test token CLI without competing workers
+        run: pnpm test:e2e test/e2e/commands/mcp/mcp-tokens.test.ts --maxWorkers=1 --retry=0 --reporter=minimal
+        env:
+          CI: true
+          NODE_COMPILE_CACHE: ${{ runner.temp }}/e2e-node-compile-cache
+
   test-legacy-upgrade:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15

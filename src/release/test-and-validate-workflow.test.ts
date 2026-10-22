@@ -307,6 +307,10 @@ describe('test-and-validate workflow', () => {
       browserJob!.indexOf('Test browser E2E'),
     );
     expect(browserJob).toContain('timeout-minutes: 15');
+    expect(browserJob).toContain('pnpm test:e2e test/e2e/commands/mcp/mcp-tokens.test.ts --maxWorkers=1 --retry=0');
+    expect(browserJob!.indexOf('Test browser E2E')).toBeLessThan(
+      browserJob!.indexOf('Test token CLI without competing workers'),
+    );
     expect(checkoutCount).toBeGreaterThan(0);
     expect(workflow.match(/persist-credentials: false/g)).toHaveLength(checkoutCount);
   });
@@ -327,6 +331,7 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:non-browser']).toContain('--exclude "**/*.browser.e2e.test.ts"');
     expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/serve-background.test.ts"');
     expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/project-lifecycle.test.ts"');
+    expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/mcp-tokens.test.ts"');
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/commands/serve-background.test.ts');
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/project-lifecycle.test.ts');
     expect(packageJson.scripts['test:e2e:system']).toContain('--maxWorkers=1');
