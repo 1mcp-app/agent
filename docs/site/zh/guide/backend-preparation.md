@@ -5,6 +5,10 @@ description: 了解服务器何时需要准备、如何启用已有配方，以�
 
 # 后端准备
 
+从设置到清理的完整流程，参见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
+
+下方示例使用已验证启动钩子的受支持 Codex 会话：1MCP 自动解析所有者和已分配项目。Claude 或不支持自动查找所有者的宿主需添加 `--project-owner <own-file>`，使用该调用方自己的 bootstrap 凭证；worker 也使用自己的凭证。示例中的显式项目参数用于覆盖目标、选择其他检出目录。设置与回退方式见 [CLI setup](/zh/commands/cli-setup)。
+
 命令语法、选项、适用人群和恢复示例请参阅 [Prepare 命令参考](/zh/commands/project/prepare)。
 
 有些 MCP 服务器需要先初始化项目或更新索引，才能处理请求。**准备功能**让 1MCP 执行这些步骤，并检查服务器是否已准备好处理你选定的项目。
@@ -35,39 +39,84 @@ description: 了解服务器何时需要准备、如何启用已有配方，以�
 
 如果团队或集成维护者提供了配方，请将它和随附的辅助文件保存在本机。按照配方说明确认后端版本、依赖、必需输入和允许执行的操作。自动准备目前支持 Linux 和 macOS。
 
-在 `mcp.json` 的 `mcpServers` 或 `mcpTemplates` 中，找到已有的服务器条目并添加 `preparation`。以下示例仅展示配置结构：**`team-source-search` 和文件路径都是占位示例，不是内置配方**。请替换为配方提供的 ID 和绝对路径。
+复制配置前，先选择生效范围：
+
+- **使用此后端的所有已授权项目：** 保留下方的 `activation: "setup"`，个别项目可以禁用准备。
+- **仅指定项目：** 省略 `activation`，再按下方示例在各检出目录的 `.1mcprc` 中启用准备。
+
+在 `mcpServers` 或 `mcpTemplates` 下的现有后端条目中添加准备配置。下方以 CodeGraph 模板及团队提供的配方为例，并非内置集成。
+
+打开运行时及 `mcp setup` 使用的同一个 `mcp.json`。在**现有 `mcpTemplates.codegraph` 条目内部**添加 `preparation`，与 `command`、`args`、`cwd` 同级。以下完整示例展示其位置。请保留已有的可执行文件路径、环境变量、模板选项和其他服务器，不要用示例覆盖整个文件。
+
+::: v-pre
 
 ```json
 {
-  "preparation": {
-    "adapter": "configured-command",
-    "definition": {
-      "id": "team-source-search",
-      "file": "/absolute/path/to/source-search.json"
-    },
-    "activation": "setup",
-    "allowedActions": ["initialize", "sync"]
+  "mcpServers": {},
+  "mcpTemplates": {
+    "codegraph": {
+      "command": "/absolute/path/to/codegraph",
+      "args": ["serve", "--mcp", "--path", "{{{project.path}}}", "--no-watch"],
+      "cwd": "{{{project.path}}}",
+      "env": {
+        "CODEGRAPH_NO_DOWNLOAD": "1",
+        "CODEGRAPH_NO_DAEMON": "1"
+      },
+      "template": { "shareable": true, "perClient": false },
+      "preparation": {
+        "adapter": "configured-command",
+        "definition": {
+          "id": "team-codegraph",
+          "file": "/absolute/path/to/recipes/codegraph.json"
+        },
+        "activation": "setup",
+        "allowedActions": ["initialize", "sync"]
+      }
+    }
   }
 }
 ```
 
-| 设置                  | 填写内容                                                                      |
-| --------------------- | ----------------------------------------------------------------------------- |
-| `definition.id`       | 配方中声明的 ID。                                                             |
-| `definition.file`     | 本机配方文件的绝对路径。                                                      |
-| `definition.inputs`   | 仅当配方需要本机输入时添加此对象，使用配方说明中的输入名称。                  |
-| `activation: "setup"` | 为使用此服务器的已授权项目启用自动准备，无需逐个项目启用。                    |
-| `allowedActions`      | 你允许执行的操作。仅当配方支持且你希望执行时，才加入 `initialize` 和 `sync`。 |
+:::
 
-可以与队友共享配方及随附文件。每个人在自己的 `mcp.json` 中填写本机路径和输入。更新配方不会授予额外操作权限。已有的内联准备配置仍然有效，无需转换。
+将 `/absolute/path/to/codegraph` 替换为已安装的可执行文件路径。将 `team-codegraph` 替换为配方声明的 ID，将 `definition.file` 替换为配方的本地绝对路径。这些是占位值，不是内置的 CodeGraph 集成。如果配方声明了本机输入参数，按其文档中的名称和值添加 `definition.inputs`。
 
-若要关闭某个项目的自动准备，在其生效的 `.1mcprc` 中添加以下配置，将 `source-search` 替换为 `mcp.json` 中的**服务器配置名称**：
+| 设置                                 | 作用                                                                        |
+| ------------------------------------ | --------------------------------------------------------------------------- |
+| `adapter: "configured-command"`      | 运行配方的就绪探测和已获许可的命令。                                        |
+| `definition.id` 和 `definition.file` | 根据声明的 ID 和绝对文件路径选择配方；辅助文件保持作者提供的目录布局。      |
+| `activation: "setup"`                | 对使用此后端的已授权检出目录启用自动准备，无需逐项目添加启用设置。          |
+| `allowedActions`                     | 限定允许运行的配方操作。仅在配方支持且你允许时添加 `initialize` 和 `sync`。 |
+
+保存配置后检查下一次就绪查询。重载成功不代表索引已就绪。配方和 activation 都不会授予额外检出目录访问权，也不会授予安装依赖、全量重建或使用付费服务的权限。
+
+共享配方及辅助文件时，保留作者提供的目录布局。每个人在自己的 `mcp.json` 中填写本地路径和输入。现有内联准备配置仍受支持。
+
+### 选择哪些项目启用准备
+
+**你——项目偏好。**
+
+如果只想在指定项目中自动准备，**从服务器条目中省略 `activation: "setup"`**，然后在所选检出目录的 `.1mcprc` 中启用：
 
 ```json
-{ "preparation": { "source-search": { "enabled": false } } }
+{
+  "preparation": {
+    "codegraph": { "enabled": true }
+  }
+}
 ```
 
-项目的显式禁用优先于 `activation: "setup"`。若要禁用整个服务器的准备功能，在 `mcp.json` 中该服务器的 `preparation` 内设置 `enabled: false`。
+如果已经设置全局启用，则可以对某个检出目录禁用：
+
+```json
+{
+  "preparation": {
+    "codegraph": { "enabled": false }
+  }
+}
+```
+
+键 `codegraph` 是配置中的服务器名称，不是配方 ID。将此偏好添加到检出目录的完整有效配置中，保留所选的 preset **或** tags。Worktree 本地 `.1mcprc` 会整体替换继承设置，见[项目 Checkout](/zh/guide/project-checkouts)。无效的本地文件会被忽略，且不会恢复继承设置；依赖准备偏好之前，必须先修复文件。项目启用设置不会增加已许可操作；明确的项目禁用优先于 setup 级启用。要在所有项目中禁用该后端的准备，在 `mcp.json` 中该后端的 `preparation` 内设置 `enabled: false`。
 
 ## 工具需要准备时
 

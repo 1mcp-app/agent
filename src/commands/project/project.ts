@@ -1,18 +1,21 @@
+import { resolveAgentSessionOptions } from '@src/commands/shared/agentSession.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
 import {
   attachReusableClientSurface,
   formatClientSurfaceAuthRequiredMessage,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
+import { usesLocalAgentDefaults } from '@src/commands/shared/serveTargetResolver.js';
 import { API_BASE_PATH } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 
 import { z } from 'zod';
 
 export interface ProjectCommandOptions extends GlobalOptions {
-  action: 'release' | 'drain' | 'status' | 'resume';
+  action: 'release' | 'drain' | 'status' | 'resume' | 'recover';
   'wait-ms'?: number;
   'expected-runtime-scope'?: string;
+  'terminal-cleanup'?: boolean;
   format?: 'text' | 'json';
   url?: string;
   context?: string;
@@ -41,6 +44,7 @@ export const projectResultSchema = z.object({
           checkoutPath: z.string().min(1),
           admission: z.enum(['open', 'draining']),
           complete: z.boolean(),
+          ownerReleased: z.boolean().optional(),
           blockers: z.array(z.object({ kind: z.string(), id: z.string(), count: z.number().optional() }).passthrough()),
         })
         .passthrough(),
@@ -49,6 +53,17 @@ export const projectResultSchema = z.object({
 });
 
 export async function projectCommand(options: ProjectCommandOptions): Promise<void> {
+  if (options.action === 'recover') {
+    if (!options['project-owner']) throw new Error('Recovery requires the ended session --project-owner reference');
+    if (options.project || options['project-set'] || options.url || options.context)
+      throw new Error('Recovery uses recorded targets; do not supply target selectors');
+    const { recoverEndedSessionOwner } = await import('@src/commands/bootstrap/bootstrapOwnership.js');
+    const { releaseRecordedOwnerTarget } = await import('@src/commands/bootstrap/bootstrap.js');
+    await recoverEndedSessionOwner(options['project-owner'], releaseRecordedOwnerTarget);
+    process.stdout.write(`${JSON.stringify({ recovered: true })}\n`);
+    return;
+  }
+  if (usesLocalAgentDefaults(options)) options = await resolveAgentSessionOptions(options);
   const parsed = optionsSchema.parse(options);
   if (parsed.action === 'release' && !options['project-owner']) {
     throw new Error('Release requires --project-owner from this session or worker bootstrap');
@@ -92,7 +107,11 @@ export async function projectCommand(options: ProjectCommandOptions): Promise<vo
   if (attachment.status !== 'success') throw new Error(attachment.message);
   const result = projectResultSchema.parse(attachment.value);
   process.stdout.write(`${formatProjectOutput(result, parsed.format)}\n`);
-  if ((parsed.action === 'drain' || parsed.action === 'release') && !result.results.every((entry) => entry.complete)) {
+  const completed =
+    options['terminal-cleanup'] && parsed.action === 'release'
+      ? result.results.every((entry) => entry.ownerReleased === true)
+      : result.results.every((entry) => entry.complete);
+  if ((parsed.action === 'drain' || parsed.action === 'release') && !completed) {
     process.exitCode = 1;
   }
 }

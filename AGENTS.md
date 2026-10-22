@@ -18,7 +18,7 @@ pnpm dev              # Development with auto-rebuild
 pnpm watch            # Watch mode for development
 
 # Quality Checks (run before committing)
-pnpm lint && pnpm typecheck && pnpm build && pnpm test:unit
+pnpm check           # Static checks, build, unit/admin/release tests, permission guard
 
 # Testing
 pnpm test:unit                              # Run all unit tests

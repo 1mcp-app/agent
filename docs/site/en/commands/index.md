@@ -21,6 +21,8 @@ For AI agents, the preferred path is CLI mode: keep MCP behind `1mcp serve`, the
 
 If you are still trying to get a first setup working, use [Quick Start](/guide/quick-start) before drilling into command details.
 
+Client startup hooks deliver runtime guidance through `bootstrap`. Fetch `instructions` separately only when guidance is missing or needs refreshing. For checkout selection and caller credentials, see [Project and owner options](/guide/project-checkouts#project-and-owner-options).
+
 ## Quick Reference
 
 ### Main Commands
@@ -70,7 +72,7 @@ npx -y @1mcp/agent inspect --help
 
 ### CLI Workflow Commands
 
-Use these commands together when you want an agent or terminal session to discover and call tools through a running `1mcp serve` instance.
+For a standalone terminal session, use these commands to discover and call tools through a running `1mcp serve` instance. In a hooked agent session, use the guidance delivered by bootstrap and run `instructions` only when guidance is missing or needs refreshing. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential.
 
 ```bash
 npx -y @1mcp/agent instructions

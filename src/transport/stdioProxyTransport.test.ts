@@ -480,6 +480,36 @@ describe('StdioProxyTransport', () => {
   });
 
   describe('close', () => {
+    it('releases caller authority only after both hops close, once', async () => {
+      const onClosed = vi.fn().mockResolvedValue(undefined);
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp', onClosed });
+      await proxy.start();
+      expect(onClosed).not.toHaveBeenCalled();
+      let finish!: () => void;
+      vi.mocked(proxy['httpTransport'].close).mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const closing = proxy.close();
+      await Promise.resolve();
+      expect(onClosed).not.toHaveBeenCalled();
+      finish();
+      await closing;
+      await proxy.close();
+      expect(onClosed).toHaveBeenCalledOnce();
+    });
+
+    it('retains uncertain caller authority when a transport cannot close', async () => {
+      const onClosed = vi.fn();
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp', onClosed });
+      await proxy.start();
+      vi.mocked(proxy['httpTransport'].close).mockRejectedValueOnce(new Error('close uncertain'));
+      await proxy.close();
+      expect(onClosed).not.toHaveBeenCalled();
+    });
+
     it('should close both transports', async () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',

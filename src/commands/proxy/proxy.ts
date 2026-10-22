@@ -8,12 +8,15 @@ import { ProxyOptions } from './index.js';
  * Proxy command - Start STDIO proxy to running 1MCP HTTP server
  */
 export async function proxyCommand(options: ProxyOptions): Promise<void> {
+  let releaseOwnerLease: (() => Promise<void>) | undefined;
+  let proxyTransport: StdioProxyTransport | undefined;
   try {
     const attachment = await attachFreshClientSurface({
       clientSurface: 'stdio-proxy',
       version: 'proxy',
       options,
     });
+    releaseOwnerLease = attachment.releaseOwnerLease;
     const { target, options: mergedOptions } = attachment;
     const discoveredUrl = attachment.serverUrl.toString();
 
@@ -45,8 +48,9 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     // Create and start proxy transport
     logger.info('proxy.starting.stdio.proxy.d415368c');
 
-    const proxyTransport = new StdioProxyTransport({
+    proxyTransport = new StdioProxyTransport({
       serverUrl: discoveredUrl,
+      ...(releaseOwnerLease ? { onClosed: releaseOwnerLease } : {}),
       bearerToken: attachment.bearerToken,
       context: attachment.context,
       contextProof: attachment.contextProof,
@@ -60,7 +64,7 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     // Set up graceful shutdown
     const shutdown = async () => {
       logger.info('proxy.shutting.down.stdio.proxy.0fa99376');
-      await proxyTransport.close();
+      await proxyTransport!.close();
       logger.info('proxy.stdio.proxy.shutdown.complete.eb154c73');
       process.exit(0);
     };
@@ -69,6 +73,7 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     process.on('SIGTERM', shutdown);
     process.on('SIGHUP', shutdown);
   } catch (error) {
+    if (!proxyTransport) await releaseOwnerLease?.();
     if (error instanceof Error) {
       logger.error('proxy.proxycommand.diagnostic.de43c663', { error: error });
     } else {

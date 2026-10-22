@@ -1,9 +1,13 @@
-/** Shared recovery guidance for managed bootstrap and built-in CLI instructions. */
+/** Shared preparation guidance for installed playbooks and runtime instructions. */
 export const PREPARATION_GUIDANCE = [
-  'Backend preparation (when required):',
-  'Retain the bootstrap-provided --project-owner credential reference on every call. Each session and worker owns a separate credential. Release only your selected bindings with `1mcp project release`; turn completion is not session termination. Operators use `project drain` and require complete=true before manager removal; timeout keeps admission closed until explicit `project resume`.',
-  'Retain the same runtime (--url/--context), filters, and assigned --project/--project-set selection on every prepare command. Select one checkout for checkout-specific work; preserve --operation when supplied.',
-  'Use `1mcp project prepare inspect <backend>` to read readiness without starting work, even when tool discovery is empty. Request needed preparation with `1mcp project prepare start <backend>` only within existing user authorization and runtime permissions; do not enable automatic preparation or widen permissions to bypass a block.',
-  'If a job ID is returned or already exists, monitor it with `1mcp project prepare status <backend> <id>` or bounded `1mcp project prepare wait <backend> <id> --wait-ms 5000`. Preparation never executes or replays the original tool call.',
-  'After verified readiness, refresh server discovery and inspect the tool schema, then submit a fresh tool call. Report blocked or failed states; use `1mcp project prepare retry <backend> <id>` only for deliberate authorized recovery, never an automatic retry loop. Cancel owned work with `1mcp project prepare cancel <backend> <id>` only when appropriate for the task; compatible callers may share it.',
+  '## Backend preparation (when required)',
+  '',
+  'Keep the same runtime (--url/--context), filters and target overrides; the assigned session project is the default. Select a checkout for checkout-specific work and preserve --operation when supplied. Use the session ownership rules above.',
+  '',
+  '1. Read readiness with `1mcp project prepare inspect <backend>`, even when discovery is empty.',
+  '2. Run `1mcp project prepare start <backend>` only within existing user authorization and runtime permissions. Never enable automatic preparation or widen permissions to bypass a block.',
+  '3. Monitor an existing or returned job with `1mcp project prepare status <backend> <id>` or bounded `1mcp project prepare wait <backend> <id> --wait-ms 5000`.',
+  '4. After verified readiness, refresh server discovery and inspect the tool schema, then submit a fresh call: preparation never executes or replays the original tool call.',
+  '',
+  'Report blocked/failed states. Use `1mcp project prepare retry <backend> <id>` only for deliberate authorized recovery, never an automatic retry loop. Use `1mcp project prepare cancel <backend> <id>` only for owned work when appropriate; compatible callers may share it.',
 ].join('\n');

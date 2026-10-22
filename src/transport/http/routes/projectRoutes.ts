@@ -124,14 +124,27 @@ export function createProjectHandler(serverManager: ServerManager): RequestHandl
           } catch {
             cleanup.push({ kind: 'cleanup-failed', id: checkout });
           }
-          results.push(
-            lifecycle.status(checkout, [
-              ...manager.getProjectBlockers(checkout),
-              ...staticProjectBlockers(serverManager, checkout),
-              ...jobs,
-              ...cleanup,
-            ]),
-          );
+          const status = lifecycle.status(checkout, [
+            ...manager.getProjectBlockers(checkout),
+            ...staticProjectBlockers(serverManager, checkout),
+            ...jobs,
+            ...cleanup,
+          ]);
+          if (action === 'release') {
+            // Other owners/shared resources can outlive this caller; unknown blockers retain its retry authority.
+            const ownerReleased = status.blockers.every((blocker) => {
+              if (blocker.kind === 'owner') return blocker.id !== owner.ownerId;
+              return [
+                'shared-binding',
+                'requests-or-subscriptions',
+                'shared-backend',
+                'shared-static-backend',
+              ].includes(blocker.kind);
+            });
+            results.push({ ...status, ...{ ownerReleased } });
+          } else {
+            results.push(status);
+          }
         }
         return results;
       };

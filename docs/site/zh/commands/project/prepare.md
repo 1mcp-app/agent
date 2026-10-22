@@ -9,7 +9,7 @@ head:
 
 # Project Prepare 命令
 
-调用方释放、目录排空、状态检查及恢复请参见 [Project 生命周期](/zh/commands/project/)。准备操作及后续工具调用应保留 bootstrap 提供的 `--project-owner` 凭证路径。
+调用方释放、目录排空、状态检查及恢复请参见 [Project 生命周期](/zh/commands/project/)。受支持的 Codex 会话自动使用已验证所有者与分配项目；其他宿主在准备操作及后续工具调用中保留自己的 bootstrap `--project-owner` 凭证路径。准备及重新调用工具时保持单次目标覆盖一致。
 
 为选定的检出目录和操作准备已配置的后端，例如初始化索引或同步变更的源码。准备工作使用运行时管理员配置的集成命令和操作权限。此功能需要运行时的 HTTP preparation 端点，不会回退到直接调用上游 MCP。
 
@@ -34,8 +34,6 @@ head:
 
 `backend` 是配置中的服务器名称，不是可执行文件或工具引用。`project prepare <backend>` 是 `project prepare start <backend>` 的简写。服务器名称与子命令重名时，请显式使用 `start`，例如 `1mcp project prepare start status`。
 
-原根命令 `1mcp prepare` 和 `1mcp preparation` 已移除。所有准备操作请使用 `1mcp project prepare`，不提供兼容别名。
-
 ## 操作
 
 | 操作              | 行为                                                                                        |
@@ -55,6 +53,7 @@ head:
 | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `--project <path-or-label>`                                     | 绝对检出路径，或项目集中的成员标签。检出目录相关的工作应选择一个目录。                      |
 | `--project-set <path>`                                          | 已保存的项目集定义，使用 `--project <label>` 选择检出目录。                                 |
+| `--project-owner <file>`                                        | 需要覆盖自动所有者查找时，使用当前调用方自己的 bootstrap 凭证。                             |
 | `--operation <name>`                                            | 特定操作的就绪检查，通常为上游工具名称。保留检查/启动时的值；按 ID 控制时可自动恢复。       |
 | `--url <url>`                                                   | 覆盖检测到的运行时 URL。                                                                    |
 | `--context <name>`                                              | 使用命名的运行时目标上下文连接。                                                            |
@@ -63,6 +62,8 @@ head:
 | `--wait-ms <milliseconds>`                                      | 仅供 `wait` 使用，整数范围为 0 至 3,600,000。省略时使用运行时默认值，不会延长任务执行期限。 |
 
 全局配置选项同样适用。使用 `1mcp project prepare --help` 和子命令帮助查看可用参数。控制任务和后续工具调用时应保持相同的运行时、过滤器、检出目录和操作。
+
+示例使用受支持 Codex 会话的自动所有权。Claude 和不支持自动查找所有者的宿主需添加自己的 bootstrap `--project-owner <own-file>`。对已分配默认项目可省略 `--project`；覆盖默认目标时，相关调用应保留该参数。参见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。
 
 ## 示例：检查、准备和恢复调用
 

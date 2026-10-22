@@ -15,6 +15,8 @@ head:
 
 如果你还没有跑通第一次安装或上手流程，先看[快速入门](/zh/guide/quick-start)。
 
+客户端启动钩子通过 `bootstrap` 交付运行时指引。仅在缺少指引或需要刷新时单独运行 `instructions`。检出目录选择和调用方凭证见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。
+
 ## 快速参考
 
 ### 主要命令
@@ -64,7 +66,7 @@ npx -y @1mcp/agent inspect --help
 
 ### CLI 工作流命令
 
-当你希望 agent 或终端会话通过运行中的 `1mcp serve` 实例发现并调用工具时，请按以下命令顺序使用：
+独立终端会话可按以下命令通过运行中的 `1mcp serve` 实例发现并调用工具。使用钩子的智能体会话应复用 bootstrap 交付的指引，仅在缺少指引或需要刷新时运行 `instructions`。使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。
 
 ```bash
 npx -y @1mcp/agent instructions

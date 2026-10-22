@@ -95,7 +95,7 @@ npm install -g @1mcp/agent
 1mcp cli-setup --codex
 ```
 
-对于 Codex，`cli-setup` 会打印必须加入 `config.toml` 的改动，但不会自动应用。请在打开下一次 Codex 会话前加入打印出的片段，然后验证 `instructions -> inspect -> run`。
+对于 Codex，`cli-setup` 会打印必须加入 `config.toml` 的改动，但不会自动应用。请在打开下一次 Codex 会话前加入打印出的片段，启用并信任钩子，并确认新会话收到运行时指引和自己的所有者凭证。智能体随后执行 `inspect` 和 `run`；仅在缺少指引或需要刷新时运行 `instructions`。使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。
 
 对于非 CLI 的 stdio 客户端，请使用 [Proxy](/zh/commands/proxy)。对于不需要项目上下文的原生 HTTP MCP 客户端，请使用 [serve](/zh/commands/serve)。
 
@@ -117,3 +117,5 @@ npm install -g @1mcp/agent
 - `1mcp serve` 保持运行
 - `1mcp inspect <server>` 能报告已配置的上游 server
 - 下一篇指南与所选路径匹配：CLI 模式、配置、身份验证、代理、云部署或 Windows 任务计划程序
+
+跨仓库和 Git worktree 的完整流程见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。

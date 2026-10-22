@@ -1,7 +1,16 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { bootstrapOwner } from '@src/commands/bootstrap/bootstrapOwnership.js';
+import { temporaryProjectOwnerStorage } from '@src/commands/shared/projectOwnerStorage.js';
+import {
+  createHookProjectOwner,
+  markProjectOwnerEnded,
+  readProjectOwnerTargets,
+  recordProjectOwnerSelection,
+  recordProjectOwnerTarget,
+} from '@src/commands/shared/projectOwnerStore.js';
 import type { ResolvedProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import { RuntimeTargetStoreError } from '@src/domains/runtime-targets/runtimeTargetStore.js';
@@ -97,6 +106,278 @@ describe('mergeServeTargetOptions', () => {
 });
 
 describe('resolveServeTarget', () => {
+  it.each([false, true])(
+    'replays recorded removed paths and rejects symlink retargeting (native set=%s)',
+    async (nativeSet) => {
+      const storage = await mkdtemp(path.join(os.tmpdir(), 'removed-cleanup-'));
+      try {
+        const ancestor = path.join(storage, 'ancestor');
+        const checkout = path.join(ancestor, 'checkout');
+        await mkdir(checkout, { recursive: true });
+        const canonical = await realpath(checkout);
+        const file = await bootstrapOwner(
+          { client: 'codex', event: 'SessionStart', 'config-dir': storage, project: [checkout] },
+          JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'removed' }),
+        );
+        const target = {
+          project: [canonical],
+          'config-dir': storage,
+          runtimeScopeId: 'scope-removed',
+          context: 'local',
+        };
+        if (nativeSet) {
+          const second = path.join(storage, 'second');
+          await mkdir(second);
+          await recordProjectOwnerSelection(file, target, [
+            { label: 'first', path: canonical },
+            { label: 'second', path: await realpath(second) },
+          ]);
+          await rm(second, { recursive: true });
+        } else await recordProjectOwnerTarget(file, target);
+        const recorded = (await readProjectOwnerTargets(file))[0];
+        await markProjectOwnerEnded(file, { client: 'codex', sessionId: 'removed' });
+        await rm(checkout, { recursive: true });
+        const options = {
+          action: 'release',
+          'terminal-cleanup': true,
+          'expected-runtime-scope': 'scope-removed',
+          'project-owner': file,
+          'config-dir': storage,
+          context: 'local',
+          ...(nativeSet ? { 'project-set': recorded['project-set'] } : { project: [canonical] }),
+        };
+        expect((await resolveServeTarget(options, { agentSession: true })).projectRoot).toBe(canonical);
+        expect(mockedResolveProjectContext).not.toHaveBeenCalled();
+        const other = path.join(storage, 'other');
+        await mkdir(other);
+        await symlink(other, checkout);
+        await expect(resolveServeTarget(options, { agentSession: true })).rejects.toThrow('retarget');
+        await rm(ancestor, { recursive: true });
+        await mkdir(path.join(other, 'checkout'));
+        await symlink(other, ancestor);
+        await expect(resolveServeTarget(options, { agentSession: true })).rejects.toThrow('retarget');
+      } finally {
+        await rm(storage, { recursive: true, force: true });
+        await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each([false, true])(
+    'keeps explicit loopback URLs credentialless with an unrelated locator=%s',
+    async (hasLocator) => {
+      const storage = await mkdtemp(path.join(os.tmpdir(), 'forwarded-url-'));
+      try {
+        vi.stubEnv('CODEX_THREAD_ID', 'url-thread');
+        vi.stubEnv('CODEX_SESSION_ID', '');
+        if (hasLocator)
+          await bootstrapOwner(
+            { client: 'codex', event: 'SessionStart', 'config-dir': storage, project: [storage] },
+            JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'url-thread' }),
+          );
+        const result = await resolveServeTarget<ResolvableServeTargetOptions>(
+          { 'config-dir': storage, url: 'http://localhost:4000/mcp' },
+          { agentSession: true },
+        );
+        expect(result.mergedOptions['project-owner']).toBeUndefined();
+        expect(result.mergedOptions.project).toBeUndefined();
+      } finally {
+        vi.unstubAllEnvs();
+        await rm(storage, { recursive: true, force: true });
+        await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each([true, false])('uses an explicit loopback owner with worker assignment=%s', async (assigned) => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'url-owner-default-'));
+    try {
+      const checkout = path.join(storage, 'assigned-checkout');
+      await mkdir(checkout);
+      const owner = await bootstrapOwner(
+        {
+          client: 'codex',
+          event: 'SubagentStart',
+          'config-dir': storage,
+          ...(assigned ? { project: [checkout] } : {}),
+        },
+        JSON.stringify({ hook_event_name: 'SubagentStart', session_id: 'root', agent_id: 'worker' }),
+      );
+      const call = resolveServeTarget<ResolvableServeTargetOptions>(
+        { url: 'http://localhost:4000/mcp', 'project-owner': owner },
+        { agentSession: true },
+      );
+      if (!assigned) {
+        await expect(call).rejects.toThrow('Worker Project Assignment unresolved');
+        expect(mockedResolveProjectContext).not.toHaveBeenCalled();
+        return;
+      }
+      const result = await call;
+      expect(result.mergedOptions['project-owner']).toBe(owner);
+      expect(result.mergedOptions.project).toEqual([checkout]);
+      expect(mockedResolveProjectContext).toHaveBeenCalledWith(await realpath(checkout));
+    } finally {
+      await rm(storage, { recursive: true, force: true });
+      await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
+    }
+  });
+
+  it('does not resolve local ownership for an explicit non-loopback URL', async () => {
+    const result = await resolveServeTarget<ResolvableServeTargetOptions>(
+      { url: 'https://prod.example.com/mcp', 'project-owner': '/unavailable/local-owner.json' },
+      { agentSession: true },
+    );
+    expect(result.mergedOptions.project).toBeUndefined();
+    expect(mockedResolveProjectContext).toHaveBeenCalledWith(undefined);
+  });
+
+  it('resolves root and child thread-only shells through their private hook records', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'thread-locator-'));
+    try {
+      vi.stubEnv('CODEX_SESSION_ID', '');
+      for (const event of ['SessionStart', 'SubagentStart'] as const) {
+        const worker = event === 'SubagentStart';
+        const threadId = worker ? 'child-thread' : 'root-thread';
+        const file = await bootstrapOwner(
+          { client: 'codex', event, 'config-dir': storage, project: [storage] },
+          JSON.stringify({
+            hook_event_name: event,
+            session_id: 'root-thread',
+            ...(worker ? { agent_id: threadId } : {}),
+          }),
+        );
+        vi.stubEnv('CODEX_THREAD_ID', threadId);
+        const resolved = await resolveServeTarget<ResolvableServeTargetOptions>(
+          { 'config-dir': storage },
+          { agentSession: true },
+        );
+        expect(resolved.mergedOptions['project-owner']).toBe(file);
+        expect(resolved.mergedOptions.project).toEqual([storage]);
+      }
+      vi.stubEnv('CODEX_SESSION_ID', 'different-root');
+      await expect(resolveServeTarget({ 'config-dir': storage }, { agentSession: true })).rejects.toThrow('disagree');
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(storage, { recursive: true, force: true });
+      await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
+    }
+  });
+
+  it('keeps concurrent root sessions separate and never persists a root project override', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'root-default-'));
+    try {
+      const owners: string[] = [];
+      for (const session of ['root-a', 'root-b']) {
+        const owner = await bootstrapOwner(
+          { client: 'codex', event: 'SessionStart', 'config-dir': storage, project: [storage] },
+          JSON.stringify({ hook_event_name: 'SessionStart', session_id: session, cwd: storage }),
+        );
+        vi.stubEnv('CODEX_SESSION_ID', session);
+        vi.stubEnv('CODEX_THREAD_ID', session);
+        const resolved = await resolveServeTarget<ResolvableServeTargetOptions>(
+          { 'config-dir': storage },
+          { agentSession: true },
+        );
+        expect(resolved.mergedOptions['project-owner']).toBe(owner);
+        expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(await realpath(storage));
+        owners.push(owner);
+      }
+      expect(owners[0]).not.toBe(owners[1]);
+      await resolveServeTarget({ 'config-dir': storage, project: [storage] }, { agentSession: true });
+      await resolveServeTarget<ResolvableServeTargetOptions>({ 'config-dir': storage }, { agentSession: true });
+      expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(await realpath(storage));
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(storage, { recursive: true, force: true });
+      await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed for missing host identity, unknown workers, and legacy workers lacking an assignment', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'unassigned-default-'));
+    try {
+      await createHookProjectOwner(storage, { client: 'codex', sessionId: 'root' });
+      vi.stubEnv('CODEX_THREAD_ID', 'child');
+      vi.stubEnv('CODEX_SESSION_ID', '');
+      await expect(
+        resolveServeTarget<ResolvableServeTargetOptions>({ 'config-dir': storage }, { agentSession: true }),
+      ).resolves.toMatchObject({ mergedOptions: { 'config-dir': storage } });
+      vi.stubEnv('CODEX_SESSION_ID', 'root');
+      await expect(
+        resolveServeTarget<ResolvableServeTargetOptions>({ 'config-dir': storage }, { agentSession: true }),
+      ).rejects.toThrow('credential unavailable');
+      await createHookProjectOwner(storage, { client: 'codex', sessionId: 'root', agentId: 'child' });
+      await expect(
+        resolveServeTarget<ResolvableServeTargetOptions>({ 'config-dir': storage }, { agentSession: true }),
+      ).rejects.toThrow('Assignment unresolved');
+      expect(
+        (await resolveServeTarget({ 'config-dir': storage, project: [storage] }, { agentSession: true })).mergedOptions
+          .project,
+      ).toEqual([storage]);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(storage, { recursive: true, force: true });
+      await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
+    }
+  });
+
+  it('retains project-set ambiguity and allows one-invocation selection labels from the assigned set', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'set-default-'));
+    try {
+      const second = path.join(storage, 'second');
+      await mkdir(second);
+      const definition = path.join(storage, 'projects.json');
+      await writeFile(
+        definition,
+        JSON.stringify({
+          projects: [
+            { label: 'frontend', path: storage },
+            { label: 'backend', path: second },
+          ],
+        }),
+      );
+      const file = await bootstrapOwner(
+        { client: 'codex', event: 'SubagentStart', 'config-dir': storage, 'project-set': definition },
+        JSON.stringify({ hook_event_name: 'SubagentStart', session_id: 'root', agent_id: 'worker' }),
+      );
+      const options = { 'config-dir': storage, 'project-owner': file };
+      expect((await resolveServeTarget(options, { agentSession: true })).projectSet?.selection).toBeUndefined();
+      const selected = await resolveServeTarget({ ...options, project: ['backend'] }, { agentSession: true });
+      expect(selected.projectSet?.selection).toEqual(['backend']);
+      expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(await realpath(second));
+      expect((await resolveServeTarget(options, { agentSession: true })).projectSet?.selection).toBeUndefined();
+    } finally {
+      await rm(storage, { recursive: true, force: true });
+      await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
+    }
+  });
+
+  it('reuses a verified Codex owner with no flags and returns to the worker assignment after an override', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'session-default-'));
+    try {
+      vi.stubEnv('CODEX_SESSION_ID', 'parent-session');
+      vi.stubEnv('CODEX_THREAD_ID', 'worker-thread');
+      const worker = await bootstrapOwner(
+        { client: 'codex', event: 'SubagentStart', 'config-dir': storage, project: [storage] },
+        JSON.stringify({ hook_event_name: 'SubagentStart', session_id: 'parent-session', agent_id: 'worker-thread' }),
+      );
+      const call = () =>
+        resolveServeTarget<ResolvableServeTargetOptions>({ 'config-dir': storage }, { agentSession: true });
+      expect((await call()).mergedOptions['project-owner']).toBe(worker);
+      expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(await realpath(storage));
+      const other = path.join(storage, 'other');
+      await mkdir(other);
+      await resolveServeTarget({ 'config-dir': storage, project: [other] }, { agentSession: true });
+      expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(await realpath(other));
+      expect((await call()).mergedOptions['project-owner']).toBe(worker);
+      expect(mockedResolveProjectContext).toHaveBeenLastCalledWith(await realpath(storage));
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(storage, { recursive: true, force: true });
+      await rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
+    }
+  });
+
   beforeEach(() => {
     mockedResolveProjectContext.mockReset();
     mockedDiscoverServerWithPidFile.mockReset();
@@ -423,8 +704,10 @@ describe('resolveServeTarget', () => {
       {
         context: 'prod',
         preset: 'production',
+        'project-owner': '/unavailable/local-owner.json',
       },
       {
+        agentSession: true,
         runtimeTargetStore: {
           inspect: vi.fn().mockReturnValue({
             name: 'prod',

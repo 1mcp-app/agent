@@ -56,7 +56,10 @@ Keep your MCP servers exactly where they belong: behind `1mcp serve`.
 
 Then let the agent work through the CLI:
 
+With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential.
+
 ```bash
+# Only if current target guidance is missing or needs refreshing.
 1mcp instructions
 1mcp inspect <server>
 1mcp inspect <server>/<tool>
@@ -113,18 +116,9 @@ What the user should run once per machine or repository:
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-This installs the bootstrap docs and hooks that teach the agent to start with `instructions`. It complements the live `instructions` command; it does not replace it.
+Enable and trust the installed hooks, apply any client configuration printed by setup, and start a new session. The startup hook runs `bootstrap`, which creates the caller's owner credential and fetches guidance through `instructions`. Verify that the agent receives both. It then follows the inspection and invocation steps above. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential.
 
-After bootstrap, these are the commands the AI agent will normally run:
-
-```bash
-1mcp instructions
-1mcp inspect filesystem
-1mcp inspect filesystem/read_file
-1mcp run filesystem/read_file --args '{"path":"./mcp.json"}'
-```
-
-You can run them yourself to verify the setup, but the intended pattern is: user runs `cli-setup`, agent runs the workflow commands.
+Run `instructions` separately only when current target guidance is missing or needs refreshing. It does not create an owner credential. See [CLI setup](/commands/cli-setup) for hook troubleshooting and [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions) for explicit checkout selection and worker assignments.
 
 ## When to Use CLI Mode
 

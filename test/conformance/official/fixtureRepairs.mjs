@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { link, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 // Published alpha.11 distribution from conformance c321dd32035556e6769d3724a8ee97d87c3faaac.
@@ -96,12 +96,19 @@ export async function prepareToolkitRepairs(packageRoot, outputDirectory) {
   // Keeping this beside the installed entry preserves its external package resolution.
   // The pristine index.js and requirement YAMLs are never overwritten.
   const entryPoint = join(packageRoot, 'dist', `owned-${repairedDigest}.mjs`);
+  const temporary = join(packageRoot, 'dist', `.owned-${randomUUID()}.mjs`);
   try {
-    await writeFile(entryPoint, repaired.source, { flag: 'wx', mode: 0o600 });
-  } catch (error) {
-    if (error.code !== 'EEXIST') throw error;
-    if (digest(await readFile(entryPoint)) !== repairedDigest)
-      throw new Error('Official toolkit repair artifact mismatch');
+    await writeFile(temporary, repaired.source, { flag: 'wx', mode: 0o600 });
+    try {
+      // Publish complete bytes atomically; another revision may prepare the same repair.
+      await link(temporary, entryPoint);
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      if (digest(await readFile(entryPoint)) !== repairedDigest)
+        throw new Error('Official toolkit repair artifact mismatch');
+    }
+  } finally {
+    await rm(temporary, { force: true });
   }
   const receipt = {
     schemaVersion: 1,

@@ -97,6 +97,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'Core Features', link: '/guide/essentials/core-features' },
           { text: 'Configuration', link: '/guide/essentials/configuration' },
           { text: 'Project Checkouts and Sets', link: '/guide/project-checkouts' },
+          { text: 'Working Across Projects and Worktrees', link: '/guide/worktrees-and-cross-project-sessions' },
           { text: 'Backend Preparation', link: '/guide/backend-preparation' },
           { text: 'Server Management', link: '/guide/essentials/server-management' },
         ],

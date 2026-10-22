@@ -125,13 +125,14 @@ npx -y @1mcp/agent --config staging.json --port 3052
 **Why you need it**: Lets agents discover current servers and tool schemas before calling tools, instead of guessing
 **How it helps**: `instructions` gives the playbook, `inspect` reveals the schema, and `run` executes the tool call
 
-**Recommended Flow**:
+**Recommended Flow**: startup hooks deliver guidance and a private owner credential. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential. Use explicit project selectors when overriding the assigned default. Run `instructions` only if guidance is missing or needs refreshing.
 
 ```bash
 # Shell 1
 1mcp serve
 
 # Shell 2
+# Only if current target guidance is missing or needs refreshing.
 1mcp instructions
 1mcp inspect context7
 1mcp inspect context7/query-docs
@@ -213,6 +214,8 @@ npx -y @1mcp/agent --config staging.json --port 3052
 - **Production Deployment** → [Enterprise Features](/guide/advanced/enterprise)
 
 ### Integration Guides
+
+For a workflow across repositories and Git worktrees, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
 
 - **Authentication Setup** → [Authentication Guide](/guide/advanced/authentication)
 - **Configuration Reference** → [Configuration Guide](/guide/essentials/configuration)

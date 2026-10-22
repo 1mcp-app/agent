@@ -15,6 +15,10 @@ head:
 
 # CLI Setup Command
 
+Client hooks run `bootstrap` to establish ownership and fetch guidance through `instructions`. Agents run `instructions` separately only when current guidance is missing or needs refreshing; it does not create an owner credential. See [the startup workflow](/guide/worktrees-and-cross-project-sessions#bootstrap-and-instructions-which-one-runs).
+
+For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
+
 Install 1MCP CLI hooks and reference files for Codex or Claude.
 
 ## Synopsis
@@ -32,7 +36,7 @@ The `cli-setup` command installs lightweight bootstrap files that point Codex or
 - A startup file reference from `AGENTS.md` or `CLAUDE.md`
 - The `1mcp-preparation-setup` skill and its backend references
 
-`cli-setup` does not replace [`instructions`](./instructions.md). It makes sure the session is prepared to use `instructions`, `inspect`, and `run` in the right order.
+`cli-setup` does not replace [`instructions`](/commands/instructions). It makes sure the session is prepared to use `instructions`, `inspect`, and `run` in the right order.
 
 Think of `cli-setup` as the bridge from an existing agent workflow to 1MCP CLI mode. It teaches the client how to start, but the live discovery and execution flow still happens through `instructions`, `inspect`, and `run`.
 
@@ -133,7 +137,7 @@ Rerun the same `cli-setup` command to refresh managed guidance in any scope. Rep
 
 ## Worker Bootstrap and Project Assignment
 
-`bootstrap` reads client hook JSON from stdin and returns `hookSpecificOutput.additionalContext` for the requested event. Both [Codex](https://developers.openai.com/codex/hooks) and [Claude](https://code.claude.com/docs/en/hooks) support this format. Hook input is limited to 64 KiB with a one-second stdin deadline. Runtime rendering has a five-second deadline. Successfully fetched instructions are delivered in full, without a subprocess output cap or context-size cutoff. Invalid input and runtime failures still deliver the general playbook with a coverage gap rather than claiming complete project instructions.
+`bootstrap` reads client hook JSON from stdin and returns `hookSpecificOutput.additionalContext` for the requested event. Both [Codex](https://learn.chatgpt.com/docs/hooks) and [Claude](https://code.claude.com/docs/en/hooks) support this format. Hook input is limited to 64 KiB with a one-second stdin deadline. Runtime rendering has a five-second deadline. Successfully fetched instructions are delivered in full, without a subprocess output cap or context-size cutoff. Invalid input and runtime failures still deliver the general playbook with a coverage gap rather than claiming complete project instructions.
 
 When the rendered runtime instructions exceed 9,000 characters (JavaScript string length), bootstrap appends an advisory asking the agent to briefly inform the user and recommend a 1MCP preset to select fewer relevant MCP servers in future sessions, for example `1mcp instructions --preset <name>`. The threshold excludes the static playbook and serialized assignment. All instructions and valid assignments remain intact; the agent continues the current task without automatically changing configuration. Instructions at or below the threshold receive no advisory.
 
@@ -143,13 +147,15 @@ Bootstrap parses its options from explicit CLI flags rather than inherited `ONE_
 
 Give every worker its absolute checkout path or project-set definition path in dispatch instructions. Before project-specific discovery or calls, the worker runs one of:
 
+For the Claude example, replace `/private/your-worker-owner.json` with that worker’s own startup credential; never reuse the parent’s credential.
+
 ```bash
 1mcp bootstrap --client codex --event SubagentStart --project /absolute/frontend-checkout
-1mcp bootstrap --client claude --event SubagentStart --project-set /absolute/feature-projects.json
+1mcp bootstrap --client claude --event SubagentStart --project-owner /private/your-worker-owner.json --project-set /absolute/feature-projects.json --project backend
 1mcp bootstrap --client codex --event SubagentStart --project-set /absolute/feature-projects.json --project backend --project frontend
 ```
 
-Without a project set, assign exactly one absolute checkout path. With `--project-set`, repeated `--project` values select ordered member labels and override the definition's optional saved `selection`. Retain the selectors on subsequent `instructions`, `inspect`, and `run` calls. A multi-project assignment requires explicit checkout selection for checkout-specific tools; coordinate separate calls for tools that accept one project. Arguments are passed to the runtime-facing instructions command without a shell. See [Project Checkouts and Sets](/guide/project-checkouts) for the definition format and backend target contracts.
+Without a project set, assign exactly one absolute checkout path. With `--project-set`, repeated `--project` values select ordered member labels and override the definition's optional saved `selection`. On supported Codex hosts the manual retry resolves the existing private thread locator without an owner flag. Bootstrap records the worker assignment as its default. Subsequent `instructions`, `inspect`, and `run` calls can omit project selectors. A per-call override does not change the default. A multi-project assignment requires explicit checkout selection for checkout-specific tools; coordinate separate calls for tools that accept one project. Arguments are passed to the runtime-facing instructions command without a shell. See [Project Checkouts and Sets](/guide/project-checkouts) for the definition format and backend target contracts.
 
 ## Verify Hook Delivery
 
@@ -157,11 +163,11 @@ Writing hook configuration does not establish that the client enabled or trusted
 
 ## See Also
 
-- **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Conceptual overview of the agent-facing CLI workflow
-- **[Instructions Command](./instructions.md)** - The bootstrap command that `cli-setup` points sessions toward
-- **[Inspect Command](./inspect.md)** - Discover tools and schemas
-- **[Run Command](./run.md)** - Invoke a selected tool
-- **[Codex Integration Guide](../guide/integrations/codex.md)** - End-to-end setup for Codex
+- **[CLI Mode Guide](/guide/integrations/cli-mode)** - Conceptual overview of the agent-facing CLI workflow
+- **[Instructions Command](/commands/instructions)** - Fetch or refresh runtime guidance directly when hooks have not delivered it
+- **[Inspect Command](/commands/inspect)** - Discover tools and schemas
+- **[Run Command](/commands/run)** - Invoke a selected tool
+- **[Codex Integration Guide](/guide/integrations/codex)** - End-to-end setup for Codex
 
 ## Preparation guidance
 
@@ -169,6 +175,29 @@ The managed `SessionStart` and `SubagentStart` hooks invoke `1mcp bootstrap`. Bo
 
 Setup installs this guidance; it does not start preparation, enable automatic preparation, or change action permissions. Keep the bootstrap hooks. If current instructions were already delivered by hooks, do not fetch them again; otherwise use the standalone `1mcp instructions` entrypoint. Rerun `cli-setup` to refresh managed guidance in the selected scope.
 
-Startup hooks create a private owner credential for each verified host session or worker. Retain the injected `--project-owner` file reference on every CLI call, including manual bootstrap retries with an explicit assignment. `SessionEnd` releases only that session's recorded selections within a bounded hook deadline. See [Project lifecycle](/commands/project/) for blockers, operator drain, and manager removal.
+## Session defaults and cleanup
 
-Worker terminal events are not currently supported. `SubagentStop` means a worker has stopped responding for now and can continue later; it is not verified session termination and must not release its ownership. Workers must use `1mcp project release` explicitly when finished. Idle expiry remains the fallback for missed end events and crashes.
+Startup hooks create a separate private credential for each verified session and worker. Codex hooks write an exact private thread locator. Later calls use `CODEX_THREAD_ID` (current agent) to find that record and its existing credential, including workers whose shell lacks `CODEX_SESSION_ID`. When present, `CODEX_SESSION_ID` (root session) must agree with the hook record. Hosts supplying both IDs can also resolve existing legacy credentials directly. Normal calls need neither `--project-owner` nor `--project`:
+
+```bash
+1mcp instructions
+1mcp inspect <server>
+1mcp inspect <server>/<tool>
+1mcp run <server>/<tool> --args '{}'
+```
+
+The root session keeps the startup project resolved from hook cwd or explicit startup selectors. A worker keeps its explicit dispatch assignment. Changing shell cwd or using a per-call `--project /another/worktree` does not change the session default. Without host integration, ordinary CLI calls continue to use cwd. An assigned project set retains ambiguity until you select a member with `--project <label>`; selecting members does not broaden their tool visibility.
+
+Claude and Codex hosts without a trustworthy thread locator or both-ID integration require the hook-provided `--project-owner <own-file>` on subsequent calls and manual bootstrap retries. Replace `/private/your-worker-owner.json` above with your own hook-provided reference. Never pass a parent's credential to a worker or manufacture hook identity. Without an existing credential, resolve the trusted hook delivery gap first. Environment identifiers locate credentials; they never create them or authorize remote lifecycle control. Keep the same config directory that issued the credential, or use its explicit owner reference when selecting another local runtime scope.
+
+New sessions write private credentials, assignments, locks, and release records beneath `<os-temp>/1mcp-owners-<user-and-config-hash>/project-owners`. The OS temporary directory comes from Node.js `os.tmpdir()`; hooks and CLI calls must use the same temporary directory and config directory. Directories are owner-only (`0700`) and credential files are `0600`. Runtime configuration stays in its original location. Existing sessions retain their original `<config-dir>/project-owners` records until verified cleanup; do not copy or move live credentials. Start a new session with the updated CLI to use temporary storage. Temporary records may be lost during OS cleanup or reboot; missing records do not prove runtime release. Permission errors and partial or conflicting records fail closed. With no hook records at all, ordinary calls use cwd and print an ownership coverage-gap diagnostic. Setup does not widen sandbox permissions.
+
+Verified root `SessionEnd` releases only that owner's recorded selections. Once every target reports the owner safely released, cleanup removes its credential, thread locator, assignment, selection snapshots, and target records. Other owners and shared resources remain protected. Repeated terminal cleanup is safe. A pending or uncertain release retains the credential and terminal journal for a bounded retry:
+
+```bash
+1mcp project recover --project-owner /private/ended-session-owner.json
+```
+
+Recovery uses only recorded targets and verifies their runtime identity. It requires a prior verified terminal record; age alone, a missing parent, and `Stop` or `SubagentStop` never establish inactivity. Records from crashes before a terminal hook remain for inspection rather than being swept. An abandoned lock also requires inspection; do not delete a live process's lock.
+
+Worker terminal events are not currently supported. `SubagentStop` means a worker may continue later. Workers explicitly use `1mcp project release` when finished; manual release keeps credentials for continued use. Ordinary turn completion never releases or deletes active owner state. Missing hooks, unsupported clients, hook deadlines, or permission failures remain explicit coverage gaps. See [Project lifecycle](/commands/project/) for release results, blockers, and manager removal.

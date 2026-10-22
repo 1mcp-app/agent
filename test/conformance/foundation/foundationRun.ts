@@ -784,104 +784,128 @@ export async function classifyOfficialClientResult(
   }
 }
 
-async function runOfficialPeers(root: string, outputDirectory: string): Promise<OfficialConformanceResult[]> {
+async function runOfficialClientPeer(
+  root: string,
+  outputDirectory: string,
+  revision: OfficialConformanceRevision,
+): Promise<OfficialConformanceResult> {
   const packageRoot = dirname(packageManifestPath(root, '@modelcontextprotocol/conformance'));
   const fixture = join(root, 'test/conformance/fixtures/typescript/src/fixture.mjs');
   const bridge = join(root, 'test/conformance/foundation/officialClientBridge.mjs');
   const builtEntryPath = join(root, 'build/index.js');
-  const results = await runConformanceTasks(['2025-11-25', '2026-07-28'] as const, async (revision) => {
-    const statusDirectory = await mkdtemp(join(outputDirectory, `official-client-${revision}-`));
-    const command = [process.execPath, bridge, fixture, builtEntryPath, statusDirectory].map(shellArgument).join(' ');
-    let clientResult = await runOfficialConformance({
-      packageRoot,
-      role: 'client',
-      repairClientFixtures: true,
-      revision,
-      command,
-      temporaryParentDirectory: outputDirectory,
-      observeClientFailure: async (scenarioId) => {
-        const status = officialClientBridgeStatusSchema.parse(
-          JSON.parse(await readFile(join(statusDirectory, `${encodeURIComponent(scenarioId)}.json`), 'utf8')),
-        );
-        if (status.scenario !== scenarioId) throw new Error('Client scenario status mismatch');
-        return status.status === 'gateway-rejected';
-      },
-    });
-    clientResult = await classifyOfficialClientResult(clientResult, statusDirectory, outputDirectory);
-    try {
-      await rm(statusDirectory, { recursive: true, force: true });
-    } catch {
-      clientResult = { classification: 'harness', role: 'client', revision, reason: 'cleanup-failure' };
-    }
+  const statusDirectory = await mkdtemp(join(outputDirectory, `official-client-${revision}-`));
+  const command = [process.execPath, bridge, fixture, builtEntryPath, statusDirectory].map(shellArgument).join(' ');
+  let clientResult = await runOfficialConformance({
+    packageRoot,
+    role: 'client',
+    repairClientFixtures: true,
+    revision,
+    command,
+    temporaryParentDirectory: outputDirectory,
+    observeClientFailure: async (scenarioId) => {
+      const status = officialClientBridgeStatusSchema.parse(
+        JSON.parse(await readFile(join(statusDirectory, `${encodeURIComponent(scenarioId)}.json`), 'utf8')),
+      );
+      if (status.scenario !== scenarioId) throw new Error('Client scenario status mismatch');
+      return status.status === 'gateway-rejected';
+    },
+  });
+  clientResult = await classifyOfficialClientResult(clientResult, statusDirectory, outputDirectory);
+  try {
+    await rm(statusDirectory, { recursive: true, force: true });
+  } catch {
+    clientResult = { classification: 'harness', role: 'client', revision, reason: 'cleanup-failure' };
+  }
+  return clientResult;
+}
 
-    let server: Awaited<ReturnType<typeof startOfficialReferenceServer>> | undefined;
-    let gateway: Awaited<ReturnType<typeof startOfficialGateway>> | undefined;
-    let canonicalTarget: Awaited<ReturnType<typeof startCanonicalGatewayTarget>> | undefined;
-    let serverResult: OfficialConformanceResult = {
-      classification: 'fixture',
-      role: 'server',
-      revision,
-      reason: 'invalid-target',
-    };
+async function runOfficialServerPeer(
+  root: string,
+  outputDirectory: string,
+  revision: OfficialConformanceRevision,
+): Promise<OfficialConformanceResult> {
+  const packageRoot = dirname(packageManifestPath(root, '@modelcontextprotocol/conformance'));
+  let server: Awaited<ReturnType<typeof startOfficialReferenceServer>> | undefined;
+  let gateway: Awaited<ReturnType<typeof startOfficialGateway>> | undefined;
+  let canonicalTarget: Awaited<ReturnType<typeof startCanonicalGatewayTarget>> | undefined;
+  let serverResult: OfficialConformanceResult = {
+    classification: 'fixture',
+    role: 'server',
+    revision,
+    reason: 'invalid-target',
+  };
+  try {
+    server = await startOfficialReferenceServer(root, outputDirectory);
+  } catch {
+    // The default result identifies a server fixture that failed before it became a valid target.
+  }
+  if (server) {
     try {
-      server = await startOfficialReferenceServer(root, outputDirectory);
-    } catch {
-      // The default result identifies a server fixture that failed before it became a valid target.
-    }
-    if (server) {
-      try {
-        const control = await runOfficialServerControl({
-          packageRoot,
+      const control = await runOfficialServerControl({
+        packageRoot,
+        revision,
+        endpoint: server.endpoint,
+        outputDirectory,
+      });
+      if (control.qualified) {
+        gateway = await startOfficialGateway(root, outputDirectory, server.endpoint, revision);
+        canonicalTarget = await startCanonicalGatewayTarget({
+          root,
+          gatewayEndpoint: gateway.endpoint,
+          gatewayAccessToken: gateway.accessToken,
+          referenceEndpoint: server.endpoint,
           revision,
-          endpoint: server.endpoint,
           outputDirectory,
         });
-        if (control.qualified) {
-          gateway = await startOfficialGateway(root, outputDirectory, server.endpoint, revision);
-          canonicalTarget = await startCanonicalGatewayTarget({
-            root,
-            gatewayEndpoint: gateway.endpoint,
-            gatewayAccessToken: gateway.accessToken,
-            referenceEndpoint: server.endpoint,
+        const target = canonicalTarget;
+        const authenticatedTarget = gateway.accessToken ? target : undefined;
+        serverResult = await runQualifiedOfficialServerTarget(revision, target, () =>
+          runOfficialConformance({
+            packageRoot,
+            role: 'server',
             revision,
-            outputDirectory,
-          });
-          const target = canonicalTarget;
-          const authenticatedTarget = gateway.accessToken ? target : undefined;
-          serverResult = await runQualifiedOfficialServerTarget(revision, target, () =>
-            runOfficialConformance({
-              packageRoot,
-              role: 'server',
-              revision,
-              url: target.endpoint,
-              authenticatedTarget,
-              temporaryParentDirectory: outputDirectory,
-            }),
-          );
-          if (serverResult.classification === 'product') {
-            await writeOfficialServerComparison(outputDirectory, control.result, serverResult);
-          }
+            url: target.endpoint,
+            authenticatedTarget,
+            temporaryParentDirectory: outputDirectory,
+          }),
+        );
+        if (serverResult.classification === 'product') {
+          await writeOfficialServerComparison(outputDirectory, control.result, serverResult);
         }
-        // An unqualified direct peer remains fixture evidence; it never supplies a gateway verdict.
-      } catch {
-        serverResult = { classification: 'process', role: 'server', revision, reason: 'spawn-failure' };
       }
+      // An unqualified direct peer remains fixture evidence; it never supplies a gateway verdict.
+    } catch {
+      serverResult = { classification: 'process', role: 'server', revision, reason: 'spawn-failure' };
     }
-    let cleanupFailed = false;
-    for (const close of [canonicalTarget?.close, gateway?.close, server?.close]) {
-      if (!close) continue;
-      try {
-        await close();
-      } catch {
-        cleanupFailed = true;
-      }
+  }
+  let cleanupFailed = false;
+  for (const close of [canonicalTarget?.close, gateway?.close, server?.close]) {
+    if (!close) continue;
+    try {
+      await close();
+    } catch {
+      cleanupFailed = true;
     }
-    if (cleanupFailed) {
-      serverResult = { classification: 'harness', role: 'server', revision, reason: 'cleanup-failure' };
+  }
+  if (cleanupFailed) {
+    serverResult = { classification: 'harness', role: 'server', revision, reason: 'cleanup-failure' };
+  }
+  return serverResult;
+}
+
+async function runOfficialPeers(root: string, outputDirectory: string): Promise<OfficialConformanceResult[]> {
+  const revisions = ['2025-11-25', '2026-07-28'] as const;
+  // Start both clients first; a free slot can qualify a server while the other client finishes.
+  const tasks = (['client', 'server'] as const).flatMap((role) => revisions.map((revision) => ({ role, revision })));
+  return runConformanceTasks(tasks, async ({ role, revision }) => {
+    const started = performance.now();
+    try {
+      if (role === 'client') return await runOfficialClientPeer(root, outputDirectory, revision);
+      return await runOfficialServerPeer(root, outputDirectory, revision);
+    } finally {
+      console.info(`[conformance] official ${role} ${revision}: ${((performance.now() - started) / 1000).toFixed(2)}s`);
     }
-    return [clientResult, serverResult];
   });
-  return results.flat();
 }
 
 function typescriptPeer(root: string, era: Era, role: 'inbound' | 'upstream'): PeerCommand {

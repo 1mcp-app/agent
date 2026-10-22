@@ -7,7 +7,7 @@ import type { Argv } from 'yargs';
 export function setupProjectCommands(yargs: Argv): Argv {
   return withGlobalOptions(yargs).command('project', 'Manage project checkouts', (command) => {
     let family = setupPreparationCommands(command);
-    for (const action of ['release', 'drain', 'status', 'resume'] as const) {
+    for (const action of ['release', 'drain', 'status', 'resume', 'recover'] as const) {
       family = family.command(
         action,
         `${action} selected checkout runtime resources`,
@@ -16,6 +16,7 @@ export function setupProjectCommands(yargs: Argv): Argv {
             .option('url', { type: 'string', describe: 'Runtime URL' })
             .option('context', { type: 'string', describe: 'Named Runtime Target Context' })
             .option('expected-runtime-scope', { type: 'string', hidden: true })
+            .option('terminal-cleanup', { type: 'boolean', hidden: true })
             .option('preset', { type: 'string', describe: 'Runtime filter preset' })
             .option('tags', { type: 'array', string: true, describe: 'Runtime tag filter' })
             .option('tag-filter', { type: 'string', describe: 'Advanced tag filter' })

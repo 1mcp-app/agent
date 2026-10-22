@@ -5,6 +5,8 @@ description: 获取 CLI 模式 agent 工作流和当前服务器发现信息。
 
 # Instructions 命令
 
+客户端钩子运行 `bootstrap`，建立所有权并通过 `instructions` 获取指引。智能体仅在缺少当前指引或需要刷新时单独运行 `instructions`；它不会创建所有者凭证。完整流程见[启动工作流](/zh/guide/worktrees-and-cross-project-sessions)。
+
 显示面向 AI agent 的 CLI 模式工作流和当前服务器清单。
 
 ## 概要
@@ -50,6 +52,14 @@ npx -y @1mcp/agent instructions [选项]
 - **`--preset, -p <name>`** - 查询运行中服务器时使用预设
 - **`--tag-filter, -f <expression>`** - 应用高级标签过滤表达式
 - **`--tags <tag>`** - 应用简单的逗号分隔标签
+
+### 项目选择与所有者
+
+- **`--project <path-or-label>`** — 选择检出目录或项目集合成员。
+- **`--project-set <file>`** — 加载保存的项目集合。
+- **`--project-owner <file>`** — 需要时使用当前调用方自己的 bootstrap 凭证，覆盖自动所有者查找。
+
+共用规则见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。受支持的 Codex 会话自动使用已验证所有者和分配项目。Claude 和不支持自动查找所有者的宿主需提供自己的 bootstrap `--project-owner <own-file>`。相关调用应保持显式目标覆盖一致。
 
 ## 示例
 

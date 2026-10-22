@@ -45,7 +45,7 @@ function runCli(
   } catch (error: any) {
     return {
       stdout: error.stdout || '',
-      stderr: error.stderr || '',
+      stderr: error.stderr || error.message || '',
       exitCode: error.status || 1,
     };
   }
@@ -99,7 +99,7 @@ describe('mcp tokens command', () => {
     it('should show help information', { timeout: TEST_TIMEOUT }, async () => {
       const result = runCli('mcp tokens --help');
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.stderr).toBe(0);
       expect(result.stdout).toContain('Estimate MCP token usage for server capabilities');
       expect(result.stdout).toContain('--tag-filter');
       expect(result.stdout).toContain('--format');
@@ -650,7 +650,7 @@ describe('mcp tokens command', () => {
     it('should show help with preset option', { timeout: TEST_TIMEOUT }, async () => {
       const result = runCli('mcp tokens --help');
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.stderr).toBe(0);
       expect(result.stdout).toContain('--preset');
       expect(result.stdout).toContain('Use preset filter instead of manual tag');
       expect(result.stdout).toContain('expression');
