@@ -91,15 +91,15 @@ npx -y @1mcp/agent instructions --preset development
 
 ## 推荐工作流
 
-阅读适用指令后，仅在信息缺失或需要刷新、能力变化、准备完成或发生相关失败时执行检查，再使用已知参数结构调用工具：
+阅读适用指令后，仅在信息缺失或需要刷新、能力变化、准备完成或发生相关失败时执行检查，再使用已知参数结构调用工具。以下示例假设已配置 `filesystem` 服务器，且其 `read_file` 工具可以读取 `README.md`：
 
 ```bash
 # 仅在服务器清单或指令缺失或需要刷新时执行：
-1mcp inspect <server>
+1mcp inspect filesystem
 # 仅在工具参数结构缺失或需要刷新时执行：
-1mcp inspect <server>/<tool>
+1mcp inspect filesystem/read_file
 # 使用当前指令和已知参数结构调用：
-1mcp run <server>/<tool> --args '<json>'
+1mcp run filesystem/read_file --args '{"path":"README.md"}'
 ```
 
 如果需要身份验证，playbook 会提示用户或 agent 使用以下命令重试：

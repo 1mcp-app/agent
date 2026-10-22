@@ -101,15 +101,15 @@ npx -y @1mcp/agent instructions --preset development
 
 ## Recommended Workflow
 
-After reading applicable instructions, inspect only when information is missing or needs refreshing, capabilities change, preparation completes, or relevant failures occur. Then invoke using the known schema:
+After reading applicable instructions, inspect only when information is missing or needs refreshing, capabilities change, preparation completes, or relevant failures occur. Then invoke using the known schema. This example assumes a configured `filesystem` server whose `read_file` tool can read `README.md`:
 
 ```bash
 # When server inventory or instructions are missing or need refreshing:
-1mcp inspect <server>
+1mcp inspect filesystem
 # When the tool schema is missing or needs refreshing:
-1mcp inspect <server>/<tool>
+1mcp inspect filesystem/read_file
 # Invoke using current instructions and the known schema:
-1mcp run <server>/<tool> --args '<json>'
+1mcp run filesystem/read_file --args '{"path":"README.md"}'
 ```
 
 If authentication is required, the playbook directs the user or agent to retry with:
