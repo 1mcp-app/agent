@@ -148,7 +148,7 @@ describe('cli setup file writers', () => {
         expect(content).toContain('--search "filesystem/*read?" --glob');
         expect(content).toContain('`--include-descriptions` also matches effective descriptions');
         expect(content).toContain('`--show-descriptions` independently displays descriptions');
-        expect(content).toContain('When the target is known, inspect it directly');
+        expect(content).toContain('When the target is known, skip discovery');
         expect(content.indexOf('read its applicable instructions')).toBeLessThan(
           content.indexOf('1mcp inspect <server>/<tool>'),
         );

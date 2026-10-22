@@ -162,8 +162,12 @@ If hooks have not already delivered instructions for the assigned target, fetch 
 ```bash
 # Only if current target instructions were not already delivered:
 1mcp instructions --project-set /work/feature-projects.json --project frontend
+
+# Inspect only when server/tool information is missing or needs refreshing:
 1mcp inspect codegraph --project-set /work/feature-projects.json --project frontend
 1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend
+
+# Invoke using current instructions and the known schema:
 1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend --args '{"query":"Where does the frontend call the backend API?"}'
 ```
 
@@ -174,8 +178,12 @@ Repeat for the backend worktree:
 ```bash
 # Only if current target instructions were not already delivered:
 1mcp instructions --project-set /work/feature-projects.json --project backend
+
+# Inspect only when server/tool information is missing or needs refreshing:
 1mcp inspect codegraph --project-set /work/feature-projects.json --project backend
 1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend
+
+# Invoke using current instructions and the known schema:
 1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend --args '{"query":"Where are the backend API routes defined?"}'
 ```
 

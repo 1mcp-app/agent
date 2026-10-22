@@ -17,7 +17,7 @@ Reuse known tool schemas within the session, including across projects, when the
 
 ## Project and owner options
 
-These options apply to `instructions`, `inspect`, `run`, and project preparation/lifecycle commands:
+The project selectors below apply to the supported commands listed above. `--project-owner` remains a global option:
 
 | Option                      | Meaning                                                                                                                                |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |

@@ -30,8 +30,8 @@ npx -y @1mcp/agent run <server>/<tool> [options]
 The `run` command is the execution step in the CLI workflow:
 
 1. Read the guidance delivered by bootstrap, or run [`instructions`](/commands/instructions) if it is missing or needs refreshing
-2. Run [`inspect`](/commands/inspect) to list tools and inspect tool schemas
-3. Run `run` to invoke the selected tool
+2. Run [`inspect`](/commands/inspect) only when server inventory, applicable instructions, capabilities, or tool schemas are missing or need refreshing
+3. Run `run` using applicable server instructions and the known tool schema
 
 `run` talks to a running `1mcp serve` instance, forwards preset and tag filters, and prints tool output to stdout. Errors are written to stderr only so the command stays pipe-friendly.
 

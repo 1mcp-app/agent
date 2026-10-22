@@ -101,12 +101,15 @@ npx -y @1mcp/agent instructions --preset development
 
 ## Recommended Workflow
 
-After reading `instructions`, continue with:
+After reading applicable instructions, inspect only when information is missing or needs refreshing, capabilities change, preparation completes, or relevant failures occur. Then invoke using the known schema:
 
 ```bash
-npx -y @1mcp/agent inspect <server>
-npx -y @1mcp/agent inspect <server>/<tool>
-npx -y @1mcp/agent run <server>/<tool> --args '<json>'
+# When server inventory or instructions are missing or need refreshing:
+1mcp inspect <server>
+# When the tool schema is missing or needs refreshing:
+1mcp inspect <server>/<tool>
+# Invoke using current instructions and the known schema:
+1mcp run <server>/<tool> --args '<json>'
 ```
 
 If authentication is required, the playbook directs the user or agent to retry with:

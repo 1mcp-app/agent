@@ -162,8 +162,12 @@ codegraph init /work/backend-feature --yes
 ```bash
 # 仅在当前目标指引尚未交付时执行：
 1mcp instructions --project-set /work/feature-projects.json --project frontend
+
+# 仅在服务器或工具信息缺失或需要刷新时检查：
 1mcp inspect codegraph --project-set /work/feature-projects.json --project frontend
 1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend
+
+# 使用当前指令和已知参数结构调用：
 1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend --args '{"query":"Where does the frontend call the backend API?"}'
 ```
 
@@ -174,8 +178,12 @@ codegraph init /work/backend-feature --yes
 ```bash
 # 仅在当前目标指引尚未交付时执行：
 1mcp instructions --project-set /work/feature-projects.json --project backend
+
+# 仅在服务器或工具信息缺失或需要刷新时检查：
 1mcp inspect codegraph --project-set /work/feature-projects.json --project backend
 1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend
+
+# 使用当前指令和已知参数结构调用：
 1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend --args '{"query":"Where are the backend API routes defined?"}'
 ```
 

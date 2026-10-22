@@ -19,6 +19,7 @@ describe('session inspection reuse', () => {
       expect(content).toContain('capabilities change, preparation completes, or relevant failures occur');
       expect(content).toContain('Never automatically replay failed tool calls');
       expect(content).not.toContain('only after inspecting the tool');
+      expect(content).not.toContain('When the target is known, inspect it directly');
     }
   });
 });

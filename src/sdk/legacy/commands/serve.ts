@@ -768,8 +768,13 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     });
   } catch (_error) {
     runtimeOwnership?.release();
-    process.stderr.write(`Error: ${describeServeLifecycleFailure(_error)}\n`);
-    logger.error('serve.server.error.a68bf449', { error: _error });
+    if (parsedArgv.status || parsedArgv.stop) {
+      process.stderr.write('Error: Serve command failed. See the configured log for bounded failure facts.\n');
+      logger.error('serve.command.failed', { error: _error });
+    } else {
+      process.stderr.write(`Error: ${describeServeLifecycleFailure(_error)}\n`);
+      logger.error('serve.server.error.a68bf449', { error: _error });
+    }
     process.exit(1);
   }
 }

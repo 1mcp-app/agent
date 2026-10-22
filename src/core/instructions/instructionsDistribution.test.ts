@@ -272,7 +272,7 @@ describe('instructionsDistribution', () => {
       expect(content).toContain('--search "filesystem/*read?" --glob');
       expect(content).toContain('`--include-descriptions` also matches effective descriptions');
       expect(content).toContain('`--show-descriptions` independently displays descriptions');
-      expect(content).toContain('When the target is known, inspect it directly');
+      expect(content).not.toContain('When the target is known, inspect it directly');
       expect(content.indexOf('read its applicable instructions')).toBeLessThan(
         content.indexOf('1mcp inspect <server>/<tool>'),
       );

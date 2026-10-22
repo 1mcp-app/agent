@@ -110,7 +110,7 @@ When `--codex` is used, the command also prints a required `config.toml` snippet
 The managed startup docs tell the client to:
 
 1. Run `1mcp instructions` unless the current session already received those instructions from hooks
-2. If the provider or tool is unknown, optionally use `1mcp inspect --search <query>` (or add a server target); otherwise inspect the known target directly
+2. If the provider or tool is unknown, optionally use `1mcp inspect --search <query>` (or add a server target); skip discovery when the target is already known
 3. Run `1mcp inspect <server>` when its inventory or instructions are missing; read the applicable server instructions
 4. Run `1mcp inspect <server>/<tool>` when the schema is not already known
 5. Run `1mcp run <server>/<tool> --args '<json>'` using the known schema

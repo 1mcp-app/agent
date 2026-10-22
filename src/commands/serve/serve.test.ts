@@ -396,7 +396,11 @@ describe('serveCommand - config-dir session isolation', () => {
       );
     });
 
-    it('reports safe guidance and a nonzero exit for foreground startup failures', async () => {
+    it.each([
+      { action: 'startup', options: {}, message: 'Server startup failed.', event: 'serve.server.error.a68bf449' },
+      { action: 'status', options: { status: true }, message: 'Serve command failed.', event: 'serve.command.failed' },
+      { action: 'stop', options: { stop: true }, message: 'Serve command failed.', event: 'serve.command.failed' },
+    ])('reports safe guidance and a nonzero exit for $action failures', async ({ options, message, event }) => {
       const logger = (await import('@src/logger/logger.js')).default;
       const failure = new Error('private-token-CANARY');
       configContextMock.getResolvedConfigPath.mockImplementationOnce(() => {
@@ -404,13 +408,11 @@ describe('serveCommand - config-dir session isolation', () => {
       });
       const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
       try {
-        await serveCommand(buildOptions({}));
-        expect(stderr).toHaveBeenCalledWith(
-          'Error: Server startup failed. See the configured log for bounded failure facts.\n',
-        );
+        await serveCommand(buildOptions(options));
+        expect(stderr).toHaveBeenCalledWith(`Error: ${message} See the configured log for bounded failure facts.\n`);
         expect(stderr.mock.calls.flat().join('')).not.toContain('CANARY');
         expect(process.exit).toHaveBeenCalledWith(1);
-        expect(logger.error).toHaveBeenCalledWith('serve.server.error.a68bf449', { error: failure });
+        expect(logger.error).toHaveBeenCalledWith(event, { error: failure });
       } finally {
         stderr.mockRestore();
       }

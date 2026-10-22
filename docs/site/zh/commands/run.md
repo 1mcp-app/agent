@@ -20,8 +20,8 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 `run` 是 CLI 工作流中的执行步骤：
 
 1. 阅读 bootstrap 已交付的指引；仅在缺少指引或需要刷新时运行 [`instructions`](/zh/commands/instructions)
-2. 再运行 [`inspect`](/zh/commands/inspect) 查看工具和工具 schema
-3. 最后运行 `run` 调用目标工具
+2. 仅在服务器清单、适用指令、能力或工具参数结构缺失或需要刷新时运行 [`inspect`](/zh/commands/inspect)
+3. 根据适用的服务器指令和已知工具参数结构，运行 `run` 调用目标工具
 
 `run` 会连接到运行中的 `1mcp serve` 实例，透传 preset 和标签过滤，并把工具输出写入 stdout。错误只写入 stderr，因此适合脚本和管道。
 

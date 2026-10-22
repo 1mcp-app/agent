@@ -91,12 +91,15 @@ npx -y @1mcp/agent instructions --preset development
 
 ## 推荐工作流
 
-读取 `instructions` 后，继续执行：
+阅读适用指令后，仅在信息缺失或需要刷新、能力变化、准备完成或发生相关失败时执行检查，再使用已知参数结构调用工具：
 
 ```bash
-npx -y @1mcp/agent inspect <server>
-npx -y @1mcp/agent inspect <server>/<tool>
-npx -y @1mcp/agent run <server>/<tool> --args '<json>'
+# 仅在服务器清单或指令缺失或需要刷新时执行：
+1mcp inspect <server>
+# 仅在工具参数结构缺失或需要刷新时执行：
+1mcp inspect <server>/<tool>
+# 使用当前指令和已知参数结构调用：
+1mcp run <server>/<tool> --args '<json>'
 ```
 
 如果需要身份验证，playbook 会提示用户或 agent 使用以下命令重试：
