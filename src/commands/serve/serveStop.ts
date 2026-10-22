@@ -279,7 +279,10 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
       const workerIdentity =
         supervisorState.runtimePid === null ? initialInfo?.processIdentity : supervisorState.runtimeIdentity;
       const workerStatus = workerPid === null ? 'dead' : inspectIdentity(workerPid, workerIdentity);
-      if (supervisorStatus === 'unknown' || workerStatus === 'unknown') {
+      // A provably absent pair is the cooperative recovery case, not a normal
+      // live stop; both dead statuses must share the stale-pair cleanup path.
+      const cooperativeDeadPair = owner.cooperative === true && supervisorStatus === 'dead' && workerStatus === 'dead';
+      if (supervisorStatus === 'unknown' || workerStatus === 'unknown' || cooperativeDeadPair) {
         if (
           !owner.processIdentity &&
           !supervisorState.supervisorIdentity &&
