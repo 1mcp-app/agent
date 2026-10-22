@@ -18,17 +18,6 @@ export const globalOptions = {
     type: 'string' as const,
     default: undefined,
   },
-  project: {
-    describe:
-      'Per-call checkout override, or selected labels from --project-set; defaults to the assigned session project or cwd',
-    type: 'array' as const,
-    string: true,
-  },
-  'project-set': {
-    describe: 'Path to a saved JSON project-set definition (no global project switch)',
-    type: 'string' as const,
-    default: undefined,
-  },
   config: {
     alias: 'c',
     describe: 'Path to the config file (env: ONE_MCP_CONFIG)',
@@ -74,8 +63,6 @@ export function withGlobalOptions(yargs: Argv): Argv<GlobalOptions> {
  */
 export interface GlobalOptions {
   'project-owner'?: string;
-  project?: string[];
-  'project-set'?: string;
   config?: string;
   'config-dir'?: string;
   'cli-session-cache-path'?: string;

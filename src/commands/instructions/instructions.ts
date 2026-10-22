@@ -9,6 +9,7 @@ import {
   formatClientSurfaceAuthRequiredMessage,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
+import type { ProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { API_INSTRUCTIONS_ENDPOINT } from '@src/constants/api.js';
 import {
   collectInstructionDetails,
@@ -19,7 +20,7 @@ import type { GlobalOptions } from '@src/globalOptions.js';
 
 import { formatInstructionsOutput } from './instructionsUtils.js';
 
-export interface InstructionsCommandOptions extends GlobalOptions {
+export interface InstructionsCommandOptions extends GlobalOptions, ProjectSelectionOptions {
   url?: string;
   context?: string;
   preset?: string;

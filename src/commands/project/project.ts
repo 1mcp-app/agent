@@ -5,13 +5,14 @@ import {
   formatClientSurfaceAuthRequiredMessage,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
+import type { ProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { usesLocalAgentDefaults } from '@src/commands/shared/serveTargetResolver.js';
 import { API_BASE_PATH } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 
 import { z } from 'zod';
 
-export interface ProjectCommandOptions extends GlobalOptions {
+export interface ProjectCommandOptions extends GlobalOptions, ProjectSelectionOptions {
   action: 'release' | 'drain' | 'status' | 'resume' | 'recover';
   'wait-ms'?: number;
   'expected-runtime-scope'?: string;

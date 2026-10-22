@@ -4145,8 +4145,14 @@ export const EVENT_REGISTRY = {
       successRate: 'number',
     },
   },
+  'serve.command.failed': {
+    message: 'Serve command failed.',
+    fields: {
+      error: 'error',
+    },
+  },
   'serve.server.error.a68bf449': {
-    message: 'Server error: <private>',
+    message: 'Server startup failed.',
     fields: {
       error: 'error',
     },

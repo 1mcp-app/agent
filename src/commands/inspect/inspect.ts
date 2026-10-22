@@ -9,6 +9,7 @@ import {
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
 import { inspectSearchResultSchema, inspectToolsPageSchema } from '@src/commands/shared/inspectApiSchemas.js';
+import type { ProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import {
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
@@ -39,7 +40,7 @@ import {
 type InspectMcpValue = Awaited<ReturnType<typeof inspectTools>>;
 type InspectAttachmentValue = InspectMcpValue | { result: InspectResult };
 
-export interface InspectCommandOptions extends GlobalOptions {
+export interface InspectCommandOptions extends GlobalOptions, ProjectSelectionOptions {
   url?: string;
   context?: string;
   preset?: string;

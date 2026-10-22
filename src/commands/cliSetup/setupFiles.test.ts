@@ -158,7 +158,7 @@ describe('cli setup file writers', () => {
 
     expect(content).toContain('If this session already received the current 1MCP instructions content from hooks');
     expect(content).toContain('Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.');
-    expect(content).toContain('Run `1mcp inspect <server>` before selecting a tool');
+    expect(content).toContain('Run `1mcp inspect <server>` when its inventory or instructions are missing');
   });
 
   it.each(['global', 'repo', 'all'] as const)(
@@ -214,7 +214,7 @@ describe('cli setup file writers', () => {
         expect(content).toContain('--search "filesystem/*read?" --glob');
         expect(content).toContain('`--include-descriptions` also matches effective descriptions');
         expect(content).toContain('`--show-descriptions` independently displays descriptions');
-        expect(content).toContain('When the target is known, inspect it directly');
+        expect(content).toContain('When the target is known, skip discovery');
         expect(content.indexOf('read its applicable instructions')).toBeLessThan(
           content.indexOf('1mcp inspect <server>/<tool>'),
         );

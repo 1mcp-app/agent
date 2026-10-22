@@ -1,5 +1,6 @@
 import { setupPreparationCommands } from '@src/commands/preparation/index.js';
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
+import { withProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
@@ -12,7 +13,7 @@ export function setupProjectCommands(yargs: Argv): Argv {
         action,
         `${action} selected checkout runtime resources`,
         (builder) =>
-          builder
+          (action === 'recover' ? builder : withProjectSelectionOptions(builder))
             .option('url', { type: 'string', describe: 'Runtime URL' })
             .option('context', { type: 'string', describe: 'Named Runtime Target Context' })
             .option('expected-runtime-scope', { type: 'string', hidden: true })
