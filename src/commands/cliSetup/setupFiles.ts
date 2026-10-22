@@ -97,7 +97,7 @@ export async function writeCliSetupFiles(options: WriteCliSetupOptions): Promise
         target,
         scope: scopePaths.scope,
       });
-      const clientDirectory = isCodex && scopePaths.scope === 'repo' ? '.agents' : `.${target}`;
+      const clientDirectory = isCodex ? '.agents' : '.claude';
       const skill = await installPreparationSkill(scopePaths.rootDir, path.join(clientDirectory, 'skills'));
       results.push({ ...skill, kind: 'skill', target, scope: scopePaths.scope });
       return results;

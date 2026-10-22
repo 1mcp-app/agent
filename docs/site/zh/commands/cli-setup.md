@@ -76,8 +76,10 @@ npx -y @1mcp/agent cli-setup (--codex | --claude) [选项]
 
 | 客户端 | 全局                                       | 仓库                                            |
 | ------ | ------------------------------------------ | ----------------------------------------------- |
-| Codex  | `~/.codex/skills/1mcp-preparation-setup/`  | `<repo>/.agents/skills/1mcp-preparation-setup/` |
+| Codex  | `~/.agents/skills/1mcp-preparation-setup/` | `<repo>/.agents/skills/1mcp-preparation-setup/` |
 | Claude | `~/.claude/skills/1mcp-preparation-setup/` | `<repo>/.claude/skills/1mcp-preparation-setup/` |
+
+Codex 在两种作用域下均使用共享的 `.agents/skills` 目录，其他从该目录发现技能的智能体也可读取同一份安装。Claude 继续使用原生的 `.claude/skills` 目录。现有 `.codex/skills` 中的副本会保留；如果安装过早期预览版本，请确认共享技能已被发现后，检查并手动移除重复副本。
 
 可以对智能体说：“使用 1mcp-preparation-setup 技能，为我的 CodeGraph worktree 配置准备流程。”请求配置后端准备时，智能体也可自动选择此技能。技能支持复用已有配方，也可帮助编写并验证缺失的配方。CodeGraph、Code Review Graph 和 Serena 的参考说明依赖具体版本，并非内置的生产配方。
 
@@ -85,7 +87,7 @@ npx -y @1mcp/agent cli-setup (--codex | --claude) [选项]
 
 再次运行 `cli-setup` 可更新技能。输出区分 `installed`、`updated`、`unchanged` 和 `conflict`。技能目录内的 `.1mcp-managed.json` 记录受管理文件的哈希。未被修改的受管理文件可更新；本地修改、已删除的受管理文件、来源未知的同名安装和符号链接目标会被保留并报告冲突，其他设置文件仍会完成。解决冲突前请单独保存自定义技能，将冲突技能目录移出安装位置后重新运行设置。无关文件会被保留。
 
-安装锁防止多个安装进程同时写入。更新中断后，日志支持续传，不会将安装程序已经写入的内容误判为本地修改。如果终止的进程在技能旁留下 `.install-lock` 目录，请先确认没有安装程序运行，再移走该锁并重新执行设置。不要移除仍在运行的安装程序的锁。
+安装锁防止多个安装进程同时写入。更新中断后，日志支持续传，不会将安装程序已经写入的内容误判为本地修改。若日志中的新增文件缺失，安装器无法区分写入中断和用户删除，因此会保留文件缺失状态并报告冲突。如果终止的进程在技能旁留下 `.install-lock` 目录，请先确认没有安装程序运行，再移走该锁并重新执行设置。不要移除仍在运行的安装程序的锁。
 
 ## 示例
 

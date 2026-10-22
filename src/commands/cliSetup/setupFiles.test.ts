@@ -50,7 +50,7 @@ describe('cli setup file writers', () => {
       for (const location of scope === 'all' ? ['global', 'repo'] : [scope]) {
         for (const client of ['codex', 'claude']) {
           const base = location === 'global' ? home : repo;
-          const directory = client === 'codex' && location === 'repo' ? '.agents' : `.${client}`;
+          const directory = client === 'codex' ? '.agents' : '.claude';
           const skill = path.join(base, directory, 'skills/1mcp-preparation-setup');
           expect(results).toContainEqual(expect.objectContaining({ path: skill, kind: 'skill', status: 'installed' }));
           for (const file of [
@@ -72,13 +72,33 @@ describe('cli setup file writers', () => {
     },
   );
 
-  it('reports a skill conflict while completing ordinary setup', async () => {
+  it('preserves legacy Codex skills while installing in the shared global directory', async () => {
+    const home = path.join(process.cwd(), '.tmp-test', `cli-skill-legacy-${Date.now()}`);
+    tempRoots.push(home);
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+    const legacy = path.join(home, '.codex/skills/1mcp-preparation-setup');
+    await mkdir(legacy, { recursive: true });
+    await writeFile(path.join(legacy, 'SKILL.md'), 'custom legacy skill');
+
+    const results = await writeCliSetupFiles({ repoRoot: home, scope: 'global', targets: ['codex'] });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        path: path.join(home, '.agents/skills/1mcp-preparation-setup'),
+        status: 'installed',
+      }),
+    );
+    expect(await readFile(path.join(legacy, 'SKILL.md'), 'utf8')).toBe('custom legacy skill');
+  });
+
+  it.each(['global', 'repo'] as const)('preserves shared skill conflicts in %s scope', async (scope) => {
     const root = path.join(process.cwd(), '.tmp-test', `cli-skill-conflict-${Date.now()}`);
     tempRoots.push(root);
+    vi.spyOn(os, 'homedir').mockReturnValue(root);
     const skill = path.join(root, '.agents/skills/1mcp-preparation-setup');
     await mkdir(skill, { recursive: true });
     await writeFile(path.join(skill, 'SKILL.md'), 'custom');
-    const results = await writeCliSetupFiles({ repoRoot: root, scope: 'repo', targets: ['codex'] });
+    const results = await writeCliSetupFiles({ repoRoot: root, scope, targets: ['codex'] });
     expect(formatCliSetupOutput(results)).toContain('(conflict: Existing skill');
     expect(await readFile(path.join(skill, 'SKILL.md'), 'utf8')).toBe('custom');
     expect(await readFile(path.join(root, '.codex/1MCP.md'), 'utf8')).toContain('1MCP');

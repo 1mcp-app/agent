@@ -47,7 +47,7 @@ try {
         assert.match(run(), /\(installed\)/);
         const destinations = (scope === 'all' ? ['global', 'repo'] : [scope]).map((location) => {
           const base = location === 'global' ? home : repo;
-          const directory = location === 'repo' && client === 'codex' ? '.agents' : `.${client}`;
+          const directory = client === 'codex' ? '.agents' : '.claude';
           return path.join(base, directory, 'skills/1mcp-preparation-setup');
         });
         for (const destination of destinations) {

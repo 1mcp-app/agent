@@ -9,7 +9,9 @@ Deliver a configured recipe and evidence for its declared readiness scope. Insta
 
 ## Establish the target
 
-Identify the runtime (`--url` or `--context`, plus configuration location and filters), explicit checkout or selected project-set member, configured server name, native version, current recipe and effective permissions. Keep these selectors and the caller's bootstrap-provided `--project-owner` reference on subsequent calls. Each worker uses its own owner. Resolve missing assignment before project-specific work.
+Identify the runtime (`--url` or `--context`, plus configuration location and filters), assigned checkout or selected project-set member, configured server name, native version, current recipe and effective permissions. Normal local calls use the verified startup or worker assignment and omit `--project` and `--project-owner`. Keep any explicit target override through discovery, preparation, schema inspection, and invocation; an override does not change the session default.
+
+Follow current bootstrap guidance for ownership. Codex hosts with trustworthy thread lookup resolve their own owner automatically; hosts without that integration use their own bootstrap-provided `--project-owner` reference. Each worker needs its own explicit assignment and owner. Explicit `--url` calls remain credentialless unless an owner is explicitly supplied; local credentials do not authorize remote lifecycle controls. Resolve missing assignment before project-specific work.
 
 Reuse current hook-delivered instructions; otherwise fetch scoped `1mcp instructions`. Inspect the server and applicable instructions, then tool schemas before invoking tools through `1mcp run`. `1mcp project prepare inspect <server>` checks readiness even when discovery is empty and does not start preparation. Native CLI help and read-only diagnostics can establish recipe behavior; upstream MCP calls stay routed through 1MCP.
 

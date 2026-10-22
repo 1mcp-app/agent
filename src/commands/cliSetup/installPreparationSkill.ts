@@ -158,6 +158,8 @@ async function installUnderLock(
     const fileConflict = await pathConflict(root, file, false);
     if (fileConflict) return conflict(fileConflict);
     if (!(await statIfPresent(file))) {
+      // A missing pending addition may have been published and then deleted by the user.
+      if (!previous[relative] && pending?.[relative]) return conflict(`Pending managed file is missing: ${relative}`);
       if (!previous[relative]) continue;
       if (pending && !Object.hasOwn(pending, relative)) continue;
       return conflict(`Managed file was removed: ${relative}`);

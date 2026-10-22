@@ -34,7 +34,7 @@ describe('cli-setup command E2E', () => {
     expect(result.stdout).toContain('Updated 1MCP CLI setup files:');
     expect(result.stdout).toContain('skill codex:');
     expect(result.stdout).toContain('(installed)');
-    const skill = path.join(homeDir, '.codex/skills/1mcp-preparation-setup');
+    const skill = path.join(homeDir, '.agents/skills/1mcp-preparation-setup');
     expect(await readFile(path.join(skill, 'SKILL.md'), 'utf8')).toContain('name: 1mcp-preparation-setup');
     expect(await readFile(path.join(skill, 'references/serena.md'), 'utf8')).toContain('# Serena');
 

@@ -51,6 +51,7 @@ describe('managed preparation skill installation', () => {
     'recovers an upgrade interrupted at %s',
     async (failedFile) => {
       await install();
+      const replacement = { 'SKILL.md': 'updated\n', 'references/backend.md': 'backend v2\n' };
       let manifestWrites = 0;
       faults.beforeRename = async (target) => {
         if (target.endsWith('.1mcp-managed.json')) manifestWrites++;
@@ -58,10 +59,10 @@ describe('managed preparation skill installation', () => {
         if (failedFile === '.1mcp-managed.json' && manifestWrites === 1) return;
         throw new Error('simulated interrupted write');
       };
-      await expect(install(updated)).rejects.toThrow('simulated interrupted write');
+      await expect(install(replacement)).rejects.toThrow('simulated interrupted write');
       faults.beforeRename = undefined;
-      expect(await install(updated)).toMatchObject({ status: 'updated' });
-      expect(await install(updated)).toMatchObject({ status: 'unchanged' });
+      expect(await install(replacement)).toMatchObject({ status: 'updated' });
+      expect(await install(replacement)).toMatchObject({ status: 'unchanged' });
     },
   );
 
@@ -75,6 +76,51 @@ describe('managed preparation skill installation', () => {
     await writeFile(path.join(destination, 'SKILL.md'), 'new user edit');
     expect(await install(updated)).toMatchObject({ status: 'conflict' });
     expect(await readFile(path.join(destination, 'SKILL.md'), 'utf8')).toBe('new user edit');
+  });
+
+  it('preserves deletion of a newly published file after an interrupted upgrade', async () => {
+    await install();
+    let manifestWrites = 0;
+    faults.beforeRename = async (target) => {
+      if (target.endsWith('.1mcp-managed.json') && ++manifestWrites === 2) throw new Error('interrupted');
+    };
+    await expect(install(updated)).rejects.toThrow('interrupted');
+    faults.beforeRename = undefined;
+    const addedFile = path.join(destination, 'references/new.md');
+    expect(await readFile(addedFile, 'utf8')).toBe(updated['references/new.md']);
+    await rm(addedFile);
+    const manifest = await readFile(path.join(destination, '.1mcp-managed.json'), 'utf8');
+
+    expect(await install(updated)).toMatchObject({ status: 'conflict', changed: false });
+    await expect(readFile(addedFile)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(path.join(destination, '.1mcp-managed.json'), 'utf8')).toBe(manifest);
+  });
+
+  it('reports an ambiguous missing pending addition without partially recovering', async () => {
+    await install();
+    faults.beforeRename = async (target) => {
+      if (target.endsWith('references/new.md')) throw new Error('interrupted');
+    };
+    await expect(install(updated)).rejects.toThrow('interrupted');
+    faults.beforeRename = undefined;
+    expect(await install(updated)).toMatchObject({
+      status: 'conflict',
+      changed: false,
+      reason: 'Pending managed file is missing: references/new.md',
+    });
+    await expect(readFile(path.join(destination, 'references/new.md'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('recovers a published addition when the final manifest write was interrupted', async () => {
+    await install();
+    let manifestWrites = 0;
+    faults.beforeRename = async (target) => {
+      if (target.endsWith('.1mcp-managed.json') && ++manifestWrites === 2) throw new Error('interrupted');
+    };
+    await expect(install(updated)).rejects.toThrow('interrupted');
+    faults.beforeRename = undefined;
+    expect(await install(updated)).toMatchObject({ status: 'updated' });
+    expect(await install(updated)).toMatchObject({ status: 'unchanged' });
   });
 
   it('publishes a first installation only after every file is ready', async () => {
