@@ -172,6 +172,8 @@ jobs:
       - name: Test E2E - Shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }}
         env:
           CI: true
+          # Reuse bytecode across CLI launches; every runner starts with an empty cache.
+          NODE_COMPILE_CACHE: ${{ runner.temp }}/e2e-node-compile-cache
           MATRIX_SHARD: ${{ matrix.shard }}
         run: pnpm test:e2e:shardable --shard="$MATRIX_SHARD/$E2E_SHARD_COUNT" --reporter=minimal --reporter=json --outputFile.json=".tmp/e2e-shard-$MATRIX_SHARD.json"
 
