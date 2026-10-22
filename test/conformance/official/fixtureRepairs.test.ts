@@ -41,6 +41,31 @@ describe('owned official toolkit fixture repairs', () => {
     }
   });
 
+  it('publishes complete repairs when protocol revisions prepare the same cold package concurrently', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'toolkit-concurrent-repairs-'));
+    try {
+      const original = await readFile(join(packageRoot, 'dist/index.js'), 'utf8');
+      const expectedDigest = digest(repairToolkit(original).source);
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const root = join(directory, String(attempt));
+        await mkdir(join(root, 'dist'), { recursive: true });
+        await writeFile(join(root, 'dist/index.js'), original);
+        const receipts = await Promise.all(Array.from({ length: 4 }, () => mkdtemp(join(directory, 'receipt-'))));
+        const entries = await Promise.all(receipts.map((output) => prepareToolkitRepairs(root, output)));
+        expect(new Set(entries).size).toBe(1);
+        expect(digest(await readFile(entries[0]))).toBe(expectedDigest);
+        expect(await readdir(join(root, 'dist'))).toEqual(expect.arrayContaining(['index.js']));
+        expect((await readdir(join(root, 'dist'))).filter((name) => name.startsWith('.owned-'))).toEqual([]);
+        for (const output of receipts) {
+          const receipt = JSON.parse(await readFile(join(output, 'official-toolkit-repairs.json'), 'utf8'));
+          expect(receipt.repairedDigest).toBe(expectedDigest);
+        }
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a missing discovery header through the repaired real peer', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'toolkit-header-control-'));
     try {

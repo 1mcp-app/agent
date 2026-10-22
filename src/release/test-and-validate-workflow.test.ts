@@ -289,7 +289,10 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['ci:static']).toContain('pnpm lint');
     expect(packageJson.scripts['ci:static']).toContain('pnpm typecheck');
     expect(packageJson.scripts['ci:static']).toContain('pnpm build');
-    expect(packageJson.scripts['ci:static']).not.toContain('pnpm test:');
+    expect(packageJson.scripts['ci:static']).toContain('pnpm test:sdk-boundary');
+    for (const command of ['pnpm test:unit', 'pnpm test:admin', 'pnpm test:e2e']) {
+      expect(packageJson.scripts['ci:static']).not.toContain(command);
+    }
     expect(nonBrowserJob).toBeDefined();
     expect(nonBrowserJob).toContain('timeout-minutes: 15');
     expect(nonBrowserJob).not.toContain('needs: ci');
@@ -304,6 +307,10 @@ describe('test-and-validate workflow', () => {
       browserJob!.indexOf('Test browser E2E'),
     );
     expect(browserJob).toContain('timeout-minutes: 15');
+    expect(browserJob).toContain('pnpm test:e2e test/e2e/commands/mcp/mcp-tokens.test.ts --maxWorkers=1 --retry=0');
+    expect(browserJob!.indexOf('Test browser E2E')).toBeLessThan(
+      browserJob!.indexOf('Test token CLI without competing workers'),
+    );
     expect(checkoutCount).toBeGreaterThan(0);
     expect(workflow.match(/persist-credentials: false/g)).toHaveLength(checkoutCount);
   });
@@ -323,7 +330,27 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:browser']).toContain('browser.e2e.test.ts');
     expect(packageJson.scripts['test:e2e:non-browser']).toContain('--exclude "**/*.browser.e2e.test.ts"');
     expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/serve-background.test.ts"');
+    expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/project-lifecycle.test.ts"');
+    expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/mcp-tokens.test.ts"');
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/commands/serve-background.test.ts');
+    expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/project-lifecycle.test.ts');
+    expect(packageJson.scripts['test:e2e:system']).toContain('--maxWorkers=1');
+  });
+
+  it('requires harness and product conformance without serializing their runners', () => {
+    const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
+      jobs: Record<string, { needs?: string[]; steps?: { run?: string }[] }>;
+    };
+    const packageJson = JSON.parse(readRepoFile('package.json')) as { scripts: Record<string, string> };
+    const staticJob = workflow.jobs.static;
+    const productJob = workflow.jobs['test-conformance'];
+    expect(staticJob.needs).toBeUndefined();
+    expect(productJob.needs).toBeUndefined();
+    expect(staticJob.steps?.some((step) => step.run?.includes('pnpm test:conformance:harness'))).toBe(true);
+    expect(packageJson.scripts['test:conformance:harness']).toBe('node scripts/run-conformance.mjs --suite harness');
+    expect(productJob.steps?.some((step) => step.run?.includes('--suite product --mode'))).toBe(true);
+    expect(workflow.jobs.ci.needs).toContain('static');
+    expect(workflow.jobs['release-result'].needs).toEqual(expect.arrayContaining(['static', 'test-conformance']));
   });
 
   it('fails aggregate gates when any required job fails, is cancelled, or is skipped', () => {

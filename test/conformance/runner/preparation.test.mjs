@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -64,4 +65,14 @@ test('spawn failures and signal termination fail closed', async () => {
     ]),
     [1, 1],
   );
+});
+
+test('invalid or missing suite selections fail before preparing fixtures', () => {
+  const runner = join(import.meta.dirname, '../../../scripts/run-conformance.mjs');
+  for (const args of [['--suite', 'unknown'], ['--suite=unknown'], ['--suite']]) {
+    const result = spawnSync(process.execPath, [runner, ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /Conformance suite must be all, harness, or product/);
+    assert.equal(result.stdout, '');
+  }
 });

@@ -70,12 +70,38 @@ jobs:
         run: pnpm ci:static
 
       - name: Test bounded release failure and recovery fixtures (no publication)
-        run: node --test test/release/*.test.cjs
+        run: pnpm test:release
 
-      # AUTH-07 gate: credential-file permission invariants (0600 files / 0700
-      # dirs, fail-closed read+write) as a named, separately inspectable step.
-      - name: Security permission gate (ticket-05)
-        run: pnpm test:security-permissions
+      # AUTH-07: scan permission modes here; runtime invariants run in the unit suite.
+      - name: Check credential-file permission modes
+        run: pnpm guard:perms
+
+      # Keep process-heavy harness tests serial on this runner while product
+      # conformance runs independently. Reuse the build from ci:static above.
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13.0'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.11.32'
+          enable-cache: ${{ !inputs.checkout_ref && !inputs.release_gate }}
+          cache-dependency-glob: test/conformance/fixtures/python/uv.lock
+
+      - name: Sync frozen Python fixture
+        working-directory: test/conformance/fixtures/python
+        run: uv sync --frozen
+
+      - name: Install frozen TypeScript peer fixtures
+        working-directory: test/conformance/fixtures/typescript
+        run: pnpm install --frozen-lockfile
+
+      - name: Test conformance harness
+        run: pnpm test:conformance:harness -- --reporter=minimal
+        env:
+          CI: true
 
   unit-admin:
     runs-on: ubuntu-latest
@@ -146,17 +172,10 @@ jobs:
       - name: Test E2E - Shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }}
         env:
           CI: true
+          # Reuse bytecode across CLI launches; every runner starts with an empty cache.
+          NODE_COMPILE_CACHE: ${{ runner.temp }}/e2e-node-compile-cache
           MATRIX_SHARD: ${{ matrix.shard }}
-        run: |
-          started_at=$(date +%s)
-          set +e
-          pnpm test:e2e:shardable --shard="$MATRIX_SHARD/$E2E_SHARD_COUNT" --reporter=minimal --reporter=json --outputFile.json=".tmp/e2e-shard-$MATRIX_SHARD.json"
-          test_status=$?
-          set -e
-          finished_at=$(date +%s)
-          duration=$((finished_at - started_at))
-          echo "E2E shard $MATRIX_SHARD/$E2E_SHARD_COUNT took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
-          exit "$test_status"
+        run: pnpm test:e2e:shardable --shard="$MATRIX_SHARD/$E2E_SHARD_COUNT" --reporter=minimal --reporter=json --outputFile.json=".tmp/e2e-shard-$MATRIX_SHARD.json"
 
       - name: Upload E2E timing report
         if: ${{ !cancelled() }}
@@ -195,17 +214,9 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Test background runtime E2E
-        run: |
-          started_at=$(date +%s)
-          set +e
-          pnpm test:e2e:system --reporter=minimal
-          test_status=$?
-          set -e
-          finished_at=$(date +%s)
-          duration=$((finished_at - started_at))
-          echo "Background runtime E2E took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
-          exit "$test_status"
+      # Lifecycle checks launch timed cleanup subprocesses; keep their runner exclusive.
+      - name: Test system lifecycle E2E
+        run: pnpm test:e2e:system --reporter=minimal
         env:
           CI: true
 
@@ -250,8 +261,8 @@ jobs:
         id: conformance-source
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Run no-retry conformance baseline and focused transports
-        run: pnpm test:conformance -- --mode "$CONFORMANCE_MODE" --reporter=minimal
+      - name: Run no-retry product conformance and focused transports
+        run: pnpm test:conformance -- --suite product --mode "$CONFORMANCE_MODE" --reporter=minimal
         env:
           CI: true
           GITHUB_SHA: ${{ steps.conformance-source.outputs.sha }}
@@ -301,18 +312,16 @@ jobs:
         run: pnpm build
 
       - name: Test browser E2E
-        run: |
-          started_at=$(date +%s)
-          set +e
-          pnpm test:e2e:browser --reporter=minimal
-          test_status=$?
-          set -e
-          finished_at=$(date +%s)
-          duration=$((finished_at - started_at))
-          echo "Browser E2E took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
-          exit "$test_status"
+        run: pnpm test:e2e:browser --reporter=minimal
         env:
           CI: true
+
+      # Token CLI assertions have a three-second startup deadline; reuse this idle runner.
+      - name: Test token CLI without competing workers
+        run: pnpm test:e2e test/e2e/commands/mcp/mcp-tokens.test.ts --maxWorkers=1 --retry=0 --reporter=minimal
+        env:
+          CI: true
+          NODE_COMPILE_CACHE: ${{ runner.temp }}/e2e-node-compile-cache
 
   test-legacy-upgrade:
     runs-on: ${{ matrix.os }}

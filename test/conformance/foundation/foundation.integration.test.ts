@@ -15,7 +15,12 @@ describe.runIf(runIntegration)('exact-source conformance foundation', () => {
       const baseline = await runFoundationConformance({ root, mode, outputDirectory });
 
       expect(baseline.attempt).toBe(1);
-      expect(baseline.officialRuns).toHaveLength(4);
+      expect(baseline.officialRuns.map(({ role, revision }) => `${role}.${revision}`).sort()).toEqual([
+        'client.2025-11-25',
+        'client.2026-07-28',
+        'server.2025-11-25',
+        'server.2026-07-28',
+      ]);
       expect(baseline.matrixRuns).toHaveLength(12);
       expect(baseline.sdkBoundaryProof).toMatchObject({ classification: 'product', productVerdict: 'pass' });
       expect(conformanceExitCode(mode, baseline)).toBe(0);
