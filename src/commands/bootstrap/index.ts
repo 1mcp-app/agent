@@ -1,3 +1,4 @@
+import { withProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
@@ -7,7 +8,7 @@ export function setupBootstrapCommand(yargs: Argv): Argv {
     'bootstrap',
     'Deliver agent hook instructions',
     (command) =>
-      command
+      withProjectSelectionOptions(command)
         .env(false)
 
         .option('client', { type: 'string', choices: ['codex', 'claude'], demandOption: true })
@@ -16,12 +17,6 @@ export function setupBootstrapCommand(yargs: Argv): Argv {
           choices: ['SessionStart', 'SubagentStart', 'SessionEnd'],
           demandOption: true,
         })
-        .option('project', {
-          type: 'array',
-          string: true,
-          describe: 'Explicit absolute worker checkout, or selected labels with --project-set',
-        })
-        .option('project-set', { type: 'string', describe: 'Explicit absolute worker project-set definition path' })
         .option('url', { type: 'string', describe: 'Runtime URL' })
         .option('context', { type: 'string', describe: 'Named Runtime Target Context' })
         .option('preset', { type: 'string' })

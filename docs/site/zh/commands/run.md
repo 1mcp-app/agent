@@ -7,6 +7,8 @@ description: 使用 run 命令针对运行中的 1MCP serve 实例调用 MCP 工
 
 通过运行中的 1MCP `serve` 实例调用 MCP 工具。
 
+工具契约未变化时，可在当前会话内复用已知的工具参数结构，包括跨项目调用。项目专属指令、就绪状态、授权和目标选择仍需保持有效。信息缺失、能力变化、准备完成或发生相关失败时，应重新检查服务器和工具。不得自动重放失败的工具调用。
+
 ## 概要
 
 ```bash
@@ -23,7 +25,7 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 
 `run` 会连接到运行中的 `1mcp serve` 实例，透传 preset 和标签过滤，并把工具输出写入 stdout。错误只写入 stderr，因此适合脚本和管道。
 
-独立终端会话先用 `instructions` 发现可用服务器。使用钩子的智能体会话应复用 bootstrap 指引，仅在缺少指引或需要刷新时运行 `instructions`。两种流程都应先检查服务器和具体工具 schema，再调用工具。
+独立终端会话先用 `instructions` 发现可用服务器。使用钩子的智能体会话应复用 bootstrap 指引，仅在缺少指引或需要刷新时运行 `instructions`。两种流程都应先阅读适用的服务器指令，并使用已知的工具参数结构调用工具。
 
 在 REST-to-MCP 回退前，`run` 会检查面向客户端的 inspect 状态。仍在加载的后端会返回 `server_loading` 和 `1mcp wait <server>`，而不会收到提前 MCP 调用。失败或取消的后端返回 `server_unavailable`；OAuth 门控后端会返回授权指引。
 
@@ -66,7 +68,7 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 
 共用规则见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。受支持的 Codex 会话自动使用已验证所有者和分配项目。Claude 和不支持自动查找所有者的宿主需提供自己的 bootstrap `--project-owner <own-file>`。相关调用应保持显式目标覆盖一致。
 
-对于已配置的 CodeGraph 后端，先针对所选检出目录检查服务器和工具 schema，再使用相同目标执行查询。将目录路径替换为实际检出目录；如果它已是分配的默认目标，可省略 `--project`：
+对于已配置的 CodeGraph 后端，信息缺失或需要刷新时，针对所选检出目录检查服务器和工具参数结构，再使用相同目标执行查询。将目录路径替换为实际检出目录；如果它已是分配的默认目标，可省略 `--project`：
 
 ```bash
 1mcp run codegraph/codegraph_explore --project /work/backend-feature --args '{"query":"Where are the API routes defined?"}'

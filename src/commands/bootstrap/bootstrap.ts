@@ -4,6 +4,7 @@ import type { Readable } from 'node:stream';
 
 import { resolveAgentSessionOptions } from '@src/commands/shared/agentSession.js';
 import { type ProjectOwnerTarget, readProjectOwnerAssignment } from '@src/commands/shared/projectOwnerStore.js';
+import type { ProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
 import { renderManagedDocContent } from '@src/core/instructions/instructionsDistribution.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
@@ -45,11 +46,9 @@ export const bootstrapOptionsSchema = z
     }
   });
 
-export interface BootstrapCommandOptions extends GlobalOptions {
+export interface BootstrapCommandOptions extends GlobalOptions, ProjectSelectionOptions {
   client: 'codex' | 'claude';
   event: 'SessionStart' | 'SubagentStart' | 'SessionEnd';
-  project?: string[];
-  'project-set'?: string;
   url?: string;
   context?: string;
   preset?: string;

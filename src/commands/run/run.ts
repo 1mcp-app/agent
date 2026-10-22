@@ -24,6 +24,7 @@ import {
   inspectServerResultSchema,
   inspectToolResultSchema,
 } from '@src/commands/shared/inspectApiSchemas.js';
+import type { ProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import {
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
@@ -79,7 +80,7 @@ function schemaPreflightError(code: string) {
   );
 }
 
-export interface RunCommandOptions extends GlobalOptions {
+export interface RunCommandOptions extends GlobalOptions, ProjectSelectionOptions {
   url?: string;
   context?: string;
   preset?: string;

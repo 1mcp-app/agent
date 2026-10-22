@@ -4146,7 +4146,7 @@ export const EVENT_REGISTRY = {
     },
   },
   'serve.server.error.a68bf449': {
-    message: 'Server error: <private>',
+    message: 'Server startup failed.',
     fields: {
       error: 'error',
     },

@@ -17,6 +17,8 @@ head:
 
 Call an MCP tool against a running 1MCP `serve` instance.
 
+Reuse known tool schemas within the session, including across projects, when the tool contract is unchanged. Keep project-specific instructions, readiness, authorization, and target selection current. Refresh server and tool inspection when information is missing, capabilities change, preparation completes, or relevant failures occur. Never automatically replay failed tool calls.
+
 ## Synopsis
 
 ```bash
@@ -33,7 +35,7 @@ The `run` command is the execution step in the CLI workflow:
 
 `run` talks to a running `1mcp serve` instance, forwards preset and tag filters, and prints tool output to stdout. Errors are written to stderr only so the command stays pipe-friendly.
 
-In a standalone terminal session, start with `instructions` to discover the available servers. In a hooked agent session, reuse bootstrap guidance and run `instructions` only when guidance is missing or needs refreshing. In both cases, inspect the server and exact tool schema before invoking the tool.
+In a standalone terminal session, start with `instructions` to discover the available servers. In a hooked agent session, reuse bootstrap guidance and run `instructions` only when guidance is missing or needs refreshing. In both cases, read applicable server instructions and use a known tool schema before invoking the tool.
 
 Before a REST-to-MCP fallback, `run` checks the client-facing inspect status. A loading backend returns `server_loading` and `1mcp wait <server>` rather than receiving an early MCP invocation. Failed or cancelled backends return `server_unavailable`; an OAuth-gated backend returns authorization guidance.
 
@@ -76,7 +78,7 @@ If `--args` is omitted and stdin is provided, `run` tries to map stdin automatic
 
 See [Project and owner options](/guide/project-checkouts#project-and-owner-options) for shared rules. Supported Codex sessions use their verified owner and assigned project automatically. Claude and hosts without automatic owner lookup must supply their own bootstrap `--project-owner <own-file>`. Keep explicit target overrides consistent across related calls.
 
-For a configured CodeGraph backend, first inspect the server and tool schema for the selected checkout. Then run a query with the same selection. Replace the checkout path with your actual checkout; omit `--project` when it is already your assigned default:
+For a configured CodeGraph backend, inspect the server and tool schema for the selected checkout when that information is missing or needs refreshing. Then run a query with the same selection. Replace the checkout path with your actual checkout; omit `--project` when it is already your assigned default:
 
 ```bash
 1mcp run codegraph/codegraph_explore --project /work/backend-feature --args '{"query":"Where are the API routes defined?"}'

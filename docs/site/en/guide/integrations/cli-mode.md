@@ -27,6 +27,8 @@ It does **not** replace MCP as a protocol. 1MCP still runs your MCP servers behi
 
 For a given agent, CLI mode should not live alongside direct MCP configuration. Choose one mode only. When you switch an agent to CLI mode, remove that agent's existing MCP server configuration first.
 
+Reuse known tool schemas within the session, including across projects, when the tool contract is unchanged. Keep project-specific instructions, readiness, authorization, and target selection current. Refresh server and tool inspection when information is missing, capabilities change, preparation completes, or relevant failures occur. Never automatically replay failed tool calls.
+
 ## Why CLI Mode Exists
 
 Direct MCP attachment is great for interoperability, but agent sessions pay for that convenience with context:
@@ -61,6 +63,7 @@ With a named or implicitly discovered local runtime, supported Codex sessions re
 ```bash
 # Only if current target guidance is missing or needs refreshing.
 1mcp instructions
+# Inspect when inventory, instructions, or schemas are missing or need refreshing.
 1mcp inspect <server>
 1mcp inspect <server>/<tool>
 1mcp run <server>/<tool> --args '<json>'

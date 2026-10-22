@@ -12,9 +12,12 @@ import {
   readProjectOwner,
   readProjectOwnerAssignment,
 } from './projectOwnerStore.js';
+import type { ProjectSelectionOptions } from './projectSelectionOptions.js';
 
 /** Host IDs locate an existing private credential. They never create runtime authority. */
-export async function resolveAgentSessionOptions<T extends GlobalOptions>(options: T): Promise<T> {
+export async function resolveAgentSessionOptions<T extends GlobalOptions & ProjectSelectionOptions>(
+  options: T,
+): Promise<T> {
   let ownerFile = options['project-owner'];
   let worker = false;
   const automatic = !ownerFile;
@@ -84,7 +87,7 @@ export async function resolveAgentSessionOptions<T extends GlobalOptions>(option
   return { ...resolved, project: assignment.project, 'project-set': assignment['project-set'] };
 }
 
-function unintegrated<T extends GlobalOptions>(options: T): T {
+function unintegrated<T extends GlobalOptions & ProjectSelectionOptions>(options: T): T {
   process.stderr.write(
     'Ownership coverage gap: no hook-written session record; continuing without session defaults.\n',
   );

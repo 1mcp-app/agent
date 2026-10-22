@@ -92,7 +92,7 @@ describe('cli setup file writers', () => {
 
     expect(content).toContain('If this session already received the current 1MCP instructions content from hooks');
     expect(content).toContain('Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.');
-    expect(content).toContain('Run `1mcp inspect <server>` before selecting a tool');
+    expect(content).toContain('Run `1mcp inspect <server>` when its inventory or instructions are missing');
   });
 
   it.each(['global', 'repo', 'all'] as const)(

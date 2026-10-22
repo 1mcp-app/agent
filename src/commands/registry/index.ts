@@ -22,6 +22,13 @@ export function setupRegistryCommands(yargs: Argv): Argv {
         .options(registryOptions)
         .env('ONE_MCP') // Parse all ONE_MCP env vars but filter out server options
         .strict(false) // Allow unknown options to prevent port error
+        .check((argv) => {
+          // This permissive command family must still reject unsupported project selectors.
+          for (const selector of ['project', 'project-set']) {
+            if (argv[selector] !== undefined) throw new Error(`Unknown argument: ${selector}`);
+          }
+          return true;
+        })
         .command(
           'search [query]',
           'Search for MCP servers in the official registry',

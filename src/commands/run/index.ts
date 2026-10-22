@@ -1,4 +1,5 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
+import { withProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
@@ -8,7 +9,7 @@ export function setupRunCommand(yargs: Argv): Argv {
     'run <tool>',
     'Run a tool on a connected server',
     (commandYargs) =>
-      commandYargs
+      withProjectSelectionOptions(commandYargs)
         .positional('tool', {
           describe: 'Tool reference in the format <server>/<tool>',
           type: 'string',

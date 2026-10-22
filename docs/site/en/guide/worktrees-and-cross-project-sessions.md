@@ -7,6 +7,8 @@ description: Set up local agent sessions, work across frontend and backend check
 
 Use this walkthrough when one feature spans several repositories or Git worktrees. You will keep the frontend in `/work/frontend`, create a feature worktree from `/work/backend`, and give each worker an explicit target. One local 1MCP runtime manages the backend connections.
 
+Reuse known tool schemas within the session, including across projects, when the tool contract is unchanged. Keep project-specific instructions, readiness, authorization, and target selection current. Refresh server and tool inspection when information is missing, capabilities change, preparation completes, or relevant failures occur. Never automatically replay failed tool calls.
+
 ## Who runs each step?
 
 **You** install tools, configure the runtime/client, and choose projects and preparation permissions. **The AI agent** runs discovery, tool calls, preparation controls, and its own release after bootstrap. **The local operator or worktree manager** drains and removes checkouts, or resumes them. An agent may perform operator steps when you authorize that work and it has the required local authority.
@@ -153,7 +155,7 @@ Save this complete JSON as `/work/feature-projects.json`:
 
 Relative paths resolve from the JSON file's directory. With a project set, `--project` selects a **label**; without a set, it selects a checkout path. This set deliberately has no default selection, so each checkout-specific call must name its target.
 
-If hooks have not already delivered instructions for the assigned target, fetch them. Then inspect the configured server and tool before calling it:
+If hooks have not already delivered instructions for the assigned target, fetch them. Inspect the configured server and tool when information is missing or needs refreshing:
 
 **AI agent**
 
@@ -185,7 +187,7 @@ Selecting `--project frontend --project backend` does not broadcast a call or ch
 
 You or the coordinating AI agent give each worker a concrete assignment in its dispatch prompt. The **worker AI agent** runs the bootstrap command in this example:
 
-> Your Worker Project Assignment is `/work/feature-projects.json`, label `backend` (checkout `/work/backend-feature`). Work only on the backend part of this feature. Use your own verified startup context. Before project-specific discovery, run `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend`. Bootstrap records this assignment as your default; subsequent calls can omit the project selectors. Inspect the server and tool schema before running tools. Release your own backend binding when your assignment is finished.
+> Your Worker Project Assignment is `/work/feature-projects.json`, label `backend` (checkout `/work/backend-feature`). Work only on the backend part of this feature. Use your own verified startup context. Before project-specific discovery, run `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend`. Bootstrap records this assignment as your default; subsequent calls can omit the project selectors. Read applicable server instructions and inspect unknown tool schemas before running tools. Release your own backend binding when your assignment is finished.
 
 For the frontend worker, use label `frontend` and checkout `/work/frontend`. For a worker assigned a direct path, replace `--project-set ... --project backend` with `--project /work/backend-feature`. For Claude Code, use `--client claude` and add the worker’s own `--project-owner <own-file>`.
 

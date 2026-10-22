@@ -11,6 +11,10 @@ description: 显式选择源码 checkout 和已保存的项目集合，区分配
 
 一个 agent 跨仓库或 Git worktree 工作时，用显式参数为每次调用选择源码 checkout，由共享的本地运行时管理连接。项目选择不会修改运行时全局的“当前项目”，也不会自动把同一个工具调用分发给所有成员。
 
+工具契约未变化时，可在当前会话内复用已知的工具参数结构，包括跨项目调用。项目专属指令、就绪状态、授权和目标选择仍需保持有效。信息缺失、能力变化、准备完成或发生相关失败时，应重新检查服务器和工具。不得自动重放失败的工具调用。
+
+`--project` 和 `--project-set` 仅适用于 `bootstrap`、`instructions`、`inspect`、`run`、`proxy`、`wait`、除 `recover` 外的项目生命周期命令，以及项目准备命令。每个 `--project` 只接收一个值；选择多个项目集标签时重复该参数。参数可放在支持它的命令之前或之后，例如 `1mcp --project /work/app inspect codegraph`。其他命令（包括 `serve` 和 `project recover`）会在执行前拒绝这些参数。
+
 ## 项目与所有者选项
 
 以下选项适用于 `instructions`、`inspect`、`run` 以及项目准备和生命周期命令：
@@ -61,7 +65,7 @@ description: 显式选择源码 checkout 和已保存的项目集合，区分配
 
 普通 CLI 路径可相对于调用目录，最终解析为可读取、可进入的规范目录。现有单 checkout 调用可继续省略 `--project`，使用自动发现的默认目标。派发给 worker 的路径应使用绝对路径，避免父任务的调用目录影响选择。
 
-每次 `instructions`、`inspect` 和 `run` 调用都保留目标参数。调用前先检查服务器指令和工具 schema：
+每次 `instructions`、`inspect` 和 `run` 调用都保留目标参数。调用前阅读适用的服务器指令；工具参数结构未知时先执行检查：
 
 ```bash
 1mcp inspect codegraph/codegraph_explore --project /work/frontend

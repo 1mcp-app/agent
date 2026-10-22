@@ -1,3 +1,4 @@
+import { INSPECTION_GUIDANCE } from '@src/core/instructions/inspectionGuidance.js';
 import { PREPARATION_GUIDANCE } from '@src/core/instructions/preparationGuidance.js';
 import { SESSION_GUIDANCE } from '@src/core/instructions/sessionGuidance.js';
 
@@ -72,14 +73,16 @@ export function formatInstructionsOutput(output: InstructionsOutput): string {
     [
       '1. Start here before selecting tools.',
       '2. Review the available servers below and their applicable instructions. If the provider or tool is unknown, optionally discover candidates with `1mcp inspect --search <query>` or `1mcp inspect <server> --search <query>`.',
-      "3. Run `1mcp inspect <server>` to list that server's tools and read its applicable instructions. When the target is known, inspect it directly without searching.",
-      '4. Run `1mcp inspect <server>/<tool>` to inspect the tool schema and arguments.',
+      '3. Run `1mcp inspect <server>` when its inventory or instructions are missing; read its applicable instructions. When the target is known, inspect it directly without searching.',
+      '4. Run `1mcp inspect <server>/<tool>` when the tool schema and arguments are not already known.',
       '5. Run `1mcp wait <server>` when a configured static server is still loading.',
-      "6. Run `1mcp run <server>/<tool> --args '<json>'` only after inspecting the tool.",
+      "6. Run `1mcp run <server>/<tool> --args '<json>'` using the known tool schema.",
       '7. Use `--preset`, `--tags`, or `--tag-filter` to narrow the server set when needed.',
       '8. If authentication is required, run `1mcp auth login --context <name> --token <token>` and retry.',
       '',
       'Read the server type in the `1mcp instructions` server summary or `1mcp inspect <server>` metadata: `type: external` identifies a static server; `type: template` identifies a dynamic server. For work outside the session default, retain the same explicit target during project-dependent discovery, inspection, and tool calls.',
+      INSPECTION_GUIDANCE,
+      '',
       SESSION_GUIDANCE,
       '',
       'Search uses case-insensitive literal substring matching on server/tool references. Use a quoted pattern such as `--search "filesystem/*read?" --glob` for whole-reference matching with only `*` and `?` wildcards.',

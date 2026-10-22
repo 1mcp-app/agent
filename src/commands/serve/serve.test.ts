@@ -396,6 +396,26 @@ describe('serveCommand - config-dir session isolation', () => {
       );
     });
 
+    it('reports safe guidance and a nonzero exit for foreground startup failures', async () => {
+      const logger = (await import('@src/logger/logger.js')).default;
+      const failure = new Error('private-token-CANARY');
+      configContextMock.getResolvedConfigPath.mockImplementationOnce(() => {
+        throw failure;
+      });
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        await serveCommand(buildOptions({}));
+        expect(stderr).toHaveBeenCalledWith(
+          'Error: Server startup failed. See the configured log for bounded failure facts.\n',
+        );
+        expect(stderr.mock.calls.flat().join('')).not.toContain('CANARY');
+        expect(process.exit).toHaveBeenCalledWith(1);
+        expect(logger.error).toHaveBeenCalledWith('serve.server.error.a68bf449', { error: failure });
+      } finally {
+        stderr.mockRestore();
+      }
+    });
+
     it('does NOT log a WARN and defaults scope validation to false when using unauthenticated default configuration', async () => {
       const logger = (await import('@src/logger/logger.js')).default;
       const warnSpy = vi.mocked(logger.warn);

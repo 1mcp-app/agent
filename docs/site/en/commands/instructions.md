@@ -19,6 +19,8 @@ Client hooks run `bootstrap` to establish ownership and fetch guidance through `
 
 Show CLI-mode instructions for AI agents using a running 1MCP `serve` instance.
 
+Reuse known tool schemas within the session, including across projects, when the tool contract is unchanged. Keep project-specific instructions, readiness, authorization, and target selection current. Refresh server and tool inspection when information is missing, capabilities change, preparation completes, or relevant failures occur. Never automatically replay failed tool calls.
+
 ## Synopsis
 
 ```bash

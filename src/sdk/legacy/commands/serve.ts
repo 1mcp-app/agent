@@ -768,8 +768,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     });
   } catch (_error) {
     runtimeOwnership?.release();
-    if (parsedArgv.background || parsedArgv.restart)
-      process.stderr.write(`Error: ${describeServeLifecycleFailure(_error)}\n`);
+    process.stderr.write(`Error: ${describeServeLifecycleFailure(_error)}\n`);
     logger.error('serve.server.error.a68bf449', { error: _error });
     process.exit(1);
   }
