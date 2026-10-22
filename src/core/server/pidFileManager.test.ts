@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
 
+import * as processIdentity from '@src/core/server/processIdentity.js';
 import {
   cleanupPidFile,
   cleanupPidFileIfMatches,
@@ -104,6 +105,52 @@ describe('pidFileManager', () => {
       // Cleanup
       fs.unlinkSync(getPidFilePath(newConfigDir));
       fs.rmdirSync(newConfigDir);
+    });
+
+    it('reuses the claim evidence without a second process probe', () => {
+      const probe = vi.spyOn(processIdentity, 'readProcessIdentity');
+      const identity = {
+        platform: 'linux' as const,
+        bootId: 'boot',
+        pidNamespace: 'pid:[1]',
+        startTime: '1',
+      };
+      writePidFile(testConfigDir, {
+        pid: process.pid,
+        url: 'http://localhost:3050/mcp',
+        port: 3050,
+        host: 'localhost',
+        transport: 'http',
+        startedAt: new Date().toISOString(),
+        configDir: testConfigDir,
+        processIdentity: identity,
+      });
+      expect(probe).not.toHaveBeenCalled();
+      expect(readPidFile(testConfigDir)?.processIdentity).toEqual(identity);
+    });
+
+    it('persists explicit unavailable evidence without probing', () => {
+      const probe = vi.spyOn(processIdentity, 'readProcessIdentity');
+      const identityEvidence = {
+        status: 'unavailable' as const,
+        code: 'ETIMEDOUT',
+        elapsedMs: 3000,
+        at: new Date().toISOString(),
+      };
+      writePidFile(testConfigDir, {
+        pid: process.pid,
+        url: 'http://localhost:3050/mcp',
+        port: 3050,
+        host: 'localhost',
+        transport: 'http',
+        startedAt: new Date().toISOString(),
+        configDir: testConfigDir,
+        identityEvidence,
+      });
+      expect(probe).not.toHaveBeenCalled();
+      const parsed = readPidFile(testConfigDir);
+      expect(parsed?.processIdentity).toBeUndefined();
+      expect(parsed?.identityEvidence).toEqual(identityEvidence);
     });
   });
 

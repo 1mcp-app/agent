@@ -2555,6 +2555,39 @@ export const EVENT_REGISTRY = {
       error: 'error',
     },
   },
+  'runtimeScopeOwnership.empty.ownership.directory.reclaim.failed': {
+    message: 'Empty runtime ownership directory could not be reclaimed',
+    fields: {
+      error: 'error',
+    },
+  },
+  'runtimeScopeOwnership.identity.repair.attempt': {
+    message: 'Runtime ownership identity evidence repair attempt',
+    fields: {
+      attempts: 'number',
+      elapsedMs: 'number',
+    },
+  },
+  'runtimeScopeOwnership.identity.repaired': {
+    message: 'Runtime ownership identity evidence repaired',
+    fields: {
+      attempts: 'number',
+      elapsedMs: 'number',
+    },
+  },
+  'runtimeScopeOwnership.identity.repair.exhausted': {
+    message: 'Runtime ownership identity evidence repair exhausted',
+    fields: {
+      attempts: 'number',
+      elapsedMs: 'number',
+    },
+  },
+  'runtimeScopeOwnership.identity.repair.failed': {
+    message: 'Runtime ownership identity evidence repair attempt failed',
+    fields: {
+      error: 'error',
+    },
+  },
   'templateConfigurationManager.template.processing.temporarily.disabled.due.to.repeated.failures.b2ad37a7': {
     message: 'Template processing temporarily disabled due to repeated failures',
     fields: {},
@@ -4155,6 +4188,16 @@ export const EVENT_REGISTRY = {
     message: 'Server startup failed.',
     fields: {
       error: 'error',
+    },
+  },
+  'serve.runtime-claim.failed': {
+    message: 'Runtime scope claim failed',
+    fields: {
+      error: 'error',
+      ownership_reason: 'ownershipFailureReason',
+      evidence_status: 'ownershipEvidenceStatus',
+      acquisition_code: 'processEvidenceCode',
+      elapsed_ms: 'number',
     },
   },
   'notificationHandlers.received.notification.in.client.689f962c': {

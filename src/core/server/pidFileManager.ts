@@ -5,7 +5,13 @@ import logger from '@src/logger/logger.js';
 
 import { z } from 'zod';
 
-import { type ProcessIdentity, processIdentitySchema, readProcessIdentity } from './processIdentity.js';
+import {
+  type ProcessIdentity,
+  processIdentitySchema,
+  readProcessIdentity,
+  type UnavailableIdentityEvidence,
+  unavailableIdentityEvidenceSchema,
+} from './processIdentity.js';
 
 /**
  * Server information stored in PID file
@@ -13,6 +19,8 @@ import { type ProcessIdentity, processIdentitySchema, readProcessIdentity } from
 export interface ServerPidInfo {
   pid: number;
   processIdentity?: ProcessIdentity;
+  /** Explicitly degraded evidence; never treated as proof of ownership. */
+  identityEvidence?: UnavailableIdentityEvidence;
   ownerClaimId?: string;
   url: string;
   port: number;
@@ -39,6 +47,7 @@ export interface ServerPidInfo {
 export const serverPidInfoSchema = z.object({
   pid: z.number().int().positive(),
   processIdentity: processIdentitySchema.optional(),
+  identityEvidence: unavailableIdentityEvidenceSchema.optional(),
   url: z.string().min(1),
   port: z.number().int().min(1).max(65535),
   host: z.string().min(1),
@@ -105,12 +114,17 @@ export function writePidFile(configDir: string, serverInfo: ServerPidInfo): void
     // Write PID file atomically: write to a sibling temp file then rename into
     // place (rename is atomic on POSIX). Concurrent readers — racing `serve
     // --status` / discovery — never observe a half-written, unparseable file.
+    // `serve` passes the claim's single evidence read (available or explicitly
+    // unavailable) so startup never pays for a second OS probe.
+    const inheritedEvidence = serverInfo.identityEvidence;
+    const processIdentity = serverInfo.ownerClaimId
+      ? undefined
+      : (serverInfo.processIdentity ?? (inheritedEvidence ? undefined : readProcessIdentity(serverInfo.pid)));
     const content = JSON.stringify(
       {
         ...serverInfo,
-        processIdentity: serverInfo.ownerClaimId
-          ? undefined
-          : (serverInfo.processIdentity ?? readProcessIdentity(serverInfo.pid)),
+        processIdentity,
+        identityEvidence: processIdentity ? undefined : inheritedEvidence,
       },
       null,
       2,

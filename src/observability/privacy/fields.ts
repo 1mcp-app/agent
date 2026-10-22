@@ -142,6 +142,8 @@ export const CLOSED_VALUES = {
     'PROCESS_EVIDENCE_UNAVAILABLE',
     'other',
   ],
+  ownershipFailureReason: ['owned', 'ambiguous', 'other'],
+  ownershipEvidenceStatus: ['available', 'unavailable', 'unknown', 'other'],
   transport: ['stdio', 'http', 'sse', 'streamable-http', 'other'],
   status: [
     'pending',
