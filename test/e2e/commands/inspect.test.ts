@@ -46,6 +46,18 @@ describeInspectE2E('inspect command E2E', () => {
     await environment.cleanup();
   });
 
+  it('routes a leading project selector to inspect instead of default serve', async () => {
+    await startServeProcess();
+    const result = await runner.runCommand('--project', environment.getTempDir(), {
+      cwd: environment.getTempDir(),
+      args: ['inspect', 'runner', ...getCliSessionCacheArgs()],
+    });
+    runner.assertSuccess(result);
+    expect(result.stdout).toContain('kind: server');
+    expect(result.stdout).toContain('server: runner');
+    expect(result.stderr).not.toContain('Server startup failed');
+  });
+
   it('prints a readable schema summary by default', async () => {
     await startServeProcess();
 

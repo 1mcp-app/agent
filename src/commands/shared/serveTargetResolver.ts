@@ -42,7 +42,9 @@ import {
   validateServer1mcpUrl,
 } from '@src/utils/validation/urlDetection.js';
 
-export interface ResolvableServeTargetOptions extends GlobalOptions, ServeUrlOptions {
+import type { ProjectSelectionOptions } from './projectSelectionOptions.js';
+
+export interface ResolvableServeTargetOptions extends GlobalOptions, ProjectSelectionOptions, ServeUrlOptions {
   url?: string;
   context?: string;
 }

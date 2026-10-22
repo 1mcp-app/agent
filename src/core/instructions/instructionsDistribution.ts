@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+import { INSPECTION_GUIDANCE } from '@src/core/instructions/inspectionGuidance.js';
+
 import { z } from 'zod';
 
 import { PREPARATION_GUIDANCE } from './preparationGuidance.js';
@@ -189,15 +191,17 @@ export function renderManagedDocContent(): string {
     '',
     '## Tool workflow',
     '',
-    '1. Review server instructions. If the provider/tool is unknown, search with `1mcp inspect --search <query>` or `1mcp inspect <server> --search <query>`. When the target is known, inspect it directly.',
-    '2. Run `1mcp inspect <server>` before selecting a tool and read its applicable instructions.',
-    '3. Inspect the schema with `1mcp inspect <server>/<tool>`.',
+    '1. Review server instructions. If the provider/tool is unknown, search with `1mcp inspect --search <query>` or `1mcp inspect <server> --search <query>`. When the target is known, skip discovery.',
+    '2. Run `1mcp inspect <server>` when its inventory or instructions are missing; read its applicable instructions.',
+    '3. Inspect unknown schemas with `1mcp inspect <server>/<tool>`.',
     "4. Invoke with `1mcp run <server>/<tool> --args '<json>'`.",
     '',
     'Server metadata uses `type: external` for static servers and `type: template` for dynamic servers. Narrow the server set with `--preset`, `--tags` or `--tag-filter`.',
     '',
     'Search is case-insensitive literal substring matching on server/tool references. Use `--search "filesystem/*read?" --glob` for whole-reference matching (`*` and `?` only).',
     '`--include-descriptions` also matches effective descriptions; `--show-descriptions` independently displays descriptions without changing matches.',
+    '',
+    INSPECTION_GUIDANCE,
     '',
     SESSION_GUIDANCE,
     '',

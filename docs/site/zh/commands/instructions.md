@@ -9,6 +9,8 @@ description: 获取 CLI 模式 agent 工作流和当前服务器发现信息。
 
 显示面向 AI agent 的 CLI 模式工作流和当前服务器清单。
 
+工具契约未变化时，可在当前会话内复用已知的工具参数结构，包括跨项目调用。项目专属指令、就绪状态、授权和目标选择仍需保持有效。信息缺失、能力变化、准备完成或发生相关失败时，应重新检查服务器和工具。不得自动重放失败的工具调用。
+
 ## 概要
 
 ```bash
@@ -89,12 +91,15 @@ npx -y @1mcp/agent instructions --preset development
 
 ## 推荐工作流
 
-读取 `instructions` 后，继续执行：
+阅读适用指令后，仅在信息缺失或需要刷新、能力变化、准备完成或发生相关失败时执行检查，再使用已知参数结构调用工具。以下示例假设已配置 `filesystem` 服务器，且其 `read_file` 工具可以读取 `README.md`：
 
 ```bash
-npx -y @1mcp/agent inspect <server>
-npx -y @1mcp/agent inspect <server>/<tool>
-npx -y @1mcp/agent run <server>/<tool> --args '<json>'
+# 仅在服务器清单或指令缺失或需要刷新时执行：
+1mcp inspect filesystem
+# 仅在工具参数结构缺失或需要刷新时执行：
+1mcp inspect filesystem/read_file
+# 使用当前指令和已知参数结构调用：
+1mcp run filesystem/read_file --args '{"path":"README.md"}'
 ```
 
 如果需要身份验证，playbook 会提示用户或 agent 使用以下命令重试：

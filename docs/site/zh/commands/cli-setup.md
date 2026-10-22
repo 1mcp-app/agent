@@ -11,6 +11,8 @@ description: 为 Codex 或 Claude 安装 1MCP CLI 模式的引导文档和 hooks
 
 为 Codex 或 Claude 安装 1MCP CLI 的引导文档和钩子配置。
 
+工具契约未变化时，可在当前会话内复用已知的工具参数结构，包括跨项目调用。项目专属指令、就绪状态、授权和目标选择仍需保持有效。信息缺失、能力变化、准备完成或发生相关失败时，应重新检查服务器和工具。不得自动重放失败的工具调用。
+
 ## 概要
 
 ```bash
@@ -98,9 +100,9 @@ npx -y @1mcp/agent cli-setup --codex --scope all
 受管理的启动文档会告诉客户端：
 
 1. 如果当前会话尚未通过 hooks 注入最新内容，就先执行 `1mcp instructions`
-2. 不知道提供方或工具时，可先执行 `1mcp inspect --search <query>`（也可指定服务器）；已知目标时直接检查
-3. 在选择工具前执行 `1mcp inspect <server>` 并阅读适用的服务器指令
-4. 在调用工具前先执行 `1mcp inspect <server>/<tool>`
+2. 不知道提供方或工具时，可先执行 `1mcp inspect --search <query>`（也可指定服务器）；已知目标时跳过发现步骤
+3. 缺少服务器清单或指令时执行 `1mcp inspect <server>`，并阅读适用的服务器指令
+4. 工具参数结构未知时执行 `1mcp inspect <server>/<tool>`
 5. 只有在确认 schema 之后才执行 `1mcp run <server>/<tool> --args '<json>'`
 
 搜索默认使用不区分大小写的字面子串匹配。使用带引号的 `--search 'filesystem/*read?' --glob` 可按 `*`/`?` 对整个引用匹配。`--include-descriptions` 将有效描述纳入匹配；`--show-descriptions` 独立控制描述显示。

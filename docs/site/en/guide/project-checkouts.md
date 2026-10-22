@@ -11,9 +11,13 @@ Examples below use a supported Codex session with verified startup hooks: 1MCP r
 
 Use explicit project selectors when one agent works across repositories or Git worktrees. Each call selects its source checkout while a shared local runtime manages the connections. Selecting a project does not change a runtime-global current project or dispatch the same tool call to every member.
 
+Reuse known tool schemas within the session, including across projects, when the tool contract is unchanged. Keep project-specific instructions, readiness, authorization, and target selection current. Refresh server and tool inspection when information is missing, capabilities change, preparation completes, or relevant failures occur. Never automatically replay failed tool calls.
+
+`--project` and `--project-set` are command-scoped options, supported by `bootstrap`, `instructions`, `inspect`, `run`, `proxy`, `wait`, project lifecycle commands except `recover`, and project preparation commands. Each `--project` consumes exactly one value; repeat it for project-set labels. Selectors may appear before or after a supported command, for example `1mcp --project /work/app inspect codegraph`. Other commands, including `serve` and `project recover`, reject them before execution.
+
 ## Project and owner options
 
-These options apply to `instructions`, `inspect`, `run`, and project preparation/lifecycle commands:
+The project selectors below apply to the supported commands listed above. `--project-owner` remains a global option:
 
 | Option                      | Meaning                                                                                                                                |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -61,7 +65,7 @@ To override the assigned default without a project set, supply exactly one check
 
 Ordinary CLI checkout paths may be relative to the invocation directory and are resolved to readable, traversable canonical directories. Existing single-checkout invocations can continue using their discovered default without `--project`. Worker dispatch assignments should use absolute paths to avoid a parent's invocation directory affecting selection.
 
-Retain the selector on each `instructions`, `inspect`, and `run` call. Inspect the server instructions and tool schema before invoking it:
+Retain the selector on each `instructions`, `inspect`, and `run` call. Read applicable server instructions and inspect the tool schema if it is not already known:
 
 ```bash
 1mcp inspect codegraph/codegraph_explore --project /work/frontend

@@ -21,6 +21,8 @@ For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Wo
 
 Install 1MCP CLI hooks and reference files for Codex or Claude.
 
+Reuse known tool schemas within the session, including across projects, when the tool contract is unchanged. Keep project-specific instructions, readiness, authorization, and target selection current. Refresh server and tool inspection when information is missing, capabilities change, preparation completes, or relevant failures occur. Never automatically replay failed tool calls.
+
 ## Synopsis
 
 ```bash
@@ -108,10 +110,10 @@ When `--codex` is used, the command also prints a required `config.toml` snippet
 The managed startup docs tell the client to:
 
 1. Run `1mcp instructions` unless the current session already received those instructions from hooks
-2. If the provider or tool is unknown, optionally use `1mcp inspect --search <query>` (or add a server target); otherwise inspect the known target directly
-3. Run `1mcp inspect <server>` and read the applicable server instructions before picking a tool
-4. Run `1mcp inspect <server>/<tool>` before invocation
-5. Run `1mcp run <server>/<tool> --args '<json>'` only after inspecting the schema
+2. If the provider or tool is unknown, optionally use `1mcp inspect --search <query>` (or add a server target); skip discovery when the target is already known
+3. Run `1mcp inspect <server>` when its inventory or instructions are missing; read the applicable server instructions
+4. Run `1mcp inspect <server>/<tool>` when the schema is not already known
+5. Run `1mcp run <server>/<tool> --args '<json>'` using the known schema
 
 Search defaults to case-insensitive literal substring matching. Use a quoted `--search 'filesystem/*read?' --glob` pattern for whole-reference `*`/`?` matching. `--include-descriptions` adds effective descriptions to matching; `--show-descriptions` independently displays them.
 

@@ -1,4 +1,5 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
+import { withProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
@@ -8,7 +9,7 @@ export function setupInstructionsCommand(yargs: Argv): Argv {
     'instructions',
     'Show instructions for connected agents',
     (commandYargs) =>
-      commandYargs
+      withProjectSelectionOptions(commandYargs)
         .option('url', {
           alias: 'u',
           describe: 'Override auto-detected 1MCP server URL',

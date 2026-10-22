@@ -23,6 +23,7 @@ import {
   removeProjectOwner,
   withProjectOwnerLock,
 } from '@src/commands/shared/projectOwnerStore.js';
+import type { ProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { resolveProjectContext } from '@src/config/projectConfigLoader.js';
 import { getConfigDir } from '@src/constants.js';
 import { canonicalizeCheckoutPath } from '@src/domains/project-selection/projectSelection.js';
@@ -30,7 +31,7 @@ import type { GlobalOptions } from '@src/globalOptions.js';
 
 import { z } from 'zod';
 
-interface OwnershipHookOptions extends GlobalOptions {
+interface OwnershipHookOptions extends GlobalOptions, ProjectSelectionOptions {
   client: 'codex' | 'claude';
   event: 'SessionStart' | 'SubagentStart' | 'SessionEnd';
 }

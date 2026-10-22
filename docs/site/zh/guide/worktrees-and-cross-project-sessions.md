@@ -7,6 +7,8 @@ description: 配置本地智能体会话，在前后端检出目录间协作，�
 
 当一个功能涉及多个仓库或 Git worktree 时，使用本指南。示例将前端保留在 `/work/frontend`，从 `/work/backend` 创建功能 worktree，并为每个 worker 指定明确目标。一个本地 1MCP 运行时管理后端连接。
 
+工具契约未变化时，可在当前会话内复用已知的工具参数结构，包括跨项目调用。项目专属指令、就绪状态、授权和目标选择仍需保持有效。信息缺失、能力变化、准备完成或发生相关失败时，应重新检查服务器和工具。不得自动重放失败的工具调用。
+
 ## 每一步由谁执行？
 
 **你**负责安装工具、配置运行时和客户端，并选择项目及准备权限。**AI 智能体**在 bootstrap 后执行发现、工具调用、准备控制，以及释放自身绑定。**本地操作者或 worktree 管理器**负责排空、移除或恢复检出目录。如果你已授权相应工作，且智能体具有所需的本地权限，也可以由它执行操作者步骤。
@@ -153,15 +155,19 @@ codegraph init /work/backend-feature --yes
 
 相对路径从 JSON 文件所在目录解析。使用项目集合时，`--project` 选择**标签**；不使用集合时，它选择检出目录路径。此集合刻意不设默认选择，因此每次项目相关调用都必须指定目标。
 
-如果钩子尚未提供当前分配目标的指令，先获取指令。调用工具前，检查已配置的服务器及工具 schema：
+如果钩子尚未提供当前分配目标的指令，先获取指令。信息缺失或需要刷新时，检查已配置的服务器及工具参数结构：
 
 **AI 智能体**
 
 ```bash
 # 仅在当前目标指引尚未交付时执行：
 1mcp instructions --project-set /work/feature-projects.json --project frontend
+
+# 仅在服务器或工具信息缺失或需要刷新时检查：
 1mcp inspect codegraph --project-set /work/feature-projects.json --project frontend
 1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend
+
+# 使用当前指令和已知参数结构调用：
 1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project frontend --args '{"query":"Where does the frontend call the backend API?"}'
 ```
 
@@ -172,8 +178,12 @@ codegraph init /work/backend-feature --yes
 ```bash
 # 仅在当前目标指引尚未交付时执行：
 1mcp instructions --project-set /work/feature-projects.json --project backend
+
+# 仅在服务器或工具信息缺失或需要刷新时检查：
 1mcp inspect codegraph --project-set /work/feature-projects.json --project backend
 1mcp inspect codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend
+
+# 使用当前指令和已知参数结构调用：
 1mcp run codegraph/codegraph_explore --project-set /work/feature-projects.json --project backend --args '{"query":"Where are the backend API routes defined?"}'
 ```
 
@@ -185,7 +195,7 @@ codegraph init /work/backend-feature --yes
 
 由你或负责协调的 AI 智能体在派发提示词中给出明确分配。以下 bootstrap 命令由 **worker AI 智能体**执行：
 
-> 你的 Worker Project Assignment 是 `/work/feature-projects.json` 中的 `backend` 标签（检出目录 `/work/backend-feature`）。只处理本功能的后端部分。使用你自己经验证的启动上下文。在项目相关发现之前，执行 `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend`。Bootstrap 将该分配记录为你的默认目标，后续调用可省略项目参数。运行工具前先检查服务器及工具 schema。任务完成时释放你自己的 backend 绑定。
+> 你的 Worker Project Assignment 是 `/work/feature-projects.json` 中的 `backend` 标签（检出目录 `/work/backend-feature`）。只处理本功能的后端部分。使用你自己经验证的启动上下文。在项目相关发现之前，执行 `1mcp bootstrap --client codex --event SubagentStart --project-set /work/feature-projects.json --project backend`。Bootstrap 将该分配记录为你的默认目标，后续调用可省略项目参数。运行工具前阅读适用的服务器指令，并检查未知的工具参数结构。任务完成时释放你自己的 backend 绑定。
 
 前端 worker 使用 `frontend` 标签和 `/work/frontend` 检出目录。如果直接分配路径，将 `--project-set ... --project backend` 替换为 `--project /work/backend-feature`。Claude Code 使用 `--client claude` 并添加该 worker 自己的 `--project-owner <own-file>`。
 

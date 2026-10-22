@@ -19,6 +19,8 @@ Client hooks run `bootstrap` to establish ownership and fetch guidance through `
 
 Show CLI-mode instructions for AI agents using a running 1MCP `serve` instance.
 
+Reuse known tool schemas within the session, including across projects, when the tool contract is unchanged. Keep project-specific instructions, readiness, authorization, and target selection current. Refresh server and tool inspection when information is missing, capabilities change, preparation completes, or relevant failures occur. Never automatically replay failed tool calls.
+
 ## Synopsis
 
 ```bash
@@ -99,12 +101,15 @@ npx -y @1mcp/agent instructions --preset development
 
 ## Recommended Workflow
 
-After reading `instructions`, continue with:
+After reading applicable instructions, inspect only when information is missing or needs refreshing, capabilities change, preparation completes, or relevant failures occur. Then invoke using the known schema. This example assumes a configured `filesystem` server whose `read_file` tool can read `README.md`:
 
 ```bash
-npx -y @1mcp/agent inspect <server>
-npx -y @1mcp/agent inspect <server>/<tool>
-npx -y @1mcp/agent run <server>/<tool> --args '<json>'
+# When server inventory or instructions are missing or need refreshing:
+1mcp inspect filesystem
+# When the tool schema is missing or needs refreshing:
+1mcp inspect filesystem/read_file
+# Invoke using current instructions and the known schema:
+1mcp run filesystem/read_file --args '{"path":"README.md"}'
 ```
 
 If authentication is required, the playbook directs the user or agent to retry with:

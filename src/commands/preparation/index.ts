@@ -1,10 +1,11 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
+import { withProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
 function options(yargs: Argv): Argv {
-  return yargs
+  return withProjectSelectionOptions(yargs)
     .positional('backend', {
       describe: 'Configured backend name (available even before tool discovery)',
       type: 'string',
