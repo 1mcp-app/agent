@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🐛 Bug Fixes
 
 - Recover Runtime Scopes whose ownership record lacks process birth evidence: a provably absent owner PID no longer bricks startup, unavailable evidence is recorded explicitly, the claim's single identity probe is reused for the PID file, and a bounded background repair upgrades the record once the probe succeeds. Startup failures now expose bounded structured diagnostics and a last-resort log line.
+- Harden ownership identity repair: temporary repair files stay outside the canonical ownership directory, fallback cleanup never masks startup diagnostics or blocks shutdown, and PID repair distinguishes retryable failures from changed generations and unsafe metadata.
 
 ## [0.39.2] - 2026-10-13
 

@@ -128,6 +128,14 @@ _Avoid_: dead lock, stale PID, takeover
 The bounded background process that upgrades one observed **Runtime Ownership Record** generation from **Unavailable Ownership Evidence** to **Runtime Ownership Evidence** after the claimant later reads its own birth evidence.
 _Avoid_: retry loop, heartbeat renewal, takeover
 
+**Best-Effort Ownership Release**:
+The idempotent cleanup of a claimed **Runtime Scope** on a fallback path such as startup failure, reclaim finalization, or process shutdown; it records a secondary failure and never masks the primary error or blocks exit.
+_Avoid_: takeover, silent cleanup, retry loop
+
+**Verified Ownership Release**:
+The explicit lifecycle release used by operator commands, which reports failure and remains fail-closed.
+_Avoid_: best-effort cleanup, automatic recovery
+
 **Runtime Absence**:
 The conclusion that no **Aggregated Runtime** occupies the selected local **Runtime Scope** or remote **Runtime Target**. It must not describe an identified runtime that rejected or failed an attachment probe.
 _Avoid_: unreachable runtime, probe error, connection failure
@@ -458,6 +466,9 @@ _Avoid_: raw wire dump, traffic log
 - **Unavailable Ownership Evidence** never authorizes termination, takeover, or reclaim while its PID is alive.
 - A **Provably Absent Runtime Owner** permits stale metadata reclaim but never authorizes signaling a live PID.
 - A **Runtime Ownership Identity Repair** upgrades only the observed PID and claim-ID generation and stops on success or after its bounded budget.
+- A **Runtime Ownership Identity Repair** keeps temporary artifacts outside the canonical ownership directory and never treats an unknown entry as stale.
+- A **Best-Effort Ownership Release** never replaces a **Verified Ownership Release** for an explicit lifecycle command.
+- A **Best-Effort Ownership Release** may leave metadata for later **Provably Absent Runtime Owner** or empty-directory recovery; it never authorizes takeover.
 - `--config-dir` selects a local **Runtime Scope** and must not be interpreted as a remote runtime path.
 - A **Config Change** belongs to exactly one **Runtime Scope**.
 - A **Config Change** can add, update, or remove one **Configured Server Target**.
