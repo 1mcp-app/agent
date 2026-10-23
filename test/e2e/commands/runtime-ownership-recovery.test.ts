@@ -119,6 +119,18 @@ describe('runtime ownership recovery', () => {
     }
   }, 60_000);
 
+  it('starts with a stray sibling identity temp outside the canonical directory', async () => {
+    const dir = createScope({});
+    fs.writeFileSync(path.join(dir, 'runtime.owner.dead.identity.tmp'), '{}');
+    const child = spawnServe(dir, await freePort());
+    try {
+      await waitFor(() => fs.existsSync(path.join(dir, 'server.pid')), 30_000);
+      expect(readOwner(dir).pid).toBe(child.pid);
+    } finally {
+      await stop(child);
+    }
+  }, 60_000);
+
   it('fails closed and names unknown ownership entries', async () => {
     const dir = createScope({ 'owner.json.bak': '{}' });
     const child = spawnServe(dir, await freePort());

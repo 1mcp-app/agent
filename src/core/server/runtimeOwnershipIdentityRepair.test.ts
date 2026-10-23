@@ -5,7 +5,7 @@ import logger from '@src/logger/logger.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { readPidFile, writePidFile } from './pidFileManager.js';
+import { getPidFilePath, readPidFile, writePidFile } from './pidFileManager.js';
 import { scheduleRuntimeOwnershipIdentityRepair } from './runtimeOwnershipIdentityRepair.js';
 import { claimRuntimeScope, readRuntimeScopeOwnership } from './runtimeScopeOwnership.js';
 
@@ -117,6 +117,88 @@ describe('runtime ownership identity repair', () => {
       expect.objectContaining({ attempts: 5 }),
     );
     expect(readRuntimeScopeOwnership(configDir)?.identityEvidence).toBeDefined();
+    owner.release();
+  });
+
+  it('retries a transient PID read failure and exposes the pending PID outcome', async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+    const owner = claimDegraded();
+    const acquire = vi.fn(() => ({ identity }));
+    const readPid = vi.fn(() => {
+      throw Object.assign(new Error('EIO'), { code: 'EIO' });
+    });
+    scheduleRuntimeOwnershipIdentityRepair({
+      runtimeScope: configDir,
+      pid: owner.record.pid,
+      claimId: owner.record.claimId,
+      acquireIdentity: acquire,
+      readPidFile: readPid,
+    });
+
+    await vi.advanceTimersByTimeAsync(200_000);
+
+    expect(acquire).toHaveBeenCalledTimes(5);
+    expect(readPid).toHaveBeenCalledTimes(5);
+    expect(warn).toHaveBeenCalledWith(
+      'runtimeScopeOwnership.identity.repair.exhausted',
+      expect.objectContaining({ attempts: 5, pid_outcome: 'retry' }),
+    );
+    expect(readRuntimeScopeOwnership(configDir)?.processIdentity).toEqual(identity);
+    owner.release();
+  });
+
+  it('stops when the PID record belongs to another generation', async () => {
+    vi.useFakeTimers();
+    const owner = claimDegraded();
+    writePidFile(configDir, {
+      pid: 99999999,
+      url: 'http://127.0.0.1:3050/mcp',
+      port: 3050,
+      host: '127.0.0.1',
+      transport: 'http',
+      startedAt: new Date().toISOString(),
+      configDir,
+      processIdentity: identity,
+    });
+    const acquire = vi.fn(() => ({ identity }));
+    scheduleRuntimeOwnershipIdentityRepair({
+      runtimeScope: configDir,
+      pid: owner.record.pid,
+      claimId: owner.record.claimId,
+      acquireIdentity: acquire,
+    });
+
+    await vi.advanceTimersByTimeAsync(200_000);
+
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(readPidFile(configDir)?.pid).toBe(99999999);
+    expect(readRuntimeScopeOwnership(configDir)?.processIdentity).toEqual(identity);
+    owner.release();
+  });
+
+  it('stops on unreadable-but-present PID metadata instead of overwriting it', async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+    const owner = claimDegraded();
+    fs.writeFileSync(getPidFilePath(configDir), '{');
+    const acquire = vi.fn(() => ({ identity }));
+    scheduleRuntimeOwnershipIdentityRepair({
+      runtimeScope: configDir,
+      pid: owner.record.pid,
+      claimId: owner.record.claimId,
+      acquireIdentity: acquire,
+    });
+
+    await vi.advanceTimersByTimeAsync(200_000);
+
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      'runtimeScopeOwnership.identity.repair.unsafe',
+      expect.objectContaining({ pid_outcome: 'unsafe' }),
+    );
+    expect(fs.readFileSync(getPidFilePath(configDir), 'utf8')).toBe('{');
+    expect(readRuntimeScopeOwnership(configDir)?.processIdentity).toEqual(identity);
     owner.release();
   });
 });

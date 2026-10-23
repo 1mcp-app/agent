@@ -165,6 +165,25 @@ describe('typed local instrumentation privacy', () => {
     ).toMatchObject({ ownership_reason: 'other', evidence_status: 'other', acquisition_code: 'other' });
   });
 
+  it('normalizes ownership cleanup and repair outcomes with closed enums', () => {
+    expect(
+      normalizeEvent('runtimeScopeOwnership.release.failed', {
+        error: Object.assign(new Error('private cleanup path'), { name: 'RuntimeScopeOwnedError' }),
+        stage: 'stop-lock',
+      }),
+    ).toMatchObject({ stage: 'stop-lock', error_kind: 'other', error_code: 'other' });
+    expect(
+      normalizeEvent('runtimeScopeOwnership.identity.repair.unsafe', {
+        attempts: 1,
+        elapsedMs: 10,
+        pid_outcome: 'unsafe',
+      }),
+    ).toMatchObject({ attempts: 1, elapsedMs: 10, pid_outcome: 'unsafe' });
+    expect(normalizeEvent('runtimeScopeOwnership.release.failed', { stage: 'private' })).toMatchObject({
+      stage: 'other',
+    });
+  });
+
   it('preserves protocol stdout when the actual file logger runs in stdio mode', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'stdio-local-logs-'));
     directories.push(directory);

@@ -13,6 +13,7 @@ import {
   readRuntimeScopeOwnership,
   reclaimStaleRuntimeScopeOwnership,
   releaseRuntimeScopeOwnership,
+  releaseRuntimeScopeOwnershipBestEffort,
   RuntimeScopeOwnedError,
   updateRuntimeScopeOwnershipIdentity,
   verifyRuntimeScopeOwnership,
@@ -134,6 +135,25 @@ describe('Runtime Scope ownership', () => {
     );
   }
 
+  function claimDegraded() {
+    return claimRuntimeScope(
+      configDir,
+      { kind: 'foreground-http' },
+      {
+        acquireIdentity: () => ({
+          failure: { platform: 'win32', pid: process.pid, elapsedMs: 3000, code: 'ETIMEDOUT' },
+        }),
+      },
+    );
+  }
+
+  const repairedIdentity = {
+    platform: 'linux' as const,
+    bootId: 'test-boot',
+    pidNamespace: 'pid:[100]',
+    startTime: '123',
+  };
+
   it('does not reclaim a legacy owner while its PID is alive', () => {
     enableFileLocks();
     writeLegacyOwner(process.pid);
@@ -219,6 +239,103 @@ describe('Runtime Scope ownership', () => {
     expect(updateRuntimeScopeOwnershipIdentity(configDir, { pid: owner.record.pid, claimId: 'other' }, identity)).toBe(
       false,
     );
+    owner.release();
+  });
+
+  it('publishes identity repair through a sibling temp outside the canonical directory', () => {
+    const owner = claimDegraded();
+    const originalRename = fs.renameSync;
+    const sources: string[] = [];
+    vi.spyOn(fs, 'renameSync').mockImplementation(((from: fs.PathLike, to: fs.PathLike) => {
+      sources.push(String(from));
+      return originalRename(from, to);
+    }) as typeof fs.renameSync);
+
+    expect(
+      updateRuntimeScopeOwnershipIdentity(
+        configDir,
+        { pid: owner.record.pid, claimId: owner.record.claimId },
+        repairedIdentity,
+      ),
+    ).toBe(true);
+    expect(sources.some((source) => source.includes(`runtime.owner.${owner.record.claimId}.identity.tmp`))).toBe(true);
+    expect(fs.readdirSync(ownerPath)).toEqual(['owner.json']);
+    expect(fs.readdirSync(configDir).some((entry) => entry.includes('.identity.tmp'))).toBe(false);
+    owner.release();
+  });
+
+  it('cleans up a partial sibling temp when the identity write fails', () => {
+    const owner = claimDegraded();
+    const originalWrite = fs.writeFileSync;
+    vi.spyOn(fs, 'writeFileSync').mockImplementation(((
+      file: fs.PathLike,
+      data: Parameters<typeof fs.writeFileSync>[1],
+      options?: fs.WriteFileOptions,
+    ) => {
+      if (String(file).includes('.identity.tmp')) {
+        originalWrite(file, 'partial', options);
+        throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+      }
+      return originalWrite(file, data, options);
+    }) as typeof fs.writeFileSync);
+
+    expect(() =>
+      updateRuntimeScopeOwnershipIdentity(
+        configDir,
+        { pid: owner.record.pid, claimId: owner.record.claimId },
+        repairedIdentity,
+      ),
+    ).toThrow('ENOSPC');
+    expect(fs.readdirSync(ownerPath)).toEqual(['owner.json']);
+    expect(fs.readdirSync(configDir).some((entry) => entry.includes('.identity.tmp'))).toBe(false);
+    owner.release();
+  });
+
+  it('keeps a failed best-effort release retryable without throwing', () => {
+    const owner = claimRuntimeScope(configDir, { kind: 'foreground-http' });
+    const originalRename = fs.renameSync;
+    const rename = vi.spyOn(fs, 'renameSync').mockImplementation(((from: fs.PathLike, to: fs.PathLike) => {
+      if (String(from) === ownerRecordPath) {
+        throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      }
+      return originalRename(from, to);
+    }) as typeof fs.renameSync);
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+
+    expect(() => owner.release()).not.toThrow();
+    expect(warn).toHaveBeenCalledWith('runtimeScopeOwnership.release.failed', {
+      error: expect.anything(),
+      stage: 'ownership',
+    });
+    expect(fs.existsSync(ownerRecordPath)).toBe(true);
+
+    rename.mockRestore();
+    owner.release();
+    expect(readRuntimeScopeOwnership(configDir)).toBeNull();
+  });
+
+  it('keeps explicit ownership release fail-closed while best-effort release is not', () => {
+    const owner = claimRuntimeScope(configDir, { kind: 'foreground-http' });
+    fs.writeFileSync(path.join(ownerPath, 'stray.tmp'), 'x');
+
+    expect(() =>
+      releaseRuntimeScopeOwnership(configDir, { pid: owner.record.pid, claimId: owner.record.claimId }),
+    ).toThrow(RuntimeScopeOwnedError);
+    expect(
+      releaseRuntimeScopeOwnershipBestEffort(configDir, {
+        pid: owner.record.pid,
+        claimId: owner.record.claimId,
+      }),
+    ).toBe('failed');
+
+    fs.unlinkSync(path.join(ownerPath, 'stray.tmp'));
+    owner.release();
+  });
+
+  it('claims successfully with a stray sibling identity temp', () => {
+    fs.writeFileSync(path.join(configDir, 'runtime.owner.dead.identity.tmp'), '{}');
+    const owner = claimRuntimeScope(configDir, { kind: 'foreground-http' });
+    expect(readRuntimeScopeOwnership(configDir)?.claimId).toBe(owner.record.claimId);
     owner.release();
   });
 
