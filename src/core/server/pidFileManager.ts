@@ -214,24 +214,33 @@ export function cleanupPidFile(configDir: string): boolean {
 }
 
 /**
+ * Whether `current` still describes the runtime generation captured by
+ * `expected`. A generation is pinned by PID, claim ID, and start time; identity
+ * is late-binding evidence, so it is compared only when the captured record
+ * already carries it and repair may have filled it in since.
+ */
+export function pidRecordMatchesGeneration(current: ServerPidInfo | null, expected: ServerPidInfo): boolean {
+  if (!current) return false;
+  if (current.pid !== expected.pid) return false;
+  if (current.ownerClaimId !== expected.ownerClaimId) return false;
+  if (current.startedAt !== expected.startedAt) return false;
+  if (expected.processIdentity === undefined) return true;
+  return JSON.stringify(current.processIdentity) === JSON.stringify(expected.processIdentity);
+}
+
+/**
  * Delete the PID file only if it still matches the expected PID or full record.
- * Lifecycle callers pass the full record to also match birth evidence and startup time.
+ * Lifecycle callers pass the full record to also match the runtime generation.
  * Guards against a
  * time-of-check/time-of-use race: between reading a stale/dead PID and deleting
  * the file, a new runtime may have written a fresh PID file in the same scope.
  * Deleting unconditionally would strand that live runtime (undiscoverable to
  * later `--status`/`--stop`). Re-reading and matching the PID prevents that.
  *
- * A runtime generation is pinned by pid, claim ID, and start time. Identity is
- * late-binding evidence: background repair fills it in for the same generation,
- * so a record captured before repair must still match afterwards. Identity is
- * therefore compared only when the expected record already carries it.
- *
  * @returns true if the file was removed or is already gone/replaced; false if a
  *   matching file existed but could not be deleted.
  */
 export function cleanupPidFileIfMatches(configDir: string, expected: number | ServerPidInfo): boolean {
-  const expectedPid = typeof expected === 'number' ? expected : expected.pid;
   let current: ServerPidInfo | null;
   try {
     current = readPidFile(configDir);
@@ -241,16 +250,13 @@ export function cleanupPidFileIfMatches(configDir: string, expected: number | Se
     }
     throw error;
   }
-  if (
-    !current ||
-    current.pid !== expectedPid ||
-    (typeof expected !== 'number' &&
-      (current.ownerClaimId !== expected.ownerClaimId ||
-        current.startedAt !== expected.startedAt ||
-        (expected.processIdentity !== undefined &&
-          JSON.stringify(current.processIdentity) !== JSON.stringify(expected.processIdentity))))
-  ) {
-    // Already gone, or replaced by a newer runtime — leave it untouched.
+  if (typeof expected === 'number') {
+    if (!current || current.pid !== expected) {
+      // Already gone, or replaced by a newer runtime — leave it untouched.
+      return true;
+    }
+  } else if (!pidRecordMatchesGeneration(current, expected)) {
+    // Already gone, or a different generation — leave it untouched.
     return true;
   }
   return cleanupPidFile(configDir);
