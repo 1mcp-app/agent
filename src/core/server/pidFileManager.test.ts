@@ -339,7 +339,7 @@ describe('pidFileManager', () => {
     it('should delete the PID file when it still records the expected PID', () => {
       writePidFile(testConfigDir, infoWithPid(process.pid));
 
-      expect(cleanupPidFileIfMatches(testConfigDir, process.pid)).toBe(true);
+      expect(cleanupPidFileIfMatches(testConfigDir, infoWithPid(process.pid))).toBe(true);
       expect(fs.existsSync(testPidFilePath)).toBe(false);
     });
 
@@ -348,7 +348,7 @@ describe('pidFileManager', () => {
       writePidFile(testConfigDir, infoWithPid(process.pid));
 
       // Caller expected an older/dead PID; the live file must be left intact.
-      expect(cleanupPidFileIfMatches(testConfigDir, 99999998)).toBe(true);
+      expect(cleanupPidFileIfMatches(testConfigDir, infoWithPid(99999998))).toBe(true);
       expect(fs.existsSync(testPidFilePath)).toBe(true);
       expect(readPidFile(testConfigDir)?.pid).toBe(process.pid);
     });
@@ -418,7 +418,7 @@ describe('pidFileManager', () => {
     });
 
     it('should be a no-op when no PID file exists', () => {
-      expect(cleanupPidFileIfMatches(testConfigDir, process.pid)).toBe(true);
+      expect(cleanupPidFileIfMatches(testConfigDir, infoWithPid(process.pid))).toBe(true);
     });
   });
 

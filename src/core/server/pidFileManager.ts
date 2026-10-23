@@ -229,18 +229,18 @@ export function pidRecordMatchesGeneration(current: ServerPidInfo | null, expect
 }
 
 /**
- * Delete the PID file only if it still matches the expected PID or full record.
- * Lifecycle callers pass the full record to also match the runtime generation.
+ * Delete the PID file only if it still describes the expected runtime record.
  * Guards against a
  * time-of-check/time-of-use race: between reading a stale/dead PID and deleting
  * the file, a new runtime may have written a fresh PID file in the same scope.
  * Deleting unconditionally would strand that live runtime (undiscoverable to
- * later `--status`/`--stop`). Re-reading and matching the PID prevents that.
+ * later `--status`/`--stop`). Re-reading and matching the generation prevents
+ * that; a numeric-PID match alone never authorizes removal.
  *
  * @returns true if the file was removed or is already gone/replaced; false if a
  *   matching file existed but could not be deleted.
  */
-export function cleanupPidFileIfMatches(configDir: string, expected: number | ServerPidInfo): boolean {
+export function cleanupPidFileIfMatches(configDir: string, expected: ServerPidInfo): boolean {
   let current: ServerPidInfo | null;
   try {
     current = readPidFile(configDir);
@@ -250,12 +250,7 @@ export function cleanupPidFileIfMatches(configDir: string, expected: number | Se
     }
     throw error;
   }
-  if (typeof expected === 'number') {
-    if (!current || current.pid !== expected) {
-      // Already gone, or replaced by a newer runtime — leave it untouched.
-      return true;
-    }
-  } else if (!pidRecordMatchesGeneration(current, expected)) {
+  if (!pidRecordMatchesGeneration(current, expected)) {
     // Already gone, or a different generation — leave it untouched.
     return true;
   }
