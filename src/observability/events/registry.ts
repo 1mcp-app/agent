@@ -2561,6 +2561,13 @@ export const EVENT_REGISTRY = {
       error: 'error',
     },
   },
+  'runtimeScopeOwnership.release.failed': {
+    message: 'Runtime ownership cleanup failed',
+    fields: {
+      error: 'error',
+      stage: 'releaseStage',
+    },
+  },
   'runtimeScopeOwnership.identity.repair.attempt': {
     message: 'Runtime ownership identity evidence repair attempt',
     fields: {
@@ -2568,11 +2575,20 @@ export const EVENT_REGISTRY = {
       elapsedMs: 'number',
     },
   },
+  'runtimeScopeOwnership.identity.repair.unsafe': {
+    message: 'Runtime ownership identity evidence repair stopped on unsafe PID metadata',
+    fields: {
+      attempts: 'number',
+      elapsedMs: 'number',
+      pid_outcome: 'pidRepairOutcome',
+    },
+  },
   'runtimeScopeOwnership.identity.repaired': {
     message: 'Runtime ownership identity evidence repaired',
     fields: {
       attempts: 'number',
       elapsedMs: 'number',
+      pid_outcome: 'pidRepairOutcome',
     },
   },
   'runtimeScopeOwnership.identity.repair.exhausted': {
@@ -2580,6 +2596,7 @@ export const EVENT_REGISTRY = {
     fields: {
       attempts: 'number',
       elapsedMs: 'number',
+      pid_outcome: 'pidRepairOutcome',
     },
   },
   'runtimeScopeOwnership.identity.repair.failed': {

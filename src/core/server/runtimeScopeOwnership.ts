@@ -209,7 +209,7 @@ export function claimRuntimeScope(
           assertNoActiveStopLock(configDir, processAlive);
         }
       } catch (error) {
-        releaseRuntimeScopeOwnership(configDir, record);
+        releaseRuntimeScopeOwnershipBestEffort(configDir, record, 'ownership');
         throw error;
       }
 
@@ -221,11 +221,15 @@ export function claimRuntimeScope(
           if (released) {
             return;
           }
-          released = true;
           try {
-            releaseRuntimeScopeOwnership(configDir, record);
+            // Mark only after a completed (or no-longer-ours) cleanup, so a
+            // transient failure can be retried by a later call.
+            const outcome = releaseRuntimeScopeOwnershipBestEffort(configDir, record, 'ownership');
+            if (outcome !== 'failed') released = true;
+          } catch (error) {
+            logCleanupFailure('ownership', error);
           } finally {
-            fileLock?.release();
+            releaseFileLockBestEffort(fileLock);
           }
         },
       };
@@ -234,7 +238,7 @@ export function claimRuntimeScope(
     throw new RuntimeScopeOwnedError(ownerDir, 'ambiguous', null, 'ownership changed during claim');
   } finally {
     removeCandidateDirectoryIfPresent(candidateDir);
-    if (!retained) fileLock?.release();
+    if (!retained) releaseFileLockBestEffort(fileLock);
   }
 }
 
@@ -306,7 +310,7 @@ export function acquireRuntimeScopeStopLock(
               );
             }
           } finally {
-            fileLock?.release();
+            releaseFileLockBestEffort(fileLock);
           }
         },
       };
@@ -314,7 +318,7 @@ export function acquireRuntimeScopeStopLock(
     throw new RuntimeScopeOwnedError(stopLockPath, 'ambiguous', null, 'stop lock changed during acquisition');
   } finally {
     removeCandidateDirectoryIfPresent(candidateDir);
-    if (!retained) fileLock?.release();
+    if (!retained) releaseFileLockBestEffort(fileLock);
   }
 }
 
@@ -339,7 +343,7 @@ export function reclaimStaleRuntimeScopeOwnership(
     }
     return reclaimObservedOwnership(configDir, observed, processAlive, fileLock !== null);
   } finally {
-    fileLock?.release();
+    releaseFileLockBestEffort(fileLock);
   }
 }
 
@@ -375,7 +379,7 @@ function reclaimObservedOwnership(
     assertDeadSupervisorIsReclaimable(configDir, ownerDir, current.record, processAlive);
     return removeObservedOwnership(configDir, current);
   } finally {
-    stopLock.release();
+    releaseStopLockBestEffort(stopLock);
   }
 }
 
@@ -518,7 +522,7 @@ function assertNoActiveStopLock(configDir: string, processAlive: (pid: number) =
       throw new RuntimeScopeOwnedError(stopLockPath, 'ambiguous', null, 'stop lock changed during stale cleanup');
     }
   } finally {
-    fileLock?.release();
+    releaseFileLockBestEffort(fileLock);
   }
 }
 
@@ -681,9 +685,12 @@ export function updateRuntimeScopeOwnershipIdentity(
     processIdentity: identity,
     identityEvidence: undefined,
   };
-  const tempPath = path.join(getRuntimeScopeOwnershipPath(configDir), `owner.${expected.claimId}.tmp`);
-  fs.writeFileSync(tempPath, `${JSON.stringify(next)}\n`, { encoding: 'utf8', mode: 0o600 });
+  // Keep the temp file outside the canonical ownership directory so a leftover
+  // is never an unknown ownership entry; configDir keeps it on the same
+  // filesystem, which is required for an atomic rename.
+  const tempPath = path.join(configDir, `${OWNERSHIP_DIR_NAME}.${expected.claimId}.identity.tmp`);
   try {
+    fs.writeFileSync(tempPath, `${JSON.stringify(next)}\n`, { encoding: 'utf8', mode: 0o600 });
     // Re-observe immediately before publication. The claim's owner lock is held
     // for the runtime lifetime, so this is the strongest available generation
     // guard on platforms without flock; a forced replacement of a live owner
@@ -715,6 +722,52 @@ export function releaseRuntimeScopeOwnership(configDir: string, expected: Runtim
     return false;
   }
   return removeObservedOwnership(configDir, observed);
+}
+
+export type OwnershipReleaseOutcome = 'released' | 'ownership-changed' | 'failed';
+
+/**
+ * Process-lifetime cleanup contract: never throws, logs a secondary failure,
+ * and never masks the primary error of the path that invoked it.
+ */
+export function releaseRuntimeScopeOwnershipBestEffort(
+  configDir: string,
+  expected: RuntimeScopeOwnershipIdentity,
+  stage: ReleaseStage = 'ownership',
+): OwnershipReleaseOutcome {
+  try {
+    return releaseRuntimeScopeOwnership(configDir, expected) ? 'released' : 'ownership-changed';
+  } catch (error) {
+    logCleanupFailure(stage, error);
+    return 'failed';
+  }
+}
+
+type ReleaseStage = 'ownership' | 'stop-lock' | 'file-lock';
+
+function logCleanupFailure(stage: ReleaseStage, error: unknown): void {
+  try {
+    logger.warn('runtimeScopeOwnership.release.failed', { error: error, stage });
+  } catch {
+    // Diagnostics must never replace the primary cleanup control flow.
+  }
+}
+
+function releaseFileLockBestEffort(fileLock: RuntimeFileLock | null): void {
+  if (!fileLock) return;
+  try {
+    fileLock.release();
+  } catch (error) {
+    logCleanupFailure('file-lock', error);
+  }
+}
+
+function releaseStopLockBestEffort(stopLock: RuntimeScopeStopLock): void {
+  try {
+    stopLock.release();
+  } catch (error) {
+    logCleanupFailure('stop-lock', error);
+  }
 }
 
 function inspectRuntimeScopeOwnership(configDir: string): ObservedOwnership | null {

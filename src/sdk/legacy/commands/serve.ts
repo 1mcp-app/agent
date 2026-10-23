@@ -310,6 +310,7 @@ export function setupGracefulShutdown(
         }
       }
 
+      // Best-effort by contract: a cleanup failure must not block process exit.
       runtimeOwnership?.release();
 
       logger.info('serve.server.shutdown.complete.fad6a0b9');
@@ -789,6 +790,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       });
     });
   } catch (_error) {
+    // Best-effort by contract: never suppress the diagnostics below.
     runtimeOwnership?.release();
     const failure = describeServeLifecycleFailure(_error);
     if (parsedArgv.status || parsedArgv.stop) {

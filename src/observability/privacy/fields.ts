@@ -144,6 +144,8 @@ export const CLOSED_VALUES = {
   ],
   ownershipFailureReason: ['owned', 'ambiguous', 'other'],
   ownershipEvidenceStatus: ['available', 'unavailable', 'unknown', 'other'],
+  releaseStage: ['ownership', 'stop-lock', 'file-lock', 'other'],
+  pidRepairOutcome: ['repaired', 'skipped', 'retry', 'ownership-changed', 'unsafe', 'not-attempted', 'other'],
   transport: ['stdio', 'http', 'sse', 'streamable-http', 'other'],
   status: [
     'pending',
