@@ -5,7 +5,7 @@ import logger from '@src/logger/logger.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getPidFilePath, readPidFile, writePidFile } from './pidFileManager.js';
+import { cleanupPidFileIfMatches, getPidFilePath, readPidFile, writePidFile } from './pidFileManager.js';
 import { scheduleRuntimeOwnershipIdentityRepair } from './runtimeOwnershipIdentityRepair.js';
 import { claimRuntimeScope, readRuntimeScopeOwnership } from './runtimeScopeOwnership.js';
 
@@ -69,6 +69,27 @@ describe('runtime ownership identity repair', () => {
 
     await vi.advanceTimersByTimeAsync(120_000);
     expect(acquire).toHaveBeenCalledTimes(1);
+    stop();
+    owner.release();
+  });
+
+  it('keeps the record captured before repair eligible for exit cleanup', async () => {
+    vi.useFakeTimers();
+    const owner = claimDegraded();
+    const observed = readPidFile(configDir)!;
+    const stop = scheduleRuntimeOwnershipIdentityRepair({
+      runtimeScope: configDir,
+      pid: owner.record.pid,
+      claimId: owner.record.claimId,
+      acquireIdentity: () => ({ identity }),
+    });
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(readPidFile(configDir)?.processIdentity).toEqual(identity);
+
+    // The exit handler registered before repair still owns this generation.
+    expect(cleanupPidFileIfMatches(configDir, observed)).toBe(true);
+    expect(fs.existsSync(getPidFilePath(configDir))).toBe(false);
     stop();
     owner.release();
   });

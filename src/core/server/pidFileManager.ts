@@ -222,6 +222,11 @@ export function cleanupPidFile(configDir: string): boolean {
  * Deleting unconditionally would strand that live runtime (undiscoverable to
  * later `--status`/`--stop`). Re-reading and matching the PID prevents that.
  *
+ * A runtime generation is pinned by pid, claim ID, and start time. Identity is
+ * late-binding evidence: background repair fills it in for the same generation,
+ * so a record captured before repair must still match afterwards. Identity is
+ * therefore compared only when the expected record already carries it.
+ *
  * @returns true if the file was removed or is already gone/replaced; false if a
  *   matching file existed but could not be deleted.
  */
@@ -242,7 +247,8 @@ export function cleanupPidFileIfMatches(configDir: string, expected: number | Se
     (typeof expected !== 'number' &&
       (current.ownerClaimId !== expected.ownerClaimId ||
         current.startedAt !== expected.startedAt ||
-        JSON.stringify(current.processIdentity) !== JSON.stringify(expected.processIdentity)))
+        (expected.processIdentity !== undefined &&
+          JSON.stringify(current.processIdentity) !== JSON.stringify(expected.processIdentity))))
   ) {
     // Already gone, or replaced by a newer runtime — leave it untouched.
     return true;

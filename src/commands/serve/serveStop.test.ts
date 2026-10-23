@@ -519,6 +519,43 @@ describe('runServeStop', () => {
     expect(stdout).toContain('Recovered orphaned runtime');
   });
 
+  it('stops a worker whose identity was repaired after supervisor state was written', async () => {
+    const identity = { platform: 'win32' as const, hostname: 'host', startTime: '100' };
+    const state = {
+      version: 1 as const,
+      status: 'running' as const,
+      supervisorPid: 8100,
+      runtimePid: 8200,
+      restartAttempt: 0,
+      lastExit: null,
+      nextRetryAt: null,
+      readyAt: '2026-06-26T00:00:01.000Z',
+      updatedAt: '2026-06-26T00:01:00.000Z',
+    };
+    const cleanup = vi.fn().mockReturnValue(true);
+    const cleanupLaunchConfig = vi.fn().mockReturnValue(true);
+    const cleanupSupervisorState = vi.fn().mockReturnValue(true);
+    const cleanupOwnership = vi.fn().mockReturnValue(true);
+
+    await runServeStop('/scope', {
+      readSupervisorState: () => state,
+      readOwnership: () => backgroundOwner(state.supervisorPid),
+      acquireStopLock,
+      readInfo: () => info({ pid: 8200, processIdentity: identity }),
+      inspectIdentity: (pid) => (pid === state.runtimePid ? 'alive' : 'dead'),
+      kill: vi.fn(),
+      waitForExit: vi.fn().mockResolvedValue(true),
+      cleanup,
+      cleanupLaunchConfig,
+      cleanupSupervisorState,
+      cleanupOwnership,
+    });
+
+    expect(process.exitCode).toBe(0);
+    expect(cleanup).toHaveBeenCalledWith('/scope', 8200);
+    expect(cleanupOwnership).toHaveBeenCalledWith('/scope', 8100);
+  });
+
   it('stops a worker spawned while a pending restart is being cancelled', async () => {
     let supervisorAlive = true;
     let runtimeAlive = true;

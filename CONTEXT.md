@@ -467,6 +467,7 @@ _Avoid_: raw wire dump, traffic log
 - A **Provably Absent Runtime Owner** permits stale metadata reclaim but never authorizes signaling a live PID.
 - A **Runtime Ownership Identity Repair** upgrades only the observed PID and claim-ID generation and stops on success or after its bounded budget.
 - A **Runtime Ownership Identity Repair** keeps temporary artifacts outside the canonical ownership directory and never treats an unknown entry as stale.
+- **Runtime Ownership Evidence** is late-binding: a PID record captured before a **Runtime Ownership Identity Repair** still names the same generation by PID, claim ID, and start time, so newly filled-in evidence never looks like a replacement runtime.
 - A **Best-Effort Ownership Release** never replaces a **Verified Ownership Release** for an explicit lifecycle command.
 - A **Best-Effort Ownership Release** may leave metadata for later **Provably Absent Runtime Owner** or empty-directory recovery; it never authorizes takeover.
 - `--config-dir` selects a local **Runtime Scope** and must not be interpreted as a remote runtime path.

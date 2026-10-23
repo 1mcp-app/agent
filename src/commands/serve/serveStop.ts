@@ -128,7 +128,12 @@ function cleanupSupervisorLaunchConfig(configDir: string, expectedSupervisorPid:
 }
 
 function runtimeMetadataMatches(info: ServerPidInfo | null, pid: number | null, identity?: ProcessIdentity): boolean {
-  return !info || (info.pid === pid && JSON.stringify(info.processIdentity) === JSON.stringify(identity));
+  if (!info) return true;
+  if (info.pid !== pid) return false;
+  // Identity repair can add birth evidence to the same runtime generation
+  // while the stop is in flight, so an absent expected identity is unknown
+  // evidence — not proof that the record was replaced.
+  return identity === undefined || JSON.stringify(info.processIdentity) === JSON.stringify(identity);
 }
 
 function bootstrapSupervisorState(supervisorPid: number): BackgroundSupervisorState {

@@ -361,6 +361,62 @@ describe('pidFileManager', () => {
       expect(readPidFile(testConfigDir)?.startedAt).toBe('2026-09-15T00:00:00.000Z');
     });
 
+    it('deletes the record after identity repair fills a recorded evidence gap', () => {
+      const identity = { platform: 'win32' as const, hostname: 'host', startTime: '100' };
+      writePidFile(testConfigDir, {
+        ...infoWithPid(process.pid),
+        identityEvidence: {
+          status: 'unavailable',
+          code: 'ETIMEDOUT',
+          elapsedMs: 3000,
+          at: '2026-06-26T00:00:00.000Z',
+        },
+      });
+      const observed = readPidFile(testConfigDir)!;
+
+      writePidFile(testConfigDir, { ...observed, processIdentity: identity, identityEvidence: undefined });
+
+      // The exit handler captured the degraded record before repair ran.
+      expect(cleanupPidFileIfMatches(testConfigDir, observed)).toBe(true);
+      expect(fs.existsSync(testPidFilePath)).toBe(false);
+    });
+
+    it('still retains a replacement generation when the expected record had no identity', () => {
+      const identity = { platform: 'win32' as const, hostname: 'host', startTime: '100' };
+      writePidFile(testConfigDir, {
+        ...infoWithPid(process.pid),
+        identityEvidence: {
+          status: 'unavailable',
+          code: 'ETIMEDOUT',
+          elapsedMs: 3000,
+          at: '2026-06-26T00:00:00.000Z',
+        },
+      });
+      const observed = readPidFile(testConfigDir)!;
+
+      writePidFile(testConfigDir, {
+        ...observed,
+        processIdentity: identity,
+        identityEvidence: undefined,
+        startedAt: '2026-09-15T00:00:00.000Z',
+      });
+
+      expect(cleanupPidFileIfMatches(testConfigDir, observed)).toBe(true);
+      expect(readPidFile(testConfigDir)?.startedAt).toBe('2026-09-15T00:00:00.000Z');
+    });
+
+    it('retains the record when its identity differs from the expected identity', () => {
+      const observedIdentity = { platform: 'win32' as const, hostname: 'host', startTime: '100' };
+      writePidFile(testConfigDir, {
+        ...infoWithPid(process.pid),
+        processIdentity: { ...observedIdentity, startTime: '200' },
+      });
+      const observed = { ...readPidFile(testConfigDir)!, processIdentity: observedIdentity };
+
+      expect(cleanupPidFileIfMatches(testConfigDir, observed)).toBe(true);
+      expect(fs.existsSync(testPidFilePath)).toBe(true);
+    });
+
     it('should be a no-op when no PID file exists', () => {
       expect(cleanupPidFileIfMatches(testConfigDir, process.pid)).toBe(true);
     });
