@@ -30,8 +30,10 @@ import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { getBackgroundLaunchConfigPath, readBackgroundLaunchConfig } from '@src/core/server/backgroundLaunchConfig.js';
 import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
 import type { RuntimeLaunchBootstrap } from '@src/core/server/runtimeLaunchIpc.js';
+import { scheduleRuntimeOwnershipIdentityRepair } from '@src/core/server/runtimeOwnershipIdentityRepair.js';
 import {
   claimRuntimeScope,
+  RuntimeScopeOwnedError,
   type RuntimeScopeOwnership,
   verifyRuntimeScopeOwnership,
 } from '@src/core/server/runtimeScopeOwnership.js';
@@ -41,6 +43,7 @@ import { GlobalOptions } from '@src/globalOptions.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
+import type { EventFields } from '@src/observability/events/normalize.js';
 import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
 import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
@@ -307,6 +310,7 @@ export function setupGracefulShutdown(
         }
       }
 
+      // Best-effort by contract: a cleanup failure must not block process exit.
       runtimeOwnership?.release();
 
       logger.info('serve.server.shutdown.complete.fad6a0b9');
@@ -327,6 +331,7 @@ export function setupGracefulShutdown(
  */
 export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
   let runtimeOwnership: RuntimeScopeOwnership | undefined;
+  let loggerConfigured = false;
   try {
     let cooperativeLaunch: RuntimeLaunchBootstrap | undefined;
     const cooperative = parsedArgv['cooperative-bootstrap']
@@ -452,6 +457,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       },
       effectiveTransport,
     );
+    loggerConfigured = true;
     if (deprecatedLoggingKeys.length > 0) {
       logger.warn('serve.deprecation.warning.config.keys.are.deprecated.use.the.structured.logging.b.600bd41d');
     }
@@ -711,6 +717,13 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         writePidFile(runtimeScope, {
           pid: process.pid,
           ...(cooperativeLaunch ? { ownerClaimId: cooperativeLaunch.claimId } : {}),
+          // Reuse the claim's single evidence read; never probe a second time.
+          ...(runtimeOwnership?.record.processIdentity
+            ? { processIdentity: runtimeOwnership.record.processIdentity }
+            : {}),
+          ...(runtimeOwnership?.record.identityEvidence
+            ? { identityEvidence: runtimeOwnership.record.identityEvidence }
+            : {}),
           url: `${serverUrl}/mcp`,
           port: effectivePort,
           host: effectiveHost,
@@ -725,6 +738,16 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
         // Register cleanup handlers
         registerPidFileCleanup(runtimeScope);
+
+        // A degraded record is safe (held while this PID lives) and repairs
+        // itself once the OS probe succeeds; it never blocks startup.
+        if (runtimeOwnership?.record.identityEvidence) {
+          scheduleRuntimeOwnershipIdentityRepair({
+            runtimeScope,
+            pid: runtimeOwnership.record.pid,
+            claimId: runtimeOwnership.record.claimId,
+          });
+        }
 
         break;
       }
@@ -767,14 +790,62 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       });
     });
   } catch (_error) {
+    // Best-effort by contract: never suppress the diagnostics below.
     runtimeOwnership?.release();
+    const failure = describeServeLifecycleFailure(_error);
     if (parsedArgv.status || parsedArgv.stop) {
       process.stderr.write('Error: Serve command failed. See the configured log for bounded failure facts.\n');
       logger.error('serve.command.failed', { error: _error });
     } else {
-      process.stderr.write(`Error: ${describeServeLifecycleFailure(_error)}\n`);
+      process.stderr.write(`Error: ${failure}\n`);
+      if (_error instanceof RuntimeScopeOwnedError && _error.unknownEntries?.length) {
+        process.stderr.write(
+          `Unknown ownership entries: ${_error.unknownEntries.join(', ')}. ` +
+            'Confirm no runtime uses this scope, then remove only those entries.\n',
+        );
+      }
       logger.error('serve.server.error.a68bf449', { error: _error });
+    }
+    const claimFailure = runtimeClaimFailureFields(_error);
+    if (claimFailure) logger.error('serve.runtime-claim.failed', claimFailure);
+    // The file transport is attached only after configuration loads; a claim
+    // failure or any earlier failure still needs one bounded line on disk.
+    if (!loggerConfigured && typeof parsedArgv['log-file'] === 'string') {
+      try {
+        fs.appendFileSync(
+          parsedArgv['log-file'],
+          `${new Date().toISOString()} [ERROR] ${failure}${formatUnknownEntries(_error)}\n`,
+          { mode: 0o600 },
+        );
+      } catch {
+        // Last-resort diagnostics must never replace the original failure.
+      }
     }
     process.exit(1);
   }
+}
+
+function runtimeClaimFailureFields(error: unknown): EventFields<'serve.runtime-claim.failed'> | undefined {
+  if (!(error instanceof RuntimeScopeOwnedError)) return undefined;
+  const evidenceStatus = error.owner?.processIdentity
+    ? 'available'
+    : error.owner?.identityEvidence
+      ? 'unavailable'
+      : 'unknown';
+  return {
+    error,
+    ownership_reason: error.reason,
+    evidence_status: evidenceStatus,
+    ...(error.owner?.identityEvidence
+      ? {
+          acquisition_code: error.owner.identityEvidence.code,
+          elapsed_ms: error.owner.identityEvidence.elapsedMs,
+        }
+      : {}),
+  };
+}
+
+function formatUnknownEntries(error: unknown): string {
+  if (!(error instanceof RuntimeScopeOwnedError) || !error.unknownEntries?.length) return '';
+  return ` (unknown entries: ${error.unknownEntries.join(', ')})`;
 }

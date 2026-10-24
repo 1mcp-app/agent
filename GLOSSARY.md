@@ -112,6 +112,34 @@ _Avoid_: Runtime Scope config, project config, remote state
 The low-disclosure identity facts a runtime exposes so a CLI can verify it is still talking to the same trust boundary. The key stable value is `runtimeScopeId`.
 _Avoid_: host identity, URL identity, process identity
 
+**Runtime Ownership Record**:
+The persisted metadata that names the process claiming one **Runtime Scope**, including its PID, claim identity, and either **Runtime Ownership Evidence** or **Unavailable Ownership Evidence**.
+_Avoid_: lock file, PID file, owner token
+
+**Runtime Ownership Evidence**:
+Kernel-derived process birth evidence (host plus start token, or boot session, PID namespace, and start token) recorded by the process that claimed a **Runtime Scope**, used to distinguish a live owner from a reused PID.
+_Avoid_: PID identity, executable name, heartbeat
+
+**Unavailable Ownership Evidence**:
+The explicit degraded state of a **Runtime Ownership Record** whose claimant could not acquire its own **Runtime Ownership Evidence** within the bounded probe budget. It is never evidence of ownership: a live PID remains held, and only a provably absent PID permits reclaim.
+_Avoid_: legacy record, self-attested identity, missing token
+
+**Provably Absent Runtime Owner**:
+The recorded owner PID is shown not to exist on the host. Reclaiming its stale metadata is not termination or takeover; a live PID with unreadable evidence remains held.
+_Avoid_: dead lock, stale PID, takeover
+
+**Runtime Ownership Identity Repair**:
+The bounded background process that upgrades one observed **Runtime Ownership Record** generation from **Unavailable Ownership Evidence** to **Runtime Ownership Evidence** after the claimant later reads its own birth evidence.
+_Avoid_: retry loop, heartbeat renewal, takeover
+
+**Best-Effort Ownership Release**:
+The idempotent cleanup of a claimed **Runtime Scope** on a fallback path such as startup failure, reclaim finalization, or process shutdown; it records a secondary failure and never masks the primary error or blocks exit.
+_Avoid_: takeover, silent cleanup, retry loop
+
+**Verified Ownership Release**:
+The explicit lifecycle release used by operator commands, which reports failure and remains fail-closed.
+_Avoid_: best-effort cleanup, automatic recovery
+
 **Runtime Absence**:
 The conclusion that no **Aggregated Runtime** occupies the selected local **Runtime Scope** or remote **Runtime Target**. It must not describe an identified runtime that rejected or failed an attachment probe.
 _Avoid_: unreachable runtime, probe error, connection failure
@@ -494,6 +522,15 @@ _Avoid_: raw wire dump, traffic log
 - An ephemeral `--url` target is per-command and does not use stored credential state.
 - The **Runtime Target Store** stores local target metadata and credential references, not runtime configuration.
 - **Runtime Identity** is verified before stored credentials are sent to a named remote target.
+- A **Runtime Ownership Record** carries either **Runtime Ownership Evidence** or **Unavailable Ownership Evidence**, never both.
+- **Unavailable Ownership Evidence** never authorizes termination, takeover, or reclaim while its PID is alive.
+- A **Provably Absent Runtime Owner** permits stale metadata reclaim but never authorizes signaling a live PID.
+- A **Runtime Ownership Identity Repair** upgrades only the observed PID and claim-ID generation and stops on success or after its bounded budget.
+- A **Runtime Ownership Identity Repair** keeps temporary artifacts outside the canonical ownership directory and never treats an unknown entry as stale.
+- **Runtime Ownership Evidence** is late-binding: a PID record captured before a **Runtime Ownership Identity Repair** still names the same generation by PID, claim ID, and start time, so newly filled-in evidence never looks like a replacement runtime.
+- PID metadata deletion requires a matching runtime generation; a numeric-PID match alone never authorizes removal.
+- A **Best-Effort Ownership Release** never replaces a **Verified Ownership Release** for an explicit lifecycle command.
+- A **Best-Effort Ownership Release** may leave metadata for later **Provably Absent Runtime Owner** or empty-directory recovery; it never authorizes takeover.
 - `--config-dir` selects a local **Runtime Scope** and must not be interpreted as a remote runtime path.
 - A **Config Change** belongs to exactly one **Runtime Scope**.
 - A **Config Change** can add, update, or remove one **Configured Server Target**.
