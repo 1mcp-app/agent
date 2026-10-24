@@ -10,6 +10,7 @@ import {
   revalidateLegacyRequestAuthInfo,
 } from '@src/sdk/legacy/server/auth/requestAuthRevalidation.js';
 import type { AuthInfo as SDKAuthInfo } from '@src/sdk/legacy/server/auth/types.js';
+import { bindAuthenticatedSessionRequest } from '@src/transport/http/streamableSessionAuthorization.js';
 import { auditScopeOperation, hasRequiredScopes, scopesToTags } from '@src/utils/validation/scopeValidation.js';
 
 import { NextFunction, Request, Response } from 'express';
@@ -79,7 +80,7 @@ export function revalidateAuthInfo(auth: AuthInfo | undefined): Promise<boolean>
  * 2. Validates that requested tags are covered by granted scopes
  * 3. Provides authentication context to downstream handlers
  *
- * When scope validation is disabled, all tags are allowed.
+ * When scope validation is disabled, all tags are allowed but authentication still applies.
  * When scope validation is enabled:
  * - If auth is also enabled, validates tokens and scopes
  * - If auth is disabled, allows all tags (useful for development/testing)
@@ -87,15 +88,9 @@ export function revalidateAuthInfo(auth: AuthInfo | undefined): Promise<boolean>
 export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider) {
   const serverConfig = AgentConfigManager.getInstance();
 
-  // If scope validation is disabled, return a pass-through middleware
-  if (!serverConfig.get('features').scopeValidation) {
-    return (_req: Request, res: Response, next: NextFunction): void => {
-      res.locals.validatedTags = getRequestedTagsForScope(res);
-      next();
-    };
-  }
+  const scopeValidation = serverConfig.get('features').scopeValidation;
 
-  // If scope validation is enabled but auth is disabled, allow all tags
+  // If auth is disabled, allow all tags
   if (!serverConfig.get('features').auth) {
     return (_req: Request, res: Response, next: NextFunction): void => {
       res.locals.validatedTags = getRequestedTagsForScope(res);
@@ -165,7 +160,7 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
       const allRequestedTags = Array.from(new Set([...requestedTags, ...expressionTags]));
 
       // Validate that all requested tags are covered by granted scopes
-      if (allRequestedTags.length > 0 && !hasRequiredScopes(grantedScopes, allRequestedTags)) {
+      if (scopeValidation && allRequestedTags.length > 0 && !hasRequiredScopes(grantedScopes, allRequestedTags)) {
         auditScopeOperation('insufficient_scopes', {
           clientId: authInfo.clientId as string,
           requestedScopes: allRequestedTags.map((tag: string) => `tag:${tag}`),
@@ -211,10 +206,21 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
       registerRequestAuthRevalidator(authContext, revalidate);
       registerRequestAuthRevalidator(authInfo, revalidate);
       res.locals.auth = authContext;
+      bindAuthenticatedSessionRequest(req, {
+        clientId: authContext.clientId,
+        resource: expectedResource,
+        scopes: grantedScopes,
+      });
 
       // Provide validated tags to downstream handlers
       // If no specific tags requested, use all granted tags
-      res.locals.validatedTags = allRequestedTags.length > 0 ? allRequestedTags : grantedTags;
+      if (!scopeValidation) {
+        res.locals.validatedTags = getRequestedTagsForScope(res);
+      } else if (allRequestedTags.length > 0) {
+        res.locals.validatedTags = allRequestedTags;
+      } else {
+        res.locals.validatedTags = grantedTags;
+      }
 
       auditScopeOperation('scope_validation_success', {
         clientId: authInfo.clientId as string,

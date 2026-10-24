@@ -52,6 +52,10 @@ _Avoid_: connected, loading
 The terminal **Backend Stdio Supervision** state reached after the configured consecutive restart budget is exhausted. It requires explicit recovery while the rest of the **Aggregated Runtime** remains available.
 _Avoid_: disconnected, runtime crash-loop
 
+**Backend Sleep**:
+An intentional state in which an enabled backend's process is released while its capabilities remain discoverable and a subsequent operation can wake it. It is distinct from a disabled server or a backend awaiting crash recovery.
+_Avoid_: disabled server, crashed backend, process suspension
+
 **Backend Log Source**:
 The canonical runtime identity that groups **Managed Backend Logs** for one static stdio server or logical **Template Server Instance** across child-process replacement.
 _Avoid_: log tab, process ID, stderr stream
@@ -164,6 +168,14 @@ _Avoid_: config root, main repository
 The origin of defaults used for a **Project Checkout**. Sharing those defaults does not change which checkout is targeted.
 _Avoid_: project identity, project target
 
+**Project Release**:
+The surrender of one caller's runtime bindings to a **Project Checkout**, preserving other callers' ownership and the checkout's prepared artifacts. Release alone does not establish that a checkout is unused.
+_Avoid_: checkout deletion, artifact cleanup
+
+**Checkout Drain**:
+A checkout-wide operation in a selected **Aggregated Runtime** that blocks new bindings while existing use winds down, establishing when that runtime no longer holds the checkout. It preserves prepared artifacts and does not establish that unrelated processes have released the checkout.
+_Avoid_: worktree removal, global process cleanup
+
 **Cross-Project Work**:
 One feature or task involving multiple **Project Checkouts** in the same agent session, through separate calls, delegated agents, or a tool operation involving several checkouts.
 _Avoid_: runtime switching, shared project root
@@ -263,6 +275,30 @@ _Avoid_: inline secret, copied env value
 The runtime step that resolves a **Request Context** and **Request Session**, renders matching **Template Servers**, registers them for routing, and refreshes lazy capabilities when needed.
 _Avoid_: request setup, context init
 
+**Backend Readiness**:
+Evidence that a backend can perform an intended operation for the selected **Project Checkout**, including the validity, freshness, and coverage needed for that operation.
+_Avoid_: connection health, process health, index existence
+
+**Backend Preparation**:
+Backend-specific work needed to establish **Backend Readiness** for an intended operation and selected **Project Checkout**.
+_Avoid_: Request Context Preparation, backend startup
+
+**Backend Preparation Adapter**:
+A backend-supplied integration that describes **Backend Readiness** and supported **Backend Preparation**, including failure and ownership semantics.
+_Avoid_: Template Server Adapter, universal readiness detector
+
+**Integration Definition**:
+A reusable description of a backend's preparation requirements and supported compatibility scope for establishing **Backend Readiness**.
+_Avoid_: server instance, plugin
+
+**Known Server Catalog**:
+A curated collection of MCP server setup descriptions and their optional **Integration Definitions**. Membership does not by itself establish verified **Backend Preparation** support.
+_Avoid_: Capability Catalog, Capability Snapshot
+
+**Backend Preparation Job**:
+A runtime-owned asynchronous attempt to establish **Backend Readiness** for a selected checkout and intended operation. Its completion does not execute or replay the caller's original operation.
+_Avoid_: queued tool call, detached preparation process
+
 **Capability Snapshot**:
 A point-in-time view of tools, resources, and prompts available from ready backend servers before request-specific visibility rules are applied.
 _Avoid_: current capabilities, aggregate cache
@@ -344,6 +380,30 @@ _Avoid_: analytics, backend logs, raw request logging
 **Typed Telemetry Event**:
 A runtime instrumentation record with a fixed message and explicitly approved, bounded attributes.
 _Avoid_: arbitrary logger metadata, sanitized payload dump, free-form error event
+
+**Product Usage Telemetry**:
+Measurements of 1MCP adoption, installation retention, and use of its own commands, features, and transports for product improvement. It is distinct from **Operational Telemetry** and local diagnostic records.
+_Avoid_: Operational Telemetry, user tracking, diagnostic log export
+
+**Product Usage Identity**:
+An opaque identity for one local 1MCP installation state, shared by that OS user's **Runtime Scopes**, used to associate **Product Usage Telemetry** over time. It identifies an installation rather than a person, client, or runtime process.
+_Avoid_: user ID, machine fingerprint, Runtime Identity, session ID
+
+**Product Usage Preference**:
+The operator's stored choice about whether a local 1MCP installation participates in **Product Usage Telemetry**, shared by that installation's **Runtime Scopes**. It is distinct from a remote runtime owner's choice and from settings for **Operational Telemetry**.
+_Avoid_: tracing setting, client consent, per-session telemetry setting
+
+**Product Usage Summary**:
+Counts of approved 1MCP activity during a reporting period, associated with a **Product Usage Identity** and bounded product dimensions. It represents usage totals rather than individual workload content.
+_Avoid_: request log, trace export, individual Tool event
+
+**Product Telemetry Service**:
+The first-party service that accepts **Product Usage Summaries**, retains the approved usage history, and supplies aggregate product reports. It is distinct from the **Aggregated Runtime** and an operator's Operational Telemetry collector.
+_Avoid_: runtime exporter, third-party analytics vendor, Operational Telemetry backend
+
+**Product Usage Dashboard**:
+The private maintainer view of aggregate product adoption, retention, feature use, and collection freshness reports from the **Product Telemetry Service**, without installation drill-down. It is distinct from a runtime's **Admin Console**.
+_Avoid_: Admin Console, per-installation inspector, public statistics page
 
 **Refresh Token Family**:
 The sequence of rotating refresh tokens descended from one approved OAuth authorization, with at most one active member.
@@ -492,6 +552,8 @@ _Avoid_: raw wire dump, traffic log
 - Direct HTTP MCP uses **Streamable Transport Session Lifecycle** before SDK request handling.
 - A **Request Context** resolves to a **Request Session**.
 - A **Request Session** can be routing-only when a **Client Surface** supplies session identity without a **Request Context**.
+- A modern proxy's **Request Session** spans individual protocol requests and retains its **Template Server Instance** memberships independently of temporary request bridges, subject to existing idle expiry.
+- A modern proxy's **Request Session** has one stable effective template context; a change of project or effective template inputs requires a new Request Session, while ordinary timestamps and proof re-signing do not change its binding.
 - When a **Client Surface** supplies both transport session identity and contextual session data, the transport session identity names the **Request Session**.
 - A **Streamable Transport Session** can also name a **Request Session** when contextual template routing uses its `mcp-session-id`.
 - A **Template Server** can produce one or more **Template Server Instances**.

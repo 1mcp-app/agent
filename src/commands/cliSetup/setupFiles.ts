@@ -12,6 +12,8 @@ import logger from '@src/logger/logger.js';
 
 import JSON5 from 'json5';
 
+import { installPreparationSkill, type SkillInstallResult } from './installPreparationSkill.js';
+
 export const CLI_SETUP_TARGETS = ['codex', 'claude'] as const;
 export type CliSetupTarget = (typeof CLI_SETUP_TARGETS)[number];
 
@@ -40,7 +42,9 @@ interface WriteCliSetupOptions {
 export interface CliSetupWriteResult {
   path: string;
   changed: boolean;
-  kind: 'hook' | 'startup-doc' | 'managed-doc';
+  kind: 'hook' | 'startup-doc' | 'managed-doc' | 'skill';
+  status?: SkillInstallResult['status'];
+  reason?: string;
   target: CliSetupTarget;
   scope: Exclude<CliSetupScope, 'all'>;
 }
@@ -89,10 +93,14 @@ export async function writeCliSetupFiles(options: WriteCliSetupOptions): Promise
       const hookPath = isCodex ? scopePaths.codexHookPath : scopePaths.claudeHookPath;
       const startupPath = isCodex ? scopePaths.codexStartupPath : scopePaths.claudeStartupPath;
 
-      return writeTargetSetupFiles(managedDocPath, hookPath, startupPath, managedDocContent, {
+      const results = await writeTargetSetupFiles(managedDocPath, hookPath, startupPath, managedDocContent, {
         target,
         scope: scopePaths.scope,
       });
+      const clientDirectory = isCodex ? '.agents' : '.claude';
+      const skill = await installPreparationSkill(scopePaths.rootDir, path.join(clientDirectory, 'skills'));
+      results.push({ ...skill, kind: 'skill', target, scope: scopePaths.scope });
+      return results;
     }),
   );
 
@@ -127,14 +135,20 @@ async function writeTargetSetupFiles(
 export function formatCliSetupOutput(results: CliSetupWriteResult[]): string {
   const header = 'Updated 1MCP CLI setup files:';
   const lines = results.map(
-    (result) =>
-      `- [${result.scope}] ${result.kind} ${result.target}: ${result.path}${result.changed ? '' : ' (unchanged)'}`,
+    (result) => `- [${result.scope}] ${result.kind} ${result.target}: ${result.path}${formatResultStatus(result)}`,
   );
   return [
     header,
     ...lines,
+    'The preparation skill is guidance only; installation does not enable backend preparation.',
     'Hook files configure delivery only. Disabled, untrusted, skipped, or unavailable hooks remain bootstrap coverage gaps. Verify delivery in the selected client.',
   ].join('\n');
+}
+
+function formatResultStatus(result: CliSetupWriteResult): string {
+  if (result.status === 'conflict') return ` (conflict: ${result.reason})`;
+  if (result.status) return ` (${result.status})`;
+  return result.changed ? '' : ' (unchanged)';
 }
 
 export { renderManagedDocContent, renderStartupDocManagedBlock, upsertStartupDocManagedBlock };

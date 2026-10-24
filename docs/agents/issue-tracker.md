@@ -8,14 +8,20 @@ This document defines the destination and commands for authorized tracker operat
 
 ## Conventions
 
-- **Create an issue**: `gh issue create --repo 1mcp-app/agent --title "..." --body "..."`
+- **Create an issue**: `gh issue create --repo 1mcp-app/agent --title "..." --body-file <draft.md>`
 - **Read an issue**: `gh issue view <number> --repo 1mcp-app/agent --comments`
 - **List issues**: `gh issue list --repo 1mcp-app/agent --state open --json number,title,body,labels,comments`
-- **Comment on an issue**: `gh issue comment <number> --repo 1mcp-app/agent --body "..."`
+- **Comment on an issue**: `gh issue comment <number> --repo 1mcp-app/agent --body-file <comment.md>`
 - **Apply / remove labels**: `gh issue edit <number> --repo 1mcp-app/agent --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --repo 1mcp-app/agent --comment "..."`
 
+For multiline issue bodies and comments, write the exact Markdown to a temporary file and pass it with `--body-file`.
+
 When running from this clone, `gh` can infer the repository from `git remote -v`; pass `--repo 1mcp-app/agent` when running outside the repo or when the remote is ambiguous.
+
+## Pull requests as a triage surface
+
+**PRs as a request surface: no.**
 
 ## When a skill says "publish to the issue tracker"
 

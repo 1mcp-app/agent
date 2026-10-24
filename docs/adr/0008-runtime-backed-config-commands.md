@@ -1,15 +1,13 @@
+---
+status: accepted
+---
+
 # Config-Mutating CLI Commands Prefer the Runtime Path
 
-Config-mutating CLI commands should become **Runtime-Backed Commands** when an **Aggregated Runtime** is available for the selected target. The command should call the runtime instead of editing local files directly, so CLI and Admin Console mutations share **Admin Operation**, **Config Change**, backup, validation, audit, and reload-observation semantics. The first mutation slice is `mcp enable/disable`; install, edit, remove, update, and preset mutations wait until that shared path is proven.
+Config-mutating CLI commands should become **Runtime-Backed Commands** when an **Aggregated Runtime** is available for the selected target. The command should call the runtime instead of editing local files directly, so CLI and Admin Console mutations share **Admin Operation**, **Config Change**, backup, validation, audit, and reload-observation semantics.
 
-Runtime-backed admin mutation authenticates with **Admin Account** and **Admin Session** authority, never with OAuth tag-scoped MCP client tokens. Runtime-attaching MCP client actions such as `proxy` and tool invocation keep OAuth/client authorization, while full-admin configuration and inspection use Admin Session authorization. The current `inspect` command remains client-scoped; full-admin inspection belongs to the Admin Console or a future `admin inspect`.
+## Consequences
 
-Runtime targets are selected through explicit `--context <name>`, explicit ephemeral `--url <url>`, or the current **Runtime Target Context**, whose initial and missing value is the reserved `local` context. `--context` and `--url` are mutually exclusive. `--config-dir` remains local **Runtime Scope** selection only and must not be interpreted as "the config dir on that remote server." Runtime lifecycle commands such as `1mcp serve` stay local lifecycle owners and do not use the current Runtime Target Context.
+Runtime-backed mutations use **Admin Session** authority and the versioned **CLI Admin Adapter**, sharing domain operations with the browser without coupling shipped CLIs to the SPA API. Mutation admission, serialization, idempotency, and audit belong to the admin domain; queue admission is not a successful Config Change.
 
-Named targets live in the user-global **Runtime Target Store**, separate from Runtime Scope configuration. The store records target metadata, current-context state, observed **Runtime Identity**, OAuth token state, and Admin Session references; credential-bearing state uses strict local file permissions. The reserved `local` context preserves existing local discovery and config-dir behavior without requiring a stored target entry.
-
-Target setup and verification use a low-disclosure Runtime Identity endpoint, not `/admin/api`. A stored target is bound to observed `runtimeScopeId`; identity mismatch fails closed before credentials are sent. Accepted identity replacement clears stored OAuth/Admin credentials for that target. Per-command `--url` is credentialless and never uses or writes Runtime Target Store credentials.
-
-Runtime-backed CLI mutations use the versioned **CLI Admin Adapter** at `/admin/cli/v1`, not `/admin/api`. The adapter exposes operation-shaped endpoints over shared Admin Operations, performs a pre-auth low-disclosure capabilities check, hard-fails unsafe protocol incompatibility for mutations, and returns stable JSON/error envelopes for shipped CLIs. Detailed command matrices, error-code taxonomy, idempotency recovery behavior, import/export rules, and the implementation sequence live in the PRD rather than this ADR.
-
-Mutating runtime-backed operations require safe retry semantics. The admin domain owns mutation admission, per-runtime-scope serialization, idempotency replay/conflict handling, and audit ordering. A successful config-mutating result means Config Change completed through backup/write/validation and reload observation; queue admission or idempotency reservation is not success.
+Target contexts are stored outside Runtime Scope configuration. Named targets bind credentials to an observed runtime identity and fail closed on mismatch; accepting a replacement clears saved credentials. An ephemeral `--url` remains credentialless. `--config-dir` and lifecycle commands remain local, while client-scoped commands retain their OAuth authority.

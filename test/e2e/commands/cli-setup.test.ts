@@ -32,6 +32,11 @@ describe('cli-setup command E2E', () => {
 
     runner.assertSuccess(result);
     expect(result.stdout).toContain('Updated 1MCP CLI setup files:');
+    expect(result.stdout).toContain('skill codex:');
+    expect(result.stdout).toContain('(installed)');
+    const skill = path.join(homeDir, '.agents/skills/1mcp-preparation-setup');
+    expect(await readFile(path.join(skill, 'SKILL.md'), 'utf8')).toContain('name: 1mcp-preparation-setup');
+    expect(await readFile(path.join(skill, 'references/serena.md'), 'utf8')).toContain('# Serena');
 
     const codexManagedDoc = await readFile(path.join(homeDir, '.codex', '1MCP.md'), 'utf8');
     const codexHooks = await readFile(path.join(homeDir, '.codex', 'hooks.json'), 'utf8');
@@ -78,5 +83,7 @@ describe('cli-setup command E2E', () => {
     expect(claude).toContain('Keep this section.');
     expect(claude).not.toContain('<!-- BEGIN 1MCP MANAGED STARTUP DOCS -->');
     expect(claude.endsWith('@.claude/1MCP.md\n')).toBe(true);
+    const skill = path.join(environment.getTempDir(), '.claude/skills/1mcp-preparation-setup');
+    expect(await readFile(path.join(skill, 'SKILL.md'), 'utf8')).toContain('name: 1mcp-preparation-setup');
   });
 });
