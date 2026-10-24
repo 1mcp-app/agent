@@ -55,6 +55,27 @@ const config: MCPServerParams = {
   },
 };
 
+describe('configured non-ready probe mappings', () => {
+  it.each([
+    { state: 'unsupported', instructions: 'Backend version is outside this recipe compatibility contract.' },
+    { state: 'unknown', reason: 'probe_failed', instructions: 'Inspect the native configuration.' },
+  ] as const)('keeps $state results blocked without scheduling an action', async (mapping) => {
+    const adapter = new ConfiguredCommandPreparationAdapter({
+      containment: 'posix-process-group',
+      probe: { executable: process.execPath, args: ['-e', 'process.exit(20)'] },
+      readinessExitCodes: { '20': mapping },
+      actions: { initialize: { executable: process.execPath, args: ['-e', 'process.exit(0)'] } },
+    });
+    const prepare = vi.spyOn(adapter, 'prepare');
+    const f = await fixture(adapter, {}, { requestWaitMs: 5000 });
+    const grant = await f.resolve();
+    expect(await f.coordinator.control(grant, { action: 'inspect' })).toEqual(mapping);
+    expect(await f.coordinator.control(grant, { action: 'prepare' })).toEqual(mapping);
+    expect(await f.coordinator.admit(grant, 'lookup')).toEqual(mapping);
+    expect(prepare).not.toHaveBeenCalled();
+  });
+});
+
 async function fixture(
   adapter?: BackendPreparationAdapter,
   overrides: Partial<MCPServerParams> = {},
