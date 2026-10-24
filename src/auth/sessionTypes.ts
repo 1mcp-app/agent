@@ -98,8 +98,15 @@ export interface InitializeResponseData {
   };
 }
 
+export interface StreamableSessionAuthorizationBinding {
+  clientId: string;
+  resource: string;
+  scopes: string[];
+}
+
 // Streamable HTTP session data for session restoration
 export interface StreamableSessionData extends ExpirableData {
+  authorizationBinding?: StreamableSessionAuthorizationBinding;
   tags?: string[];
   tagExpression?: string; // JSON stringified TagExpression
   tagQuery?: string; // JSON stringified TagQuery

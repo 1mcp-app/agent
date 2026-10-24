@@ -34,8 +34,7 @@ describe('SDKOAuthProvider', () => {
 
   beforeEach(() => {
     // Create a temporary directory for testing
-    tempDir = path.join(tmpdir(), `test-oauth-${Date.now()}`);
-    fs.mkdirSync(tempDir, { recursive: true });
+    tempDir = fs.mkdtempSync(path.join(tmpdir(), 'test-oauth-'));
     provider = new SDKOAuthServerProvider(tempDir);
   });
 
