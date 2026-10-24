@@ -544,7 +544,7 @@ describe('Streamable HTTP Routes', () => {
       mockRequest.headers = { 'mcp-session-id': 'unknown-session' };
       await getHandler(mockRequest, mockResponse);
 
-      expect(mockLifecycle.resolveExistingSession).toHaveBeenCalledWith('unknown-session');
+      expect(mockLifecycle.resolveExistingSession).toHaveBeenCalledWith('unknown-session', undefined);
       expect(mockResponse.status).toHaveBeenCalledWith(404);
     });
 
@@ -562,7 +562,7 @@ describe('Streamable HTTP Routes', () => {
       mockRequest.headers = { 'mcp-session-id': 'valid-session' };
       await getHandler(mockRequest, mockResponse);
 
-      expect(mockLifecycle.resolveExistingSession).toHaveBeenCalledWith('valid-session');
+      expect(mockLifecycle.resolveExistingSession).toHaveBeenCalledWith('valid-session', undefined);
       expect(mockTransport.handleRequest).toHaveBeenCalled();
     });
 

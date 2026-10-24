@@ -11,6 +11,7 @@ import {
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
+import { getRequestSessionBinding } from '@src/transport/http/streamableSessionAuthorization.js';
 import { StreamableSessionLifecycle, StreamableSessionStatus } from '@src/transport/http/streamableSessionLifecycle.js';
 import { extractTemplateContextRequest } from '@src/transport/http/utils/contextExtractor.js';
 import { sendBadRequest, sendInternalError, sendNotFound } from '@src/transport/http/utils/httpErrorHandler.js';
@@ -179,7 +180,7 @@ export function setupStreamableHttpRoutes(
   const lifecycle =
     injectedLifecycle || new StreamableSessionLifecycle(serverManager, sessionRepository, asyncOrchestrator);
 
-  router.post(STREAMABLE_HTTP_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
+  const handleAdmittedProjectPost: RequestHandler = async (req, res) => {
     try {
       const headerSessionId = req.headers['mcp-session-id'] as string | undefined;
       const isInitialize = isInitializeRequest(req.body);
@@ -190,6 +191,7 @@ export function setupStreamableHttpRoutes(
         : undefined;
       const result = await lifecycle.resolvePostSession({
         sessionId,
+        authorizationBinding: getRequestSessionBinding(req),
         isInitializeRequest: isInitialize,
         createSessionData: () => ({
           config: buildConfigFromRequest(res, req, customTemplate),
@@ -246,7 +248,37 @@ export function setupStreamableHttpRoutes(
         phase: 'handleRequest',
       });
     }
-  });
+  };
+  const handleProjectPost: RequestHandler = async (req, res, next) => {
+    try {
+      const binding = getRequestSessionBinding(req);
+      if (binding !== undefined) {
+        const extracted = extractTemplateContextRequest(req);
+        const sessionId =
+          (req.headers['mcp-session-id'] as string | undefined) ??
+          (isInitializeRequest(req.body) ? extracted?.proof?.sessionId : undefined);
+        if (sessionId && !lifecycle.isSessionAuthorized(sessionId, binding)) {
+          let canInitialize = false;
+          if (isInitializeRequest(req.body)) {
+            canInitialize = lifecycle.canInitializeSignedSession(
+              sessionId,
+              binding,
+              extracted?.context,
+              extracted?.proof,
+            );
+          }
+          if (!canInitialize) {
+            sendNotFound(res, 'Session not found. Send an initialize request first to create a new session.');
+            return;
+          }
+        }
+      }
+      await handleAdmittedProjectPost(req, res, next);
+    } catch (error) {
+      sendInternalError(res, error, { method: req.method, path: req.path, phase: 'sessionAuthorization' });
+    }
+  };
+  router.post(STREAMABLE_HTTP_ENDPOINT, ...middlewares, handleProjectPost);
 
   router.get(STREAMABLE_HTTP_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
     try {
@@ -256,7 +288,7 @@ export function setupStreamableHttpRoutes(
         return;
       }
 
-      const result = await lifecycle.resolveExistingSession(sessionId);
+      const result = await lifecycle.resolveExistingSession(sessionId, getRequestSessionBinding(req));
 
       if (result.status === StreamableSessionStatus.Missing) {
         sendNotFound(res, 'No active streamable HTTP session found for the provided sessionId', { sessionId });
@@ -285,7 +317,7 @@ export function setupStreamableHttpRoutes(
         return;
       }
 
-      const result = await lifecycle.resolveExistingSession(sessionId);
+      const result = await lifecycle.resolveExistingSession(sessionId, getRequestSessionBinding(req));
 
       if (result.status === StreamableSessionStatus.Missing) {
         sendNotFound(res, 'No active streamable HTTP session found for the provided sessionId', { sessionId });

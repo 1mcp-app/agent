@@ -1,15 +1,18 @@
 import { randomUUID } from 'node:crypto';
 
-import { InitializeResponseData } from '@src/auth/sessionTypes.js';
+import { InitializeResponseData, StreamableSessionAuthorizationBinding } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { InboundConnectionConfig } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { StreamableHTTPServerTransport } from '@src/sdk/legacy/server/streamableHttp.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
+import { canonicalSessionBinding, sessionBindingsMatch } from '@src/transport/http/streamableSessionAuthorization.js';
+import { isContextData } from '@src/transport/http/utils/contextExtractor.js';
 import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
 import { logError } from '@src/transport/http/utils/unifiedLogger.js';
 import type { ContextData } from '@src/types/context.js';
@@ -84,6 +87,7 @@ export interface StreamableSessionCreateData {
 }
 
 export interface ResolvePostSessionInput {
+  authorizationBinding?: StreamableSessionAuthorizationBinding | null;
   sessionId?: string;
   isInitializeRequest: boolean;
   createSessionData: () => StreamableSessionCreateData;
@@ -132,6 +136,8 @@ function buildContextData(config: InboundConnectionConfig, sessionId: string): C
 }
 
 export class StreamableSessionLifecycle {
+  private readonly pendingSessionIds = new Set<string>();
+  private readonly activeBindings = new WeakMap<StreamableTransport, StreamableSessionAuthorizationBinding>();
   private createTransportImpl: (sessionId: string) => StreamableTransport;
   private createRestorableTransportImpl: (sessionId: string) => RestorableStreamableHTTPServerTransport;
   private isStreamableTransportImpl: (transport: unknown) => transport is StreamableTransport;
@@ -158,6 +164,14 @@ export class StreamableSessionLifecycle {
   }
 
   async resolvePostSession(input: ResolvePostSessionInput): Promise<StreamablePostSessionResult> {
+    const binding = input.authorizationBinding ?? this.defaultAuthorizationBinding();
+    if (binding === null) {
+      return {
+        status: StreamableSessionStatus.Missing,
+        sessionId: input.sessionId ?? '',
+        reason: StreamableSessionMissingReason.NotFound,
+      };
+    }
     if (!input.sessionId) {
       if (!input.isInitializeRequest) {
         return {
@@ -167,12 +181,31 @@ export class StreamableSessionLifecycle {
         };
       }
       const { config, context, contextProof } = input.createSessionData();
-      return this.createSession(config, context, undefined, StreamableSessionStatus.Created, contextProof);
+      return this.createSession(config, context, undefined, StreamableSessionStatus.Created, contextProof, binding);
     }
 
-    const existing = await this.resolveExistingSession(input.sessionId);
+    const existing = await this.resolveExistingSession(input.sessionId, binding);
     if (existing.status !== StreamableSessionStatus.Missing) {
       return existing;
+    }
+
+    if (binding !== undefined) {
+      if (!input.isInitializeRequest) return existing;
+      const { config, context, contextProof } = input.createSessionData();
+      if (!this.canInitializeSignedSession(input.sessionId, binding, context, contextProof)) return existing;
+      this.pendingSessionIds.add(input.sessionId);
+      try {
+        return await this.createSession(
+          config,
+          context,
+          input.sessionId,
+          StreamableSessionStatus.Created,
+          contextProof,
+          binding,
+        );
+      } finally {
+        this.pendingSessionIds.delete(input.sessionId);
+      }
     }
 
     if (!input.isInitializeRequest) {
@@ -201,7 +234,10 @@ export class StreamableSessionLifecycle {
     );
   }
 
-  async resolveExistingSession(sessionId: string): Promise<StreamableSessionLookupResult> {
+  async resolveExistingSession(
+    sessionId: string,
+    authorizationBinding: StreamableSessionAuthorizationBinding | null | undefined = this.defaultAuthorizationBinding(),
+  ): Promise<StreamableSessionLookupResult> {
     if (!isValidSessionId(sessionId)) {
       logger.debug('streamableSessionLifecycle.invalid.sessionid.provided.to.streamable.lifecycle.lookup.946c0da3');
       return {
@@ -211,6 +247,9 @@ export class StreamableSessionLifecycle {
       };
     }
 
+    if (!this.isSessionAuthorized(sessionId, authorizationBinding)) {
+      return { status: StreamableSessionStatus.Missing, sessionId, reason: StreamableSessionMissingReason.NotFound };
+    }
     const existingTransport = this.serverManager.getTransport(sessionId);
     if (existingTransport) {
       if (this.isStreamableTransportImpl(existingTransport)) {
@@ -225,7 +264,7 @@ export class StreamableSessionLifecycle {
       };
     }
 
-    const restoreResult = await this.restoreSession(sessionId);
+    const restoreResult = await this.restoreSession(sessionId, authorizationBinding);
     if (restoreResult.transport) {
       return { status: StreamableSessionStatus.Restored, sessionId, transport: restoreResult.transport };
     }
@@ -242,17 +281,69 @@ export class StreamableSessionLifecycle {
     };
   }
 
-  async getSession(sessionId: string): Promise<StreamableTransport | null> {
-    const result = await this.resolveExistingSession(sessionId);
+  /** A verified local proof can admit a fresh signed identity, never replace a retained session. */
+  canInitializeSignedSession(
+    sessionId: string,
+    binding: StreamableSessionAuthorizationBinding | null | undefined,
+    context?: Partial<ContextData>,
+    proof?: TemplateContextProof,
+  ): boolean {
+    if (!canonicalSessionBinding(binding)) return false;
+    if (!proof) return false;
+    if (!isContextData(context)) return false;
+    if (!isPersistableSessionId(sessionId)) return false;
+    const authorization = authorizeRequestTemplateContext({
+      context,
+      proof,
+      transportSessionId: sessionId,
+      source: 'meta',
+    });
+    if (authorization.status !== 'trusted') return false;
+    if (authorization.provenance !== 'verified-local') return false;
+    if (this.pendingSessionIds.has(sessionId)) return false;
+    if (this.serverManager.getTransport(sessionId)) return false;
+    return !this.sessionRepository.getSessionData(sessionId);
+  }
+
+  /** Check ownership before project admission, without renewing or restoring a session. */
+  isSessionAuthorized(
+    sessionId: string,
+    authorizationBinding: StreamableSessionAuthorizationBinding | null | undefined = this.defaultAuthorizationBinding(),
+  ): boolean {
+    if (authorizationBinding === undefined) return true;
+    if (authorizationBinding === null) return false;
+    const transport = this.serverManager.getTransport(sessionId);
+    let stored: StreamableSessionAuthorizationBinding | undefined;
+    if (transport && this.isStreamableTransportImpl(transport)) {
+      stored = this.activeBindings.get(transport);
+    }
+    stored ??= this.sessionRepository.getSessionData(sessionId)?.authorizationBinding;
+    return sessionBindingsMatch(stored, authorizationBinding);
+  }
+
+  async getSession(
+    sessionId: string,
+    authorizationBinding?: StreamableSessionAuthorizationBinding | null,
+  ): Promise<StreamableTransport | null> {
+    const result = await this.resolveExistingSession(sessionId, authorizationBinding);
     return result.status === StreamableSessionStatus.Missing ? null : result.transport;
   }
 
-  async restoreSession(sessionId: string): Promise<StreamableSessionRestoreResult> {
+  async restoreSession(
+    sessionId: string,
+    authorizationBinding: StreamableSessionAuthorizationBinding | null | undefined = this.defaultAuthorizationBinding(),
+  ): Promise<StreamableSessionRestoreResult> {
     try {
       const sessionData = this.sessionRepository.getSessionData(sessionId);
       if (!sessionData) {
         logger.debug('streamableSessionLifecycle.no.persisted.session.found.for.1fd9955e');
         return { transport: null, errorType: StreamableSessionRestoreErrorType.NotFound };
+      }
+
+      if (authorizationBinding !== undefined) {
+        if (!sessionBindingsMatch(sessionData.authorizationBinding, authorizationBinding)) {
+          return { transport: null, errorType: StreamableSessionRestoreErrorType.NotFound };
+        }
       }
 
       if (!sessionData.initializeResponse) {
@@ -278,6 +369,8 @@ export class StreamableSessionLifecycle {
 
       logger.info('streamableSessionLifecycle.restoring.streamable.session.35290bd2');
       const transport = this.createRestorableTransportImpl(sessionId);
+      const binding = canonicalSessionBinding(sessionData.authorizationBinding);
+      if (binding) this.activeBindings.set(transport, binding);
       const contextData = buildContextData(config, sessionId);
       const authorization = contextData
         ? authorizeRequestTemplateContext({
@@ -342,12 +435,16 @@ export class StreamableSessionLifecycle {
     providedSessionId?: string,
     status: StreamableSessionCreateResult['status'] = StreamableSessionStatus.Created,
     contextProof?: TemplateContextProof,
+    authorizationBinding: StreamableSessionAuthorizationBinding | null | undefined = this.defaultAuthorizationBinding(),
   ): Promise<StreamableSessionCreateResult> {
+    const binding = canonicalSessionBinding(authorizationBinding);
+    if (authorizationBinding !== undefined && !binding) throw new Error('Session authorization required');
     const sessionId = providedSessionId || AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX + randomUUID();
 
     let transport: StreamableTransport;
     try {
       transport = this.createTransportImpl(sessionId);
+      if (binding) this.activeBindings.set(transport, binding);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('streamableSessionLifecycle.failed.to.create.transport.for.session.9aa73ada', { error: error });
@@ -381,7 +478,7 @@ export class StreamableSessionLifecycle {
     let persisted = false;
     let persistenceError: string | undefined;
     try {
-      this.sessionRepository.create(sessionId, configWithContext);
+      this.sessionRepository.create(sessionId, configWithContext, ...(binding ? [binding] : []));
       persisted = true;
     } catch (error) {
       persistenceError = error instanceof Error ? error.message : String(error);
@@ -418,6 +515,10 @@ export class StreamableSessionLifecycle {
 
   async deleteSession(sessionId: string): Promise<void> {
     await this.completeExplicitDelete(sessionId);
+  }
+
+  private defaultAuthorizationBinding(): null | undefined {
+    return AgentConfigManager.getInstance().get('features').auth ? null : undefined;
   }
 
   private initializeNotifications(sessionId: string): void {
