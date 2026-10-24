@@ -16,6 +16,27 @@ async function parse(args: string[]) {
 afterEach(() => vi.clearAllMocks());
 
 describe('prepare command family', () => {
+  it.each(['inspect', 'status', 'wait', 'cancel', 'retry'])(
+    'advertises the wait budget only for wait (%s)',
+    async (action) => {
+      let output = '';
+      await setupProjectCommands(yargs([]).exitProcess(false).help()).parseAsync(
+        ['project', 'prepare', action, '--help'],
+        {},
+        (_error, _argv, help) => {
+          output = help;
+        },
+      );
+      expect(output.includes('--wait-ms')).toBe(action === 'wait');
+    },
+  );
+
+  it.each(['inspect', 'status', 'cancel', 'retry'])('rejects a wait budget before %s', async (action) => {
+    const tail = action === 'inspect' ? [] : ['job'];
+    await expect(parse(['prepare', action, 'backend', ...tail, '--wait-ms', '1'])).rejects.toThrow('Unknown argument');
+    expect(preparationCommand).not.toHaveBeenCalled();
+  });
+
   it.each(['preparation', 'preparation inspect source-search'])(
     'rejects removed compatibility entry point %s',
     async (command) => {

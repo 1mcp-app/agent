@@ -163,6 +163,8 @@ Without a project set, assign exactly one absolute checkout path. With `--projec
 
 ## Verify Hook Delivery
 
+Bootstrap coverage gaps include a stable category. `invalid_hook_input` means the hook input was incomplete, invalid, or for a different event; `invalid_assignment` means the client/event or project selection is invalid; `assignment_unresolved` means a worker still needs its dispatch target. Correct these before rerunning bootstrap. `instructions_timeout`, `instructions_unavailable`, `instructions_failed`, and `instructions_empty` identify instruction-subprocess failures. Check runtime availability and rerun `1mcp instructions` with the same assignment, runtime, and filters. Diagnostics do not echo hook input, subprocess stderr, or arbitrary exception text. These categories describe instruction delivery, not proof of ownership cleanup or backend readiness.
+
 Writing hook configuration does not establish that the client enabled or trusted it, that a hook executed, or that the selected runtime and checkout index are ready. Verify the client actually receives `additionalContext` for both events. Disabled, untrusted, commented configuration files that setup leaves untouched, runtime failures, and unresolved worker assignments are bootstrap coverage gaps. Resolve the reported gap before project-specific tool use. Setup does not enable hooks or change trust automatically.
 
 ## See Also
