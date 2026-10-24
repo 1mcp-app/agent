@@ -105,11 +105,10 @@ export class StdioProxyTransport {
     logger.info('stdioProxyTransport.proxy.connecting.with.meta.field.approach.7b806ac5');
 
     // Create HTTP transport with custom fetch that dynamically injects User-Agent
-    // Note: sessionId is passed as a parameter, SDK will handle adding it to headers
+    // A fresh context ID is not an existing transport session; let initialize establish it.
     const trustedFetch = this.createDynamicHeaderFetch();
     this.httpTransport = new StreamableHTTPClientTransport(this.serverUrl, {
       fetch: createSseWireLimitedFetch(trustedFetch, () => this.httpTransport),
-      sessionId: this.context.sessionId,
     });
     registerSseWireLimitOwner(this.httpTransport, trustedFetch);
   }

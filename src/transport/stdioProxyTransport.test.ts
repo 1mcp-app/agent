@@ -59,6 +59,12 @@ describe('StdioProxyTransport', () => {
       expect(proxy).toBeDefined();
     });
 
+    it('does not claim a preexisting session when its generated context is fresh', () => {
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp', bearerToken: 'test-token' });
+      expect(proxy['context'].sessionId).toMatch(/^stream-/);
+      expect(vi.mocked(StreamableHTTPClientTransport).mock.calls[0]?.[1]?.sessionId).toBeUndefined();
+    });
+
     it('should create proxy with tags', () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',

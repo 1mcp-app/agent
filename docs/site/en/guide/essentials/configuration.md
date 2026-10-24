@@ -632,6 +632,8 @@ npx -y @1mcp/agent
 
 Control HTTP session persistence for improved reliability across server restarts.
 
+With authentication enabled, older Streamable HTTP sessions without an authorization binding require reinitialization after upgrading. Reconnect without an `mcp-session-id` to create a fresh session. Renewed tokens can continue a session when their client, resource, and scope set match the original grant. Disabling scope validation keeps authentication and session ownership checks enabled.
+
 **`--enable-session-persistence`**
 
 - **Purpose**: Enable HTTP session persistence
