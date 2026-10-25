@@ -268,6 +268,42 @@
                           },
                           "required": ["state", "instructions"],
                           "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "unsupported"
+                            },
+                            "instructions": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": ["state", "instructions"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "unknown"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "const": "probe_failed"
+                            },
+                            "instructions": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": ["state", "reason", "instructions"],
+                          "additionalProperties": false
                         }
                       ]
                     }
@@ -842,6 +878,42 @@
                             }
                           },
                           "required": ["state", "instructions"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "unsupported"
+                            },
+                            "instructions": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": ["state", "instructions"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "unknown"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "const": "probe_failed"
+                            },
+                            "instructions": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": ["state", "reason", "instructions"],
                           "additionalProperties": false
                         }
                       ]

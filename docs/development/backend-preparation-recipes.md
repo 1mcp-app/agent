@@ -152,7 +152,9 @@ Add preparation metadata to an existing server definition. Use executable paths 
         "0": { "state": "ready" },
         "2": { "state": "required", "action": "initialize", "instructions": "Initialize the selected checkout." },
         "3": { "state": "required", "action": "sync", "instructions": "Synchronize changed source." },
-        "4": { "state": "conflict", "instructions": "Reconcile the existing writer before retrying." }
+        "4": { "state": "conflict", "instructions": "Reconcile the existing writer before retrying." },
+        "20": { "state": "unknown", "reason": "probe_failed", "instructions": "Inspect the native configuration before retrying." },
+        "21": { "state": "unsupported", "instructions": "Verify backend compatibility before updating this recipe." }
       },
       "actions": {
         "initialize": {
@@ -168,6 +170,8 @@ Add preparation metadata to an existing server definition. Use executable paths 
 ```
 
 Replace these example wrapper paths with installed integration scripts. A probe must establish freshness and coverage for this checkout and operation, including dirty source. Unmapped exits and timeouts produce unknown readiness; logs are bounded diagnostics. An integration that cannot establish freshness should report unknown rather than ready. `affectedTools` accepts explicit upstream names or `"all"`; other tools retain their ordinary behavior. A gated backend with no integration reports unsupported preparation.
+
+For a known compatibility failure, map its exit code to `unsupported`. For an inconclusive probe, map it to `unknown` with `reason: "probe_failed"`. Both return the operator-authored `instructions` (1–4,096 characters) without adding stdout or stderr, scheduling an action, or replaying the tool. Other unknown reasons, such as caller cancellation and inspection timeout, are reserved for runtime observations. Unmapped exits still remain unknown; never map a probe error to `ready` just to unblock tools. These mappings require a runtime version that supports them; older runtimes reject the definition instead of silently enabling tools.
 
 Each action may explicitly define `successExitCodes` (default `[0]`) and `transientExitCodes`. The mappings must not overlap. Only explicitly transient failures can retry automatically, within `transientRetryLimit` and the job deadline. `allowedActions` grants runtime authority. Rebuilds, dependency installation, and paid services require explicit `rebuild`, `install`, or `paid` permission; project preferences cannot add them.
 

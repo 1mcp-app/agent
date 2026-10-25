@@ -154,4 +154,6 @@ If the job is still running, wait again. You can also use `prepare status`, `pre
 
 A preparation command finishing does not necessarily mean the server is ready: 1MCP checks again before allowing the tool to run. Each job performs one action, so a result may ask you to retry for another step.
 
+Recipes can explicitly report an unsupported backend version or an inconclusive probe with an operator-written explanation. These results keep the tool blocked and do not start a preparation action. Resolve the reported prerequisite before inspecting again; never treat an unknown result as readiness. The explanation comes from the configured recipe, not raw backend output.
+
 For project selection and inherited settings, see [Project checkouts and sets](/guide/project-checkouts). If you are developing a recipe, see the separate [integration author guide](https://github.com/1mcp-app/agent/blob/main/docs/development/backend-preparation-recipes.md).
