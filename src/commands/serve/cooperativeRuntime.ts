@@ -213,7 +213,7 @@ export async function launchCooperativeRuntime(
   const child = spawn(
     command,
     [...baseArgs, 'serve', '--cooperative-bootstrap=supervisor', '--config', configFilePath],
-    { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
+    { detached: true, windowsHide: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
   );
   const bootstrap: RuntimeLaunchBootstrap = {
     type: 'runtime-bootstrap',
@@ -557,7 +557,7 @@ export async function runCooperativeSupervisor(): Promise<void> {
               nonce: randomUUID(),
               claimId: ownership.record.claimId,
             };
-            const child = spawn(cmd, [...args], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+            const child = spawn(cmd, [...args], { windowsHide: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
             worker = child;
             if (child.pid) spawnedWorkerPids.add(child.pid);
             const ready = waitForChildActivation(child, launch).then((message) => {
