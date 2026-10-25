@@ -1,6 +1,6 @@
 # TypeScript MCP peer fixtures
 
-This fixture-local package owns real MCP peers for the pinned TypeScript SDK eras. Install it independently from the repository workspace:
+This fixture-local package owns real MCP peers for the supported TypeScript SDK eras. Install it independently from the repository workspace:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -8,15 +8,15 @@ pnpm self-check
 pnpm check
 ```
 
-`--self-check` reads each installed package's metadata and dynamically imports every required public SDK export. It exits nonzero if a version or export differs from the fixture contract.
+`--self-check` reads each installed package's metadata and dynamically imports every required public SDK export. It exits nonzero if installed versions disagree with the current manifest and lockfile, or required exports are missing. Routine dependency updates do not require a second version inventory.
 
 ## Profiles
 
-| SDK era | Packages                                     | Transports                        | Protocol era                          |
-| ------- | -------------------------------------------- | --------------------------------- | ------------------------------------- |
-| `v1`    | `@modelcontextprotocol/sdk@1.30.0`           | `stdio`, `streamable-http`, `sse` | legacy revisions through `2025-11-25` |
-| `v2`    | split client/server/node packages at `2.0.0` | `stdio`, `streamable-http`        | legacy or `2026-07-28`                |
-| `v2`    | `@modelcontextprotocol/server-legacy@2.0.0`  | `sse`                             | retained legacy only                  |
+| SDK era | Packages                              | Transports                        | Protocol era                          |
+| ------- | ------------------------------------- | --------------------------------- | ------------------------------------- |
+| `v1`    | `@modelcontextprotocol/sdk@1.30.0`    | `stdio`, `streamable-http`, `sse` | legacy revisions through `2025-11-25` |
+| `v2`    | split client/server/node packages     | `stdio`, `streamable-http`        | legacy or `2026-07-28`                |
+| `v2`    | `@modelcontextprotocol/server-legacy` | `sse`                             | retained legacy only                  |
 
 HTTP servers bind `127.0.0.1` on port `0`. Their only startup line is structural JSON containing `kind`, SDK era, transport, loopback host, and assigned port. `SIGINT` and `SIGTERM` close active MCP transports and the HTTP listener.
 
@@ -61,19 +61,9 @@ It reads `MCP_CONFORMANCE_SCENARIO`, `MCP_CONFORMANCE_CONTEXT`, and `MCP_CONFORM
 
 For the modern `request-state` family, the gateway bridge enables real authentication and scope validation, provisions one grant through its own localhost CLI-token route, and verifies admission through its inspect route. The bearer and exact gateway origin enter only the private fixture process environment; they are never command arguments or evidence. The SDK transport receives them through public `requestInit` headers, rejects a different origin or scenario, and does not follow redirects. This allows native continuations to retain the verified grant required by gateway policy.
 
-The pinned request-state scenario's last response deliberately omits `resultType`. The [pinned published 2026 protocol](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/5f5440bb26a62e2cf3440b92da5a667efa03b267/schema/2026-07-28/schema.ts#L219-L224) requires that field; the omitted-field default applies only to earlier protocol servers. The [pinned conformance peer](https://github.com/modelcontextprotocol/conformance/blob/c321dd32035556e6769d3724a8ee97d87c3faaac/src/scenarios/client/mrtr-client.ts#L442-L459) therefore conflicts with the modern contract. The retained modern SDK correctly rejects that response before result-schema validation. The five peer checks can therefore succeed while the client process and gateway fixture remain unsuccessful. Raw checks and the final rejection remain visible; this harness does not add a result field or convert that discrepancy into a passing product verdict.
+Migration-specific expected-failure classifications, official-suite verdicts, and digest-protected release artifacts have been retired. The request-state regression uses an owned peer with valid modern responses and checks the real authenticated gateway's continuations and interleaved operations. Invalid SDK responses remain failures.
 
-## Pinned null-header contract gap
-
-The pinned custom-header scenario sends `verbose: null` for an optional boolean-only Tool property. The gateway rejects that body during schema validation before provider dispatch; a request that omits the property succeeds and omits the header. The direct public SDK server also rejects the null body, while the scenario's manual peer checks only the header. This fixture does not remove or rewrite the argument or waive the retained required failure.
-
-## Official OAuth fixture gap
-
-The gateway bridge classifies the pinned suite's `auth/*` client scenarios as `fixture-defect` before starting the gateway or client. Its status reason is `oauth-fixture-context-unavailable`. The official checks remain available, but these scenarios do not establish a gateway OAuth product verdict; required OAuth coverage remains blocked. Sanitized scenario IDs, bridge statuses, and the fixed reason survive temporary-directory cleanup in the digest-protected `official-client-statuses/client.<revision>.json` artifact, which links the retained raw official evidence and records its fixture classification.
-
-`@modelcontextprotocol/conformance@0.2.0-alpha.11` starts its authorization server on an ephemeral port inside the CLI process. It passes the resource URL and optional credentials to the client command, without independently owned authorization-server context. The source's optional `ScenarioUrls.authUrl` field is unused and is not forwarded by the runner. The installed package ships a CLI bundle without an exported scenario lifecycle API or a client option for this context. This fixture also lacks a driver that completes authorization and proves an authenticated tool call.
-
-Advertised protected-resource metadata, callback `iss`, arbitrary extra context fields, and client credentials do not grant trust to another local origin. A qualified OAuth fixture must own the exact issuer before gateway startup, preserve the actual state, code, issuer, and PKCE exchange, and verify the authenticated upstream tool call. Separate owned OAuth tests are additional evidence and do not replace these blocked official scenarios.
+The bridge's OAuth fixture rejection remains fail-closed: unowned issuer context cannot authorize another local origin. Authentication behavior is also covered by the existing owned OAuth unit and E2E tests.
 
 ## Modern protocol limitation
 

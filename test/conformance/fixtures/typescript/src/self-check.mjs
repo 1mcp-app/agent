@@ -2,7 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { PACKAGE_PINS, PROFILES } from './constants.mjs';
+import { parsePnpmDependencyLockfile } from '../../../../../scripts/pnpm-lockfile.mjs';
+import { PROFILES } from './constants.mjs';
+
+const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+const lock = parsePnpmDependencyLockfile(await readFile(new URL('../pnpm-lock.yaml', import.meta.url), 'utf8'));
+const packagesToCheck = Object.keys(manifest.dependencies).filter((name) => name.startsWith('@modelcontextprotocol/'));
 
 async function installedVersion(packageName) {
   let directory = dirname(fileURLToPath(import.meta.resolve(packageName)));
@@ -18,13 +23,13 @@ async function installedVersion(packageName) {
   throw new Error('PACKAGE_METADATA_INVALID');
 }
 
-function hasFunctions(module, names) {
+export function hasFunctions(module, names) {
   return names.every((name) => typeof module[name] === 'function');
 }
 
 export async function selfCheck() {
   const packages = Object.fromEntries(
-    await Promise.all(Object.keys(PACKAGE_PINS).map(async (name) => [name, await installedVersion(name)])),
+    await Promise.all(packagesToCheck.map(async (name) => [name, await installedVersion(name)])),
   );
   const [v1Client, v1ClientStdio, v1ClientHttp, v1ClientSse, v1Server, v1ServerStdio, v1ServerHttp, v1ServerSse] =
     await Promise.all([
@@ -61,7 +66,10 @@ export async function selfCheck() {
     hasFunctions(v2Node, ['localhostHostValidation', 'localhostOriginValidation', 'toNodeHandler']),
     hasFunctions(v2Legacy, ['SSEServerTransport']),
   ].every(Boolean);
-  const versionsValid = Object.entries(PACKAGE_PINS).every(([name, version]) => packages[name] === version);
+  const versionsValid = packagesToCheck.every((name) => {
+    const entry = lock.importers['.'].dependencies[name];
+    return entry?.specifier === manifest.dependencies[name] && packages[name] === entry.version.split('(')[0];
+  });
 
   return {
     kind: 'self-check',

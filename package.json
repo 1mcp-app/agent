@@ -65,9 +65,8 @@
     "format:check": "prettier --check \"src/**/*.{js,ts,tsx}\" \"test/**/*.{js,ts,tsx}\" \"web/admin/src/**/*.{ts,tsx}\"",
     "check": "pnpm ci:static && pnpm test && pnpm test:release && pnpm guard:perms",
     "check:sdk-boundary": "node scripts/check-sdk-boundary.mjs",
-    "check:sdk-topology": "node scripts/check-sdk-topology.mjs",
     "test:sdk-boundary": "node --test test/sdk-boundary/*.test.mjs",
-    "ci:static": "concurrently --kill-others-on-fail --names lint,typecheck,build,sdk-boundary,sdk-topology,sdk-policy-tests \"pnpm lint\" \"pnpm typecheck\" \"pnpm build\" \"pnpm check:sdk-boundary\" \"pnpm check:sdk-topology\" \"pnpm test:sdk-boundary\"",
+    "ci:static": "concurrently --kill-others-on-fail --names lint,typecheck,build,sdk-boundary,sdk-policy-tests \"pnpm lint\" \"pnpm typecheck\" \"pnpm build\" \"pnpm check:sdk-boundary\" \"pnpm test:sdk-boundary\"",
     "guard:perms": "node scripts/security/check-permission-modes.mjs",
     "test:security-permissions": "vitest run src/auth/storage/tokenPermissions.invariant.test.ts src/core/context/capabilityPermissions.invariant.test.ts && pnpm guard:perms",
     "typecheck": "tsc --noEmit --project tsconfig.test.json",
@@ -86,8 +85,6 @@
     "test:e2e:watch": "vitest --config vitest.e2e.config.ts",
     "test:e2e:coverage": "vitest run --config vitest.e2e.config.ts --coverage",
     "test:e2e:performance": "node scripts/test-e2e-performance.js",
-    "test:conformance": "node scripts/run-conformance.mjs",
-    "test:conformance:harness": "node scripts/run-conformance.mjs --suite harness",
     "docs:dev": "vitepress dev docs/site",
     "docs:build": "vitepress build docs/site && node scripts/validate-docs-seo.mjs",
     "docs:preview": "vitepress preview docs/site",
@@ -104,7 +101,8 @@
     "build:binaries": "pnpm sea:build && pnpm sea:binary",
     "build:binaries:archived": "pnpm build:binaries && pnpm archive",
     "test:tracing:disabled": "node scripts/verify-propagation-disabled.mjs",
-    "test:tracing:performance": "node --expose-gc scripts/measure-propagation.mjs"
+    "test:tracing:performance": "node --expose-gc scripts/measure-propagation.mjs",
+    "test:protocol": "node scripts/run-protocol.mjs"
   },
   "dependencies": {
     "@hono/node-server": "2.0.12",

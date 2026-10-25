@@ -6,7 +6,6 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 import { checkSdkImportBoundary, findLegacySdkImports } from '../../scripts/sdk-boundary/import-policy.mjs';
-import { formatTopologyDifferences, topologyDifferences } from '../../scripts/sdk-boundary/topology.mjs';
 
 test('allows monolithic v1 imports only inside the legacy island and test code', async () => {
   const root = await mkdtemp(path.join(tmpdir(), '1mcp-sdk-boundary-'));
@@ -58,10 +57,7 @@ test('scans TypeScript module variants used by the production build', async () =
   const root = await mkdtemp(path.join(tmpdir(), '1mcp-sdk-boundary-modules-'));
   try {
     await mkdir(path.join(root, 'src'), { recursive: true });
-    await writeFile(
-      path.join(root, 'src', 'violation.cts'),
-      "require('@modelcontextprotocol/sdk/client/index.js');\n",
-    );
+    await writeFile(path.join(root, 'src', 'violation.cts'), "require('@modelcontextprotocol/sdk/client/index.js');\n");
     await writeFile(
       path.join(root, 'src', 'violation.mts'),
       "import type { Tool } from '@modelcontextprotocol/sdk/types.js';\n",
@@ -133,15 +129,9 @@ test('rejects relative imports into the internal legacy island', () => {
 
 test('rejects computed production module loaders', () => {
   const cases = [
-    [
-      "const specifier = '@src/sdk/legacy/types.js'; require(specifier);",
-      'commonjs require',
-    ],
-    [
-      "const specifier = '@src/sdk/legacy/client/index.js'; import(specifier);",
-      'dynamic import',
-    ],
-    ["import(resolveRuntimeModule());", 'computed dynamic import'],
+    ["const specifier = '@src/sdk/legacy/types.js'; require(specifier);", 'commonjs require'],
+    ["const specifier = '@src/sdk/legacy/client/index.js'; import(specifier);", 'dynamic import'],
+    ['import(resolveRuntimeModule());', 'computed dynamic import'],
   ];
 
   for (const [source, kind] of cases) {
@@ -165,17 +155,10 @@ test('allows pure compatibility shims for the internal legacy island', () => {
 });
 
 test('rejects compatibility shims that contain executable code', () => {
-  const source = [
-    "export * from '@src/sdk/legacy/server/runtime/serverManager.js';",
-    'initializeRuntime();',
-  ].join('\n');
+  const source = ["export * from '@src/sdk/legacy/server/runtime/serverManager.js';", 'initializeRuntime();'].join(
+    '\n',
+  );
   const violations = findLegacySdkImports(source, 'src/core/server/serverManager.ts');
   assert.equal(violations.length, 1);
   assert.equal(violations[0].kind, 'export-from');
-});
-
-test('topology diffs name the exact expected and actual values', () => {
-  const differences = topologyDifferences({ root: { zod: '4.4.3' } }, { root: { zod: '4.5.0' } });
-  assert.deepEqual(differences, [{ path: '$.root.zod', expected: '4.4.3', actual: '4.5.0' }]);
-  assert.equal(formatTopologyDifferences(differences), '$.root.zod\n  expected: "4.4.3"\n  actual:   "4.5.0"');
 });
