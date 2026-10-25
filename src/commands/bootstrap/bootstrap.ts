@@ -17,6 +17,23 @@ import { bootstrapOwner, releaseSessionOwner } from './bootstrapOwnership.js';
 export const BOOTSTRAP_INPUT_LIMIT = 64 * 1024;
 export const BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD = 9000;
 export const BOOTSTRAP_DEADLINE_MS = 5000;
+
+const instructionsFailures = {
+  instructions_timeout: 'Runtime instructions deadline exceeded',
+  instructions_unavailable: 'Runtime instructions process unavailable',
+  instructions_failed: 'Runtime instructions failed',
+  instructions_empty: 'Runtime returned no instructions',
+} as const;
+
+class InstructionsProcessError extends Error {
+  constructor(readonly code: keyof typeof instructionsFailures) {
+    super(instructionsFailures[code]);
+  }
+}
+
+function bootstrapGap(playbook: string, reason: string, recovery: string): string {
+  return `${playbook}\nBootstrap coverage gap [${reason}]: project-specific instructions were not delivered. ${recovery}\n`;
+}
 export const bootstrapOptionsSchema = z
   .object({
     client: z.enum(['codex', 'claude']),
@@ -146,18 +163,18 @@ export async function runInstructionsProcess(
         return;
       }
       const output = Buffer.concat(chunks).toString('utf8').trim();
-      if (!output) reject(new Error('Runtime returned no instructions'));
+      if (!output) reject(new InstructionsProcessError('instructions_empty'));
       else resolve(output);
     };
-    const timer = setTimeout(() => finish(new Error('Runtime instructions deadline exceeded')), deadlineMs);
+    const timer = setTimeout(() => finish(new InstructionsProcessError('instructions_timeout')), deadlineMs);
     child.stdout.on('data', (chunk: Buffer) => {
       chunks.push(chunk);
     });
     // Drain stderr without retaining potentially sensitive runtime diagnostics.
     child.stderr.resume();
-    child.once('error', () => finish(new Error('Runtime instructions process unavailable')));
+    child.once('error', () => finish(new InstructionsProcessError('instructions_unavailable')));
     child.once('close', (code) => {
-      if (code !== 0) finish(new Error('Runtime instructions failed'));
+      if (code !== 0) finish(new InstructionsProcessError('instructions_failed'));
       else finish();
     });
   });
@@ -171,25 +188,50 @@ export async function renderBootstrapContext(
   const playbook = renderManagedDocContent();
   try {
     bootstrapOptionsSchema.parse(options);
+  } catch {
+    return bootstrapGap(
+      playbook,
+      'invalid_assignment',
+      'Validate the client/event and use one absolute checkout or an absolute project-set definition with valid member labels before rerunning bootstrap.',
+    );
+  }
+  try {
     if (input.trim()) {
       const parsed = hookInputSchema.parse(JSON.parse(input));
       if (parsed.hook_event_name !== options.event) throw new Error('Hook event does not match --event');
     }
-    const assignment = options['project-set']
-      ? { projectSet: options['project-set'], selection: options.project }
-      : options.project;
-    if (options.event === 'SubagentStart' && !assignment) {
-      return `${playbook}\nWorker Project Assignment unresolved. Parent session identity and hook cwd are not targets. Before project-specific instructions or tools, obtain the dispatch assignment and run bootstrap with an explicit absolute --project path or --project-set definition path. Select an explicit target for each checkout-specific call in a multi-project set.\nBootstrap coverage gap: project-specific instructions have not been fetched.\n`;
-    }
-    const selection = assignment ? `Explicit Worker Project Assignment: ${JSON.stringify(assignment)}\n` : '';
-    const prefix = `${playbook}\n${selection}`;
+  } catch {
+    return bootstrapGap(
+      playbook,
+      'invalid_hook_input',
+      'Check that the hook delivers complete JSON with a matching hook_event_name, then rerun bootstrap with the assigned target.',
+    );
+  }
+  const assignment = options['project-set']
+    ? { projectSet: options['project-set'], selection: options.project }
+    : options.project;
+  if (options.event === 'SubagentStart' && !assignment) {
+    return bootstrapGap(
+      playbook,
+      'assignment_unresolved',
+      'Worker Project Assignment unresolved. Parent session identity and hook cwd are not targets. Before project-specific instructions or tools, obtain the dispatch assignment and run bootstrap with an explicit absolute --project path or --project-set definition path. Select an explicit target for each checkout-specific call in a multi-project set.',
+    );
+  }
+  const selection = assignment ? `Explicit Worker Project Assignment: ${JSON.stringify(assignment)}\n` : '';
+  const prefix = `${playbook}\n${selection}`;
+  try {
     const rendered = await renderInstructions(options);
     if (rendered.length > BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD) {
       return `${prefix}${rendered}\n\n=== PRESET ADVISORY FOR THE AGENT ===\nInform the user briefly that the 1MCP instructions are large. Recommend using a 1MCP preset to select fewer relevant MCP servers in future sessions, for example \`1mcp instructions --preset <name>\`. All instructions have been delivered; continue the current task. Do not change the user's configuration automatically.\n`;
     }
     return `${prefix}${rendered}`;
-  } catch {
-    return `${playbook}\nBootstrap coverage gap: input, assignment, or runtime instructions could not be verified. Project-specific instructions were not delivered. Resolve an explicit assignment and rerun scoped instructions before project-specific tool use.\n`;
+  } catch (error) {
+    const reason = error instanceof InstructionsProcessError ? error.code : 'instructions_failed';
+    return bootstrapGap(
+      prefix,
+      reason,
+      `${instructionsFailures[reason]}. Check runtime availability and rerun 1mcp instructions with the same assignment, runtime and filters before project-specific tool use. Do not change targets or permissions to bypass the failure.`,
+    );
   }
 }
 

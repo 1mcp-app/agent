@@ -153,6 +153,8 @@ Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选�
 
 ## 验证钩子交付
 
+引导覆盖缺口包含稳定的原因分类。`invalid_hook_input` 表示钩子输入不完整、无效或事件不匹配；`invalid_assignment` 表示客户端、事件或项目选择无效；`assignment_unresolved` 表示工作代理仍缺少明确分配的目标。修正后再运行 bootstrap。`instructions_timeout`、`instructions_unavailable`、`instructions_failed` 和 `instructions_empty` 分别标识指令子进程超时、不可用、执行失败和输出为空。检查运行时可用性，再使用相同分配、运行时和筛选条件运行 `1mcp instructions`。诊断不会回显钩子输入、子进程标准错误或任意异常文本。这些分类仅描述指令交付，不证明所有权清理或后端就绪。
+
 生成钩子配置不证明客户端已经启用或信任它、钩子实际执行、运行时可用或目标 checkout 索引就绪。应检查客户端在两个事件中实际收到 `additionalContext`。禁用或未信任的钩子、因包含注释而保留未修改的配置、运行时失败和未解决的 worker 分配都属于引导覆盖缺口。项目工具调用前先解决缺口；setup 不会自动开启钩子或修改信任设置。
 
 ## 另请参阅
