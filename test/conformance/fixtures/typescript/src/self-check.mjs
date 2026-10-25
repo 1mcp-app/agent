@@ -2,12 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { parsePnpmDependencyLockfile } from '../../../../../scripts/pnpm-lockfile.mjs';
 import { PROFILES } from './constants.mjs';
-
-const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-const lock = parsePnpmDependencyLockfile(await readFile(new URL('../pnpm-lock.yaml', import.meta.url), 'utf8'));
-const packagesToCheck = Object.keys(manifest.dependencies).filter((name) => name.startsWith('@modelcontextprotocol/'));
 
 async function installedVersion(packageName) {
   let directory = dirname(fileURLToPath(import.meta.resolve(packageName)));
@@ -28,6 +23,12 @@ export function hasFunctions(module, names) {
 }
 
 export async function selfCheck() {
+  const { parsePnpmDependencyLockfile } = await import('../../../../../scripts/pnpm-lockfile.mjs');
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  const lock = parsePnpmDependencyLockfile(await readFile(new URL('../pnpm-lock.yaml', import.meta.url), 'utf8'));
+  const packagesToCheck = Object.keys(manifest.dependencies).filter((name) =>
+    name.startsWith('@modelcontextprotocol/'),
+  );
   const packages = Object.fromEntries(
     await Promise.all(packagesToCheck.map(async (name) => [name, await installedVersion(name)])),
   );

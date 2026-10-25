@@ -353,6 +353,16 @@ describe('test-and-validate workflow', () => {
     expect(workflow.jobs['release-result'].needs).toEqual(expect.arrayContaining(['static', 'test-protocol']));
   });
 
+  it('runs every aggregate dependency even for manually dispatched tag refs', () => {
+    const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
+      jobs: Record<string, { needs?: string[]; if?: string }>;
+    };
+    expect(workflow.jobs.ci.needs).toEqual(['static', 'unit-admin', 'test-protocol']);
+    for (const name of workflow.jobs.ci.needs!) {
+      expect(workflow.jobs[name].if, name).toBeUndefined();
+    }
+  });
+
   it('fails aggregate gates when any required job fails, is cancelled, or is skipped', () => {
     for (const [file, job, inputs] of [
       ['.github/workflows/test-and-validate.yml', 'ci', ['STATIC_RESULT', 'TEST_RESULT', 'PROTOCOL_RESULT']],

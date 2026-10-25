@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { readFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
 
@@ -705,4 +707,17 @@ test('required SDK exports reject missing or non-callable implementations', () =
   assert.equal(hasFunctions({ McpServer() {}, createMcpHandler() {} }, ['McpServer', 'createMcpHandler']), true);
   assert.equal(hasFunctions({ McpServer() {} }, ['McpServer', 'createMcpHandler']), false);
   assert.equal(hasFunctions({ McpServer: 'missing' }, ['McpServer']), false);
+});
+
+test('importing fixture self-check does not require a manifest, lockfile, or root parser', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'fixture-self-check-import-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const source = join(directory, 'test/conformance/fixtures/typescript/src');
+  await mkdir(source, { recursive: true });
+  for (const name of ['self-check.mjs', 'constants.mjs']) {
+    await copyFile(new URL(`../src/${name}`, import.meta.url), join(source, name));
+  }
+  const loaded = await import(pathToFileURL(join(source, 'self-check.mjs')).href);
+  assert.equal(typeof loaded.selfCheck, 'function');
+  await assert.rejects(loaded.selfCheck(), { code: 'ERR_MODULE_NOT_FOUND' });
 });
