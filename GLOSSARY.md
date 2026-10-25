@@ -444,17 +444,13 @@ _Avoid_: install command, installation adapter, registry install
 The domain workflow that configures an already installed backend from a maintained example as a static **Configured Server Target** or reusable **Template Server**. It preserves operator overrides through **Config Change** and does not establish native readiness or install backend dependencies. The CLI exposes it through `mcp setup`, separately from **Server Installation Workflow**.
 _Avoid_: registry installation, backend preparation, index initialization
 
-**Conformance Harness**:
-The deterministic evidence system that exercises the **Aggregated Runtime** across supported protocol eras, peer roles, and transport profiles without changing production behavior.
-_Avoid_: E2E suite, release test script
+**Protocol Regression Suite**:
+Behavioral tests that exercise supported protocol eras, peer roles, and transports through the **Aggregated Runtime**. Passing regressions does not claim complete specification conformance.
+_Avoid_: migration acceptance, specification certification
 
-**Conformance Baseline**:
-An exact-source result from the **Conformance Harness** that records current supported and unsupported behavior. A failing baseline is evidence, not an exception or waiver.
-_Avoid_: expected-failure list, known-failure waiver
-
-**Requirement Traceability Manifest**:
-The machine-validated mapping from applicable MCP requirements and accepted 1MCP contracts to test identities, fixture roles, transport profiles, delivery stages, and evidence artifacts.
-_Avoid_: coverage list, test plan
+**Release Check Record**:
+The results of required validation jobs bound to one release candidate's source revision.
+_Avoid_: conformance verdict, publication proof
 
 **Sanitized Wire Evidence**:
 Synthetic-loopback evidence for both gateway hops that retains allowlisted protocol facts after source-side secret redaction and excludes live credentials and user configuration.
@@ -462,9 +458,7 @@ _Avoid_: raw wire dump, traffic log
 
 ## Relationships
 
-- A **Conformance Harness** produces a **Conformance Baseline** for one exact source revision.
-- A **Requirement Traceability Manifest** binds requirements and accepted contracts to **Conformance Harness** evidence.
-- A **Conformance Baseline** may remain red while unsupported production behavior is implemented; the later release verdict requires the applicable baseline to be green.
+- A **Release Check Record** includes the **Protocol Regression Suite** result for the selected candidate.
 - **Sanitized Wire Evidence** proves both gateway hops without becoming a source of live credentials or user configuration.
 - An **Aggregated Runtime** exposes one or more **Client Surfaces**.
 - The **Admin Console** is a **Client Surface** served same-origin by the **Aggregated Runtime**.

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import tomllib
+from pathlib import Path
+
 import argparse
 import asyncio
 import importlib.metadata
@@ -18,7 +21,6 @@ from starlette.responses import JSONResponse
 
 
 FIXTURE_ID = "python-sdk"
-EXPECTED_VERSION = "2.2.0"
 TOOL_NAME = "fixture.acknowledge"
 TOOL_INPUT_SENTINEL = "fixture-input-must-not-leak"
 TOOL_RESULT_SENTINEL = "fixture-result-must-not-leak"
@@ -40,7 +42,11 @@ def emit(value: dict[str, object]) -> None:
 
 def self_check() -> None:
     version = importlib.metadata.version("mcp")
-    if version != EXPECTED_VERSION:
+    directory = Path(__file__).parent
+    manifest = tomllib.loads((directory / "pyproject.toml").read_text())
+    lock = tomllib.loads((directory / "uv.lock").read_text())
+    expected = next(package["version"] for package in lock["package"] if package["name"] == "mcp")
+    if version != expected or f"mcp=={expected}" not in manifest["project"]["dependencies"]:
         raise FixtureError("sdk-version-mismatch")
     emit(
         {

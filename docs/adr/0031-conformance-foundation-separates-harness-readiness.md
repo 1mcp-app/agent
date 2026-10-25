@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0032
 ---
 
 # Conformance Foundation Separates Harness Readiness From Product Conformance
@@ -9,3 +9,5 @@ The MCP 2026 **Conformance Harness** is established before modern production ada
 ## Consequences
 
 **Sanitized Wire Evidence** uses synthetic loopback inputs only, applies source-side allowlisting and secret redaction, and excludes live credentials and user configuration. It retains enough protocol structure to schema-validate both gateway hops without treating a raw traffic dump as release evidence.
+
+Superseded by [ongoing protocol regression coverage](0032-protocol-regressions-replace-migration-evidence.md).

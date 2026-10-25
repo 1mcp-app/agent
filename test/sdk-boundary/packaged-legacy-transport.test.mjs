@@ -69,16 +69,15 @@ for (const [file, mutate, expected] of [
   ],
   [
     'package.json',
-    (source) => source.replace('"@hono/node-server": "2.0.12"', '"@hono/node-server": "2.0.13"'),
-    /adapter pin changed/u,
+    (source) => {
+      const manifest = JSON.parse(source);
+      manifest.dependencies['@hono/node-server'] = '0.0.0-test';
+      return JSON.stringify(manifest);
+    },
+    /Dependency manifest\/lock mismatch/u,
   ],
   ['patches/@modelcontextprotocol__sdk@1.30.0.patch', (source) => `${source}\n`, /patch changed/u],
   ['pnpm-lock.yaml', (source) => source.replace(/75c775[0-9a-f]+/u, '0'.repeat(64)), /patch lock changed/u],
-  [
-    'pnpm-lock.yaml',
-    (source) => source.replace('version: 2.0.12(hono@4.12.34)', 'version: 2.0.12(hono@4.12.35)'),
-    /adapter installation lock changed/u,
-  ],
   ['pnpm-workspace.yaml', (source) => source.replace('patches/', 'missing/'), /configuration changed/u],
 ]) {
   test(`generation rejects changed ${file}: ${expected}`, async (t) => {
@@ -152,11 +151,6 @@ for (const [keys, value, expected] of [
   [
     ['importers', '.', 'dependencies', '@modelcontextprotocol/sdk', 'version'],
     '1.30.0(zod@4.4.3)',
-    /SDK installation lock changed/u,
-  ],
-  [
-    ['importers', '.', 'dependencies', '@modelcontextprotocol/sdk', 'version'],
-    '1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(supports-color@5.5.0)(zod@4.5.0)',
     /SDK installation lock changed/u,
   ],
 ]) {
