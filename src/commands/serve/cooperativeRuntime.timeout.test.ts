@@ -104,6 +104,11 @@ describe('cooperative restart drain deadline', () => {
         expect(f.calls.filter((method) => method === 'stop')).toHaveLength(1);
         expect(f.calls).not.toContain('commit-replacement');
         expect(spawn).toHaveBeenCalledTimes(1);
+        expect(spawn).toHaveBeenCalledWith(expect.any(String), expect.any(Array), {
+          detached: true,
+          windowsHide: true,
+          stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+        });
         expect(f.stderr.mock.calls.flat().join('')).toContain('2 requests remain unresolved');
         expect(f.stderr.mock.calls.flat().join('')).toContain('will not be replayed');
       } finally {
