@@ -7,6 +7,10 @@ import { filterConnectionsForSession, resolveCapabilityVisibility } from '@src/c
 import { resolveResourceRoute } from '@src/core/protocol/resourceTemplateRouting.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type InboundConnectionConfig, type OutboundConnection } from '@src/core/types/index.js';
+import { ownData } from '@src/observability/privacy/fields.js';
+import { beginProductOperation } from '@src/productTelemetry/index.js';
+import { productClientFamily } from '@src/productTelemetry/operation.js';
+import type { CommandCompletion } from '@src/productTelemetry/producer.js';
 import { getAuthInfo, revalidateAuthInfo } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 
 import type { Request, Response } from 'express';
@@ -112,6 +116,7 @@ class ModernSubscription {
     readonly config: InboundConnectionConfig,
     private readonly signal: AbortSignal,
     private readonly resourceOwner?: ResourceRouteOwner,
+    private readonly productCompletion?: CommandCompletion,
   ) {
     this.auth = getAuthInfo(res);
     signal.addEventListener('abort', this.onAbort, { once: true });
@@ -378,17 +383,26 @@ class ModernSubscription {
     this.queue = [];
     this.bytes = 0;
     if (graceful && this.ready && !this.res.destroyed && this.res.writableLength < MAX_BYTES) {
-      this.res.end(
-        `event: message\ndata: ${JSON.stringify({
-          jsonrpc: '2.0',
-          id: this.id,
-          result: {
-            resultType: 'complete',
-            _meta: { [subscriptionIdKey]: this.id, 'io.modelcontextprotocol/serverInfo': serverInfo },
-          },
-        })}\n\n`,
-      );
-    } else if (!this.res.writableEnded) this.res.destroy();
+      try {
+        this.res.end(
+          `event: message\ndata: ${JSON.stringify({
+            jsonrpc: '2.0',
+            id: this.id,
+            result: {
+              resultType: 'complete',
+              _meta: { [subscriptionIdKey]: this.id, 'io.modelcontextprotocol/serverInfo': serverInfo },
+            },
+          })}\n\n`,
+        );
+        this.productCompletion?.finish('success');
+      } catch (error) {
+        this.productCompletion?.finish('failure');
+        throw error;
+      }
+    } else {
+      this.productCompletion?.finish('failure');
+      if (!this.res.writableEnded) this.res.destroy();
+    }
     void (this.bridge?.close() ?? Promise.resolve()).catch(() => undefined).finally(() => this.resolveDone());
   }
 }
@@ -427,7 +441,12 @@ export async function serveModernSubscription(
     return;
   }
   if (signal.aborted) return;
-  const owner = new ModernSubscription(manager, parsed.data.id, res, config, signal, resourceOwner);
+  const completion = beginProductOperation(
+    'other',
+    'http',
+    productClientFamily(ownData(ownData(ownData(req.body, 'params'), '_meta'), 'io.modelcontextprotocol/clientInfo')),
+  );
+  const owner = new ModernSubscription(manager, parsed.data.id, res, config, signal, resourceOwner, completion);
   setups++;
   try {
     await owner.setup(parsed.data.params.notifications, createBridge);
