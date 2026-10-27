@@ -927,6 +927,7 @@ async function collectRuntimeCapabilityCatalog(
         );
     }
     publishCompleteConfiguredToolTargetSnapshots(connections);
+    if (capabilityMeta.tools) return snapshot;
     observeProductRuntimeConfiguration(
       'tools',
       generation.entries.filter((entry) => {

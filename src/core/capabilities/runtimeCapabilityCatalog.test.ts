@@ -59,6 +59,59 @@ describe('runtime capability catalog', () => {
     expect(observeProductRuntimeConfiguration).toHaveBeenCalledExactlyOnceWith('tools', 1);
   });
 
+  it('observes a completely enumerated empty tool catalog as zero', async () => {
+    vi.mocked(observeProductRuntimeConfiguration).mockClear();
+    await acquireRuntimeCapabilityCatalog(new Map([['empty', fixture('empty', () => ({ tools: [] }))]]));
+    expect(observeProductRuntimeConfiguration).toHaveBeenCalledExactlyOnceWith('tools', 0);
+  });
+
+  it.each([undefined, false, true])(
+    'omits fresh tool observations when a listing fails, with healthy tools=%s',
+    async (hasHealthyTools) => {
+      vi.mocked(observeProductRuntimeConfiguration).mockClear();
+      const healthy = fixture('healthy', () => ({ tools: hasHealthyTools ? [tool('echo')] : [] }));
+      const failed = fixture('failed', () => {
+        throw new Error('listing unavailable');
+      });
+      const connections = new Map([['failed', failed]]);
+      if (hasHealthyTools !== undefined) connections.set('healthy', healthy);
+      const snapshot = await acquireRuntimeCapabilityCatalog(connections);
+      expect(snapshot.capabilityMeta?.tools).toBeDefined();
+      expect(observeProductRuntimeConfiguration).not.toHaveBeenCalled();
+    },
+  );
+
+  it('omits admission-partial tool observations and observes a later complete recovery', async () => {
+    vi.mocked(observeProductRuntimeConfiguration).mockClear();
+    const connections = new Map([['recovering', fixture('recovering')]]);
+    const admission = vi
+      .spyOn(schemaBoundary, 'admit')
+      .mockRejectedValue(new SchemaBoundaryError('schema_evaluation_timeout', true, 'admission'));
+    try {
+      const partial = await acquireRuntimeCapabilityCatalog(connections);
+      expect(partial.capabilityMeta?.tools).toBeDefined();
+      expect(observeProductRuntimeConfiguration).not.toHaveBeenCalled();
+    } finally {
+      admission.mockRestore();
+    }
+    const complete = await acquireRuntimeCapabilityCatalog(connections);
+    expect(complete.capabilityMeta?.tools).toBeUndefined();
+    expect(observeProductRuntimeConfiguration).toHaveBeenCalledExactlyOnceWith('tools', 1);
+  });
+
+  it('keeps complete tool observations when only resource discovery fails', async () => {
+    vi.mocked(observeProductRuntimeConfiguration).mockClear();
+    const connection = fixture('tools-complete', (method) => {
+      if (method === 'tools/list') return { tools: [tool('echo')] };
+      throw new Error('resource listing unavailable');
+    });
+    connection.capabilities = { tools: {}, resources: {} };
+    const snapshot = await acquireRuntimeCapabilityCatalog(new Map([['tools-complete', connection]]));
+    expect(snapshot.capabilityMeta?.resources).toBeDefined();
+    expect(snapshot.capabilityMeta?.tools).toBeUndefined();
+    expect(observeProductRuntimeConfiguration).toHaveBeenCalledExactlyOnceWith('tools', 1);
+  });
+
   it('injects the native selected paths before validating inputs and keeps disabled tools inaccessible', async () => {
     const connection = fixture('native', () => ({
       tools: [
