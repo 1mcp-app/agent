@@ -43,11 +43,24 @@ export class ProductUsageProducer {
     return this.begin('command', name);
   }
 
+  beginFeature(name: FeatureName): CommandCompletion {
+    return this.begin('feature', name);
+  }
+
   beginRuntimeStartup(): CommandCompletion {
     return this.begin('feature', 'runtime_start');
   }
 
-  private begin(kind: 'command' | 'feature', name: CommandName | FeatureName): CommandCompletion {
+  beginOperation(name: OperationName, transport: Counter['transport'], client: Counter['client']): CommandCompletion {
+    return this.begin('operation', name, transport, client);
+  }
+
+  private begin(
+    kind: 'command' | 'feature' | 'operation',
+    name: CommandName | FeatureName | OperationName,
+    transport: Counter['transport'] = 'none',
+    client: Counter['client'] = 'none',
+  ): CommandCompletion {
     let finished = false;
     let ticket = this.ticket;
     if (!ticket && !this.admitting) this.requestAdmission();
@@ -61,8 +74,7 @@ export class ProductUsageProducer {
         if (finished) return;
         finished = true;
         if (!(labels[kind] as readonly string[]).includes(name)) return;
-        if (ticket)
-          this.record({ kind, name, outcome, transport: 'none', client: 'none', bucket: 'none', count: 1 }, ticket);
+        if (ticket) this.record({ kind, name, outcome, transport, client, bucket: 'none', count: 1 }, ticket);
       },
     };
   }
@@ -83,6 +95,12 @@ export class ProductUsageProducer {
   ): void {
     if (!labels.operation.includes(name)) return;
     this.record({ kind: 'operation', name, outcome, transport, client, bucket: 'none', count: 1 }, this.ticket);
+  }
+
+  /** Runtime hooks cannot attach configuration observations to short-lived command activity. */
+  observeRuntimeConfiguration(name: 'servers' | 'tools', count: number): void {
+    if (!this.cadence) return;
+    this.observeConfiguration(name, count);
   }
 
   /** Observation is attached by the activity owner, never by a timer. */

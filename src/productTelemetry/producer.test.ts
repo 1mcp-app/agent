@@ -28,6 +28,82 @@ async function fixture() {
   return { producer, store, bodies };
 }
 describe('closed nonblocking collection facade', () => {
+  it('keeps runtime configuration observations off command-only activity', async () => {
+    const { producer, bodies } = await fixture();
+    await producer.settled();
+    producer.observeRuntimeConfiguration('servers', 4);
+    producer.beginFeature('admin_open').finish('success');
+    await producer.settled();
+    expect(JSON.parse(bodies[0]).summaries[0].counters).toEqual([
+      {
+        kind: 'feature',
+        name: 'admin_open',
+        outcome: 'success',
+        transport: 'none',
+        client: 'none',
+        bucket: 'none',
+        count: 1,
+      },
+    ]);
+  });
+
+  it('attaches runtime observations only after runtime collection starts', async () => {
+    const { producer, bodies } = await fixture();
+    await producer.settled();
+    producer.startRuntime();
+    producer.observeRuntimeConfiguration('servers', 4);
+    const feature = producer.beginFeature('server_add');
+    feature.finish('success');
+    feature.finish('failure');
+    producer.stopRuntime();
+    await producer.settled();
+    expect(JSON.parse(bodies[0]).summaries[0].counters).toEqual([
+      {
+        kind: 'feature',
+        name: 'server_add',
+        outcome: 'success',
+        transport: 'none',
+        client: 'none',
+        bucket: 'none',
+        count: 1,
+      },
+      {
+        kind: 'configuration',
+        name: 'servers',
+        outcome: 'observation',
+        transport: 'none',
+        client: 'none',
+        bucket: '2-5',
+        count: 1,
+      },
+    ]);
+  });
+  it('binds an admitted operation to one completion and the original installation epoch', async () => {
+    const { producer, store, bodies } = await fixture();
+    await producer.settled();
+    const first = producer.beginOperation('tools_call', 'http', 'codex');
+    first.finish('success');
+    first.finish('failure');
+    await producer.settled();
+    expect(JSON.parse(bodies[0]).summaries[0].counters).toEqual([
+      {
+        kind: 'operation',
+        name: 'tools_call',
+        outcome: 'success',
+        transport: 'http',
+        client: 'codex',
+        bucket: 'none',
+        count: 1,
+      },
+    ]);
+    const stale = producer.beginOperation('resources_read', 'sse', 'other');
+    await store.control('reset');
+    stale.finish('success');
+    await producer.settled();
+    expect((await store.status()).identityPresent).toBe(false);
+    expect(bodies).toHaveLength(1);
+  });
+
   it('sends runtime startup at readiness once and on the five minute opportunity', async () => {
     const { producer, bodies } = await fixture();
     await producer.settled();

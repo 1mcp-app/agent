@@ -58,8 +58,20 @@ export function beginProductCommand(name: CommandName): CommandCompletion {
   return collection()?.beginCommand(name) ?? { finish: () => {} };
 }
 
+export function beginProductFeature(name: FeatureName): CommandCompletion {
+  return collection()?.beginFeature(name) ?? { finish: () => {} };
+}
+
 export function recordProductFeature(name: FeatureName, outcome: 'success' | 'failure'): void {
   collection()?.recordFeature(name, outcome);
+}
+
+export function beginProductOperation(
+  name: OperationName,
+  transport: 'none' | 'stdio' | 'http' | 'sse',
+  client: 'none' | 'claude' | 'codex' | 'cursor' | 'vscode' | 'other',
+): CommandCompletion {
+  return collection()?.beginOperation(name, transport, client) ?? { finish: () => {} };
 }
 
 export function recordProductOperation(
@@ -69,6 +81,10 @@ export function recordProductOperation(
   client: 'none' | 'claude' | 'codex' | 'cursor' | 'vscode' | 'other',
 ): void {
   collection()?.recordOperation(name, outcome, transport, client);
+}
+
+export function observeProductRuntimeConfiguration(name: 'servers' | 'tools', count: number): void {
+  producer?.observeRuntimeConfiguration(name, count);
 }
 
 /** Snapshot only: attaches finite buckets to the next genuine activity. */
