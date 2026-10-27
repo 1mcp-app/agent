@@ -216,6 +216,9 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'instructions', link: '/zh/commands/instructions' },
           { text: 'inspect', link: '/zh/commands/inspect' },
           { text: 'telemetry', link: '/zh/commands/telemetry' },
+          { text: '产品操作计数', link: '/zh/reference/product-telemetry-operations' },
+          { text: '命令及 Admin 采用情况', link: '/zh/reference/product-telemetry-adoption' },
+          { text: '配置分桶', link: '/zh/reference/product-telemetry-configuration' },
           { text: 'run', link: '/zh/commands/run' },
           { text: 'wait', link: '/zh/commands/wait' },
           {
@@ -260,6 +263,14 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: '系统架构', link: '/zh/reference/architecture' },
           { text: '安全模型', link: '/zh/reference/security' },
           { text: '功能对比', link: '/zh/reference/feature-comparison' },
+        ],
+      },
+      {
+        text: '产品使用遥测',
+        items: [
+          { text: '操作计数', link: '/zh/reference/product-telemetry-operations' },
+          { text: 'CLI 与 Admin 采用情况', link: '/zh/reference/product-telemetry-adoption' },
+          { text: '配置分桶', link: '/zh/reference/product-telemetry-configuration' },
         ],
       },
       {

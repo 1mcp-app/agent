@@ -22,12 +22,16 @@ const directory = await mkdtemp(path.join(os.tmpdir(), 'product-synthetic-sea-')
 const output = process.argv.includes('--out')
   ? path.resolve(process.argv[process.argv.indexOf('--out') + 1])
   : undefined;
+const packaged = process.argv.includes('--package')
+  ? path.resolve(process.argv[process.argv.indexOf('--package') + 1], 'build/productTelemetry')
+  : path.join(agent, 'src/productTelemetry');
+const extension = process.argv.includes('--package') ? 'js' : 'ts';
 const source = `
 import dns from 'node:dns';
 import workers from 'node:worker_threads';
 import { syncBuiltinESMExports } from 'node:module';
-import { dispatchProductBatch } from './src/productTelemetry/delivery.ts';
-import { ProductUsageProducer } from './src/productTelemetry/producer.ts';
+import { dispatchProductBatch } from ${JSON.stringify(path.join(packaged, 'delivery.' + extension))};
+import { ProductUsageProducer } from ${JSON.stringify(path.join(packaged, 'producer.' + extension))};
 // Controlled stalled initialization plus actual runtime timers must not retain Node/SEA.
 new ProductUsageProducer({
   store: { admit: () => new Promise(() => {}) },
@@ -160,8 +164,11 @@ try {
     platform: process.platform,
     arch: process.arch,
     node: process.versions.node,
+    provenance: process.argv.includes('--package')
+      ? 'installed package synthetic fixture, not live CLI'
+      : 'source synthetic fixture',
     deliverySourceSha256: createHash('sha256')
-      .update(await readFile(path.join(agent, 'src/productTelemetry/delivery.ts')))
+      .update(await readFile(path.join(packaged, 'delivery.' + extension)))
       .digest('hex'),
     results,
   };

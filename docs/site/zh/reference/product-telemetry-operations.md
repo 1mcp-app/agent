@@ -34,3 +34,5 @@ description: MCP 操作结果汇总的计数边界与有限维度。
 客户端识别使用精确匹配的有限名称：`claude`、`claude-ai`、`claude-code` 映射为 `claude`；`codex`、`codex-mcp-client` 映射为 `codex`；`cursor` 映射为 `cursor`；`vscode`、`Visual Studio Code` 映射为 `vscode`。未知名称、缺失信息、访问器及代理对象均映射为 `other`。不导出客户端标题或版本。
 
 计数不包含任意方法名、客户端名、工具名、后端名、URI、请求参数、结果内容、错误文本或诊断字段。普通测试和持续集成端到端测试始终禁止收集。
+
+传输标签描述运行时入口。标准输入输出代理连接 HTTP 运行时时记录 `http`，本地不重复记录操作；直接连接运行时标准输入输出时记录 `stdio`。

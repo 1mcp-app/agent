@@ -34,3 +34,5 @@ Names map from the matching MCP method, such as `tools/list` to `tools_list`; `c
 Client recognition uses exact names: `claude`, `claude-ai`, and `claude-code` map to `claude`; `codex` and `codex-mcp-client` map to `codex`; `cursor` maps to `cursor`; `vscode` and `Visual Studio Code` map to `vscode`. Unknown names, absent information, accessors, and proxies map to `other`. Client titles and versions are excluded.
 
 No arbitrary method, client, tool, backend, URI, argument, result content, error text, or diagnostic field enters these counters. Ordinary tests and CI E2E are always suppressed.
+
+Transport is the runtime ingress. A stdio proxy connected to an HTTP runtime records `http`, without another local operation count; direct runtime stdio records `stdio`.

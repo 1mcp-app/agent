@@ -25,7 +25,7 @@ description: 产品使用遥测中的固定命令分类与运行时管理功能�
 | `auth`                                   | login、status、logout、export-oauth-credentials、export-upstream-credentials                                                                   | `auth`       |
 | `admin`                                  | bootstrap、login、status、logout                                                                                                               | `auth`       |
 | `app`                                    | consolidate、restore、list、discover、status、backups                                                                                          | `config`     |
-| `cli-setup`                              | Shell 设置                                                                                                                                     | `config`     |
+| `cli-setup`                              | Codex/Claude 钩子及准备技能设置                                                                                                                | `config`     |
 | `target`                                 | add、use、export、import、doctor、current、list、inspect、delete、rename、verify                                                               | `config`     |
 | `instructions`、`inspect`、`run`、`wait` | 各自的根命令处理程序                                                                                                                           | 与根命令相同 |
 | `telemetry`                              | status、enable、disable、reset                                                                                                                 | 不采集       |

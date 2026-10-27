@@ -25,7 +25,7 @@ The receiver has a fixed family catalog. Grouped roots share one aggregate and c
 | `auth`                                   | login, status, logout, export-oauth-credentials, export-upstream-credentials                                                                  | `auth`        |
 | `admin`                                  | bootstrap, login, status, logout                                                                                                              | `auth`        |
 | `app`                                    | consolidate, restore, list, discover, status, backups                                                                                         | `config`      |
-| `cli-setup`                              | Shell setup                                                                                                                                   | `config`      |
+| `cli-setup`                              | Codex/Claude hooks and preparation-skill setup                                                                                                | `config`      |
 | `target`                                 | add, use, export, import, doctor, current, list, inspect, delete, rename, verify                                                              | `config`      |
 | `instructions`, `inspect`, `run`, `wait` | Each root handler                                                                                                                             | Same as root  |
 | `telemetry`                              | status, enable, disable, reset                                                                                                                | Excluded      |
