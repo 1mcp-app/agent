@@ -1,14 +1,19 @@
 import type { GlobalOptions } from '@src/globalOptions.js';
+import { beginProductCommand } from '@src/productTelemetry/index.js';
 
 export async function runCliCommand<T extends GlobalOptions & { json?: boolean; format?: string }>(
   argv: T,
   fn: (argv: T) => Promise<void>,
+  productCommand?: 'inspect',
 ): Promise<void> {
   const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
   configureGlobalLogger(argv, 'stdio');
+  const completion = productCommand ? beginProductCommand(productCommand) : undefined;
   try {
     await fn(argv);
+    completion?.finish('success');
   } catch (error) {
+    completion?.finish('failure');
     const message = error instanceof Error ? error.message : String(error);
     const exitCode = exitCodeForError(error);
     if (hasJsonOutput(argv)) {

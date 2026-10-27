@@ -215,6 +215,7 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [
           { text: 'instructions', link: '/zh/commands/instructions' },
           { text: 'inspect', link: '/zh/commands/inspect' },
+          { text: 'telemetry', link: '/zh/commands/telemetry' },
           { text: 'run', link: '/zh/commands/run' },
           { text: 'wait', link: '/zh/commands/wait' },
           {

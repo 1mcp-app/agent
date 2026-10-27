@@ -41,6 +41,8 @@ Client startup hooks deliver runtime guidance through `bootstrap`. Fetch `instru
 - **`mcp`** - Manage MCP server configurations
 - **`preset`** - Manage server presets for dynamic filtering
 
+- **[`telemetry`](/commands/telemetry)** - Inspect, enable, disable or reset local product usage collection
+
 ### Global Options
 
 All 1MCP commands support the following global options:

@@ -22,6 +22,7 @@ import { setupRegistryCommands } from './commands/registry/index.js';
 import { setupRunCommand } from './commands/run/index.js';
 import { serverOptions, setupServeCommand } from './commands/serve/index.js';
 import { setupTargetCommands } from './commands/target/index.js';
+import { setupTelemetryCommands } from './commands/telemetry/index.js';
 import { setupWaitCommand } from './commands/wait/index.js';
 import { configureGlobalLogger } from './logger/configureGlobalLogger.js';
 
@@ -86,6 +87,7 @@ yargsInstance = setupRunCommand(yargsInstance);
 yargsInstance = setupWaitCommand(yargsInstance);
 yargsInstance = setupRegistryCommands(yargsInstance);
 yargsInstance = setupTargetCommands(yargsInstance);
+yargsInstance = setupTelemetryCommands(yargsInstance);
 
 /**
  * Check for conflicting global options (options specified both before and after the command)
@@ -113,7 +115,8 @@ function checkGlobalOptionConflicts(argv: string[]): void {
       arg === 'inspect' ||
       arg === 'run' ||
       arg === 'wait' ||
-      arg === 'target',
+      arg === 'target' ||
+      arg === 'telemetry',
   );
 
   if (commandIndex === -1) return;

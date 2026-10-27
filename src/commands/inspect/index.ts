@@ -88,7 +88,7 @@ export function setupInspectCommand(yargs: Argv): Argv {
         .epilogue('This command requires a running `1mcp serve` instance. Errors are written to stderr only.'),
     async (argv) => {
       const { inspectCommand } = await import('./inspect.js');
-      await runCliCommand(argv as Parameters<typeof inspectCommand>[0], inspectCommand);
+      await runCliCommand(argv as Parameters<typeof inspectCommand>[0], inspectCommand, 'inspect');
     },
   );
 }

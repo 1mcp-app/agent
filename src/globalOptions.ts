@@ -15,6 +15,18 @@ import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
 import type { Argv } from 'yargs';
 
 export const globalOptions = {
+  'product-telemetry': {
+    describe: 'Collect aggregate product usage (env: ONE_MCP_PRODUCT_TELEMETRY); stored disable always wins',
+    type: 'string' as const,
+    coerce: coerceTelemetryBoolean,
+    default: undefined,
+  },
+  'product-telemetry-ci': {
+    describe: 'Allow product usage collection in CI (env: ONE_MCP_PRODUCT_TELEMETRY_CI)',
+    type: 'string' as const,
+    coerce: coerceTelemetryBoolean,
+    default: undefined,
+  },
   'product-telemetry-test-suppressed': {
     describe: 'Suppress Product Usage Telemetry in test-owned processes',
     type: 'boolean' as const,
@@ -77,6 +89,8 @@ export function withGlobalOptions(yargs: Argv): Argv<GlobalOptions> {
  * Type definition for global options interface
  */
 export interface GlobalOptions {
+  'product-telemetry'?: boolean;
+  'product-telemetry-ci'?: boolean;
   'product-telemetry-test-suppressed'?: boolean;
   'project-owner'?: string;
   config?: string;
@@ -84,4 +98,23 @@ export interface GlobalOptions {
   'cli-session-cache-path'?: string;
   'log-level'?: 'debug' | 'info' | 'warn' | 'error';
   'log-file'?: string;
+}
+
+function coerceTelemetryBoolean(value: unknown): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'boolean') return value;
+  if (value === '') return true;
+  if (typeof value !== 'string') throw new Error('Expected boolean telemetry option');
+  switch (value.toLowerCase()) {
+    case 'true':
+    case '1':
+    case 'yes':
+      return true;
+    case 'false':
+    case '0':
+    case 'no':
+      return false;
+    default:
+      throw new Error('Expected boolean telemetry option: true/false, 1/0, yes/no');
+  }
 }

@@ -205,6 +205,7 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [
           { text: 'instructions', link: '/commands/instructions' },
           { text: 'inspect', link: '/commands/inspect' },
+          { text: 'telemetry', link: '/commands/telemetry' },
           { text: 'run', link: '/commands/run' },
           { text: 'wait', link: '/commands/wait' },
           {

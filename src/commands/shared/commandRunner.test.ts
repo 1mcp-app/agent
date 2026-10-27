@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runCliCommand } from './commandRunner.js';
 
+const usage = vi.hoisted(() => ({ finish: vi.fn() }));
+vi.mock('@src/productTelemetry/index.js', () => ({ beginProductCommand: vi.fn(() => usage) }));
+
 describe('runCliCommand', () => {
   let stdout: ReturnType<typeof vi.spyOn>;
   let stderr: ReturnType<typeof vi.spyOn>;
@@ -11,6 +14,7 @@ describe('runCliCommand', () => {
 
   beforeEach(() => {
     process.exitCode = undefined;
+    usage.finish.mockClear();
     stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
@@ -177,5 +181,45 @@ describe('runCliCommand', () => {
       code: 'credential_context_required',
       recoveryCommand: '1mcp admin status --context prod',
     });
+  });
+});
+
+describe('closed inspect attribution inside error presentation', () => {
+  afterEach(() => {
+    process.exitCode = undefined;
+    vi.restoreAllMocks();
+    usage.finish.mockClear();
+  });
+  it.each(['text', 'json'])('marks synchronous and asynchronous failures before %s presentation', async (format) => {
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    for (const fail of [
+      () => {
+        throw new Error('private failure');
+      },
+      async () => {
+        throw new Error('private failure');
+      },
+    ]) {
+      usage.finish.mockClear();
+      await runCliCommand({ format }, fail, 'inspect');
+      expect(usage.finish).toHaveBeenCalledExactlyOnceWith('failure');
+      if (format === 'json') expect(process.exitCode).toBe(1);
+      else expect(exit).toHaveBeenCalledWith(1);
+    }
+  });
+  it('marks success once without changing result output', async () => {
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    usage.finish.mockClear();
+    await runCliCommand(
+      {},
+      async () => {
+        process.stdout.write('original result');
+      },
+      'inspect',
+    );
+    expect(usage.finish).toHaveBeenCalledExactlyOnceWith('success');
+    expect(stdout).toHaveBeenCalledExactlyOnceWith('original result');
   });
 });

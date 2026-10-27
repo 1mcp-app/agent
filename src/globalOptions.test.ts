@@ -92,3 +92,28 @@ describe('test suppression CLI boundary', () => {
     ).toBe(false);
   });
 });
+
+describe('typed product telemetry options', () => {
+  it.each([
+    ['--product-telemetry=true', true],
+    ['--product-telemetry=false', false],
+    ['--no-product-telemetry', false],
+    ['--product-telemetry=1', true],
+    ['--product-telemetry=no', false],
+  ])('parses %s', async (arg, enabled) => {
+    expect((await withGlobalOptions(yargs([]).exitProcess(false)).parseAsync([arg]))['product-telemetry']).toBe(
+      enabled,
+    );
+  });
+  it('rejects invalid option values', async () => {
+    expect(() =>
+      withGlobalOptions(
+        yargs([])
+          .exitProcess(false)
+          .fail((message, error) => {
+            throw error ?? new Error(message);
+          }),
+      ).parseSync(['--product-telemetry=maybe']),
+    ).toThrow('boolean');
+  });
+});
