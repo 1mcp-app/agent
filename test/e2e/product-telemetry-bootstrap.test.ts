@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createTestProcessEnvironment } from '../../scripts/test-process-environment.mjs';
 
-// A controlled producer-boundary fixture, separate from ordinary suppressed E2E.
+// Controlled suppressed producer fixture; no collector is constructed.
 describe('built Product Usage Telemetry bootstrap', () => {
   it.each([false, true])('preserves operator state with CI=%s and conflicting explicit enablement', (ci) => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'product-suppression-'));

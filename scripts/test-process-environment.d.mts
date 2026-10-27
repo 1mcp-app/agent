@@ -8,3 +8,5 @@ export function createTestProcessEnvironment(
   CODEX_THREAD_ID: string;
 };
 export function isolatedTestEnvironment(base?: NodeJS.ProcessEnv): { env: NodeJS.ProcessEnv; cleanup: () => void };
+
+export function getTestBrowserCachePath(base: NodeJS.ProcessEnv, platform?: NodeJS.Platform, cwd?: string): string;
