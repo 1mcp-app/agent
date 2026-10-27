@@ -1,6 +1,7 @@
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
 import printer from '@src/utils/ui/printer.js';
 import { UrlGenerator } from '@src/utils/ui/urlGenerator.js';
@@ -40,7 +41,7 @@ export async function urlCommand(argv: UrlArguments): Promise<void> {
   } catch (error) {
     logger.error('url.preset.url.command.failed.948ba859', { error: error });
     printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 

@@ -3,6 +3,7 @@ import { createRegistryClient, resolveRegistryClientOptions } from '@src/domains
 import { getProgressTrackingService } from '@src/domains/server-management/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import boxen from 'boxen';
@@ -286,7 +287,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
       if (wizardResult.cancelled) {
         printer.info('\nInstallation cancelled.');
         wizard.cleanup();
-        process.exit(0);
+        exitProductCommand(0);
       }
 
       // Perform installation with collected configuration
@@ -324,7 +325,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
             continue;
           }
           wizard.cleanup();
-          process.exit(0);
+          exitProductCommand(0);
         }
 
         // Create operation ID for tracking
@@ -463,14 +464,14 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           const continueAfterError = await wizard.run(undefined, getExistingNames());
           if (continueAfterError.cancelled) {
             wizard.cleanup();
-            process.exit(1);
+            exitProductCommand(1);
           }
           currentServerId = undefined;
           continue;
         }
 
         wizard.cleanup();
-        process.exit(1);
+        exitProductCommand(1);
       }
 
       // Check if user wants to install another
@@ -489,5 +490,5 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
 
   // Explicitly exit after successful completion to prevent hanging
   // This ensures stdin doesn't keep the process alive
-  process.exit(0);
+  exitProductCommand(0);
 }

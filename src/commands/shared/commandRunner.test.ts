@@ -1,3 +1,4 @@
+import * as loggerConfiguration from '@src/logger/configureGlobalLogger.js';
 import { RuntimeProbeError } from '@src/domains/runtime-targets/runtimeProbe.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -5,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runCliCommand } from './commandRunner.js';
 
 const usage = vi.hoisted(() => ({ finish: vi.fn() }));
-vi.mock('@src/productTelemetry/index.js', () => ({ beginProductCommand: vi.fn(() => usage) }));
+vi.mock('@src/productTelemetry/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@src/productTelemetry/index.js')>()),
+  beginProductCommand: vi.fn(() => usage),
+}));
 
 describe('runCliCommand', () => {
   let stdout: ReturnType<typeof vi.spyOn>;
@@ -208,6 +212,16 @@ describe('closed inspect attribution inside error presentation', () => {
       if (format === 'json') expect(process.exitCode).toBe(1);
       else expect(exit).toHaveBeenCalledWith(1);
     }
+  });
+  it('counts logger setup failure without changing its rejection or invoking the command', async () => {
+    const failure = new Error('controlled logger setup failure');
+    vi.spyOn(loggerConfiguration, 'configureGlobalLogger').mockImplementationOnce(() => {
+      throw failure;
+    });
+    const handler = vi.fn(async () => {});
+    await expect(runCliCommand({}, handler, 'inspect')).rejects.toBe(failure);
+    expect(handler).not.toHaveBeenCalled();
+    expect(usage.finish).toHaveBeenCalledExactlyOnceWith('failure');
   });
   it('marks success once without changing result output', async () => {
     const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);

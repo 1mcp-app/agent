@@ -2,6 +2,7 @@ import { listAppBackups } from '@src/domains/backup/backupManager.js';
 import { checkConsolidationStatus, discoverAppConfigs } from '@src/domains/discovery/appDiscovery.js';
 import { getAppPreset, getSupportedApps, isAppConfigurable } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
@@ -62,7 +63,7 @@ async function showSpecificAppStatus(appName: string, verbose: boolean): Promise
   if (!preset) {
     printer.error(`Unsupported application: ${appName}`);
     printer.info('Use "npx @1mcp/agent app list" to see supported applications.');
-    process.exit(1);
+    exitProductCommand(1);
   }
 
   printer.subtitle(`${preset.displayName} (${appName})`);

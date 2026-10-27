@@ -1,5 +1,6 @@
 // Import builder functions from command implementations
 import { withGlobalOptions } from '@src/globalOptions.js';
+import { runProductCommand } from '@src/productTelemetry/commandScope.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 import printer from '@src/utils/ui/printer.js';
 
@@ -41,18 +42,20 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'Add a new MCP server to the configuration',
           builder: buildAddCommand,
           handler: async (argv) => {
-            const { addCommand } = await import('./add.js');
-            const { parseDoubleHyphenArgs, hasDoubleHyphen, mergeDoubleHyphenArgs } =
-              await import('./utils/doubleHyphenParser.js');
+            return runProductCommand('mcp', async () => {
+              const { addCommand } = await import('./add.js');
+              const { parseDoubleHyphenArgs, hasDoubleHyphen, mergeDoubleHyphenArgs } =
+                await import('./utils/doubleHyphenParser.js');
 
-            // Check if " -- " pattern is used
-            if (hasDoubleHyphen(normalizedArgv)) {
-              const doubleHyphenResult = parseDoubleHyphenArgs(normalizedArgv);
-              const mergedArgv = mergeDoubleHyphenArgs(argv, doubleHyphenResult);
-              await addCommand(mergedArgv);
-            } else {
-              await addCommand(argv);
-            }
+              // Check if " -- " pattern is used
+              if (hasDoubleHyphen(normalizedArgv)) {
+                const doubleHyphenResult = parseDoubleHyphenArgs(normalizedArgv);
+                const mergedArgv = mergeDoubleHyphenArgs(argv, doubleHyphenResult);
+                await addCommand(mergedArgv);
+              } else {
+                await addCommand(argv);
+              }
+            });
           },
         })
         .command({
@@ -60,8 +63,10 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'Configure an installed backend from a maintained example',
           builder: buildSetupCommand,
           handler: async (argv) => {
-            const { setupCommand } = await import('./setup.js');
-            await setupCommand(argv);
+            return runProductCommand('mcp', async () => {
+              const { setupCommand } = await import('./setup.js');
+              await setupCommand(argv);
+            });
           },
         })
         .command({
@@ -69,8 +74,10 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'Install an MCP server from the registry (interactive wizard if no serverName)',
           builder: buildInstallCommand,
           handler: async (argv) => {
-            const { installCommand } = await import('./install.js');
-            await installCommand(argv);
+            return runProductCommand('mcp', async () => {
+              const { installCommand } = await import('./install.js');
+              await installCommand(argv);
+            });
           },
         })
         .command({
@@ -78,8 +85,10 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'Remove an MCP server from the configuration',
           builder: buildRemoveCommand,
           handler: async (argv) => {
-            const { removeCommand } = await import('./remove.js');
-            await removeCommand(argv);
+            return runProductCommand('mcp', async () => {
+              const { removeCommand } = await import('./remove.js');
+              await removeCommand(argv);
+            });
           },
         })
         .command({
@@ -87,8 +96,10 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'Uninstall an MCP server',
           builder: buildUninstallCommand,
           handler: async (argv) => {
-            const { uninstallCommand } = await import('./uninstall.js');
-            await uninstallCommand(argv);
+            return runProductCommand('mcp', async () => {
+              const { uninstallCommand } = await import('./uninstall.js');
+              await uninstallCommand(argv);
+            });
           },
         })
         .command({
@@ -96,18 +107,20 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'Update an existing MCP server configuration',
           builder: buildUpdateCommand,
           handler: async (argv) => {
-            const { updateCommand } = await import('./update.js');
-            const { parseDoubleHyphenArgs, hasDoubleHyphen, mergeDoubleHyphenArgs } =
-              await import('./utils/doubleHyphenParser.js');
+            return runProductCommand('mcp', async () => {
+              const { updateCommand } = await import('./update.js');
+              const { parseDoubleHyphenArgs, hasDoubleHyphen, mergeDoubleHyphenArgs } =
+                await import('./utils/doubleHyphenParser.js');
 
-            // Check if " -- " pattern is used
-            if (hasDoubleHyphen(normalizedArgv)) {
-              const doubleHyphenResult = parseDoubleHyphenArgs(normalizedArgv);
-              const mergedArgv = mergeDoubleHyphenArgs(argv, doubleHyphenResult);
-              await updateCommand(mergedArgv);
-            } else {
-              await updateCommand(argv);
-            }
+              // Check if " -- " pattern is used
+              if (hasDoubleHyphen(normalizedArgv)) {
+                const doubleHyphenResult = parseDoubleHyphenArgs(normalizedArgv);
+                const mergedArgv = mergeDoubleHyphenArgs(argv, doubleHyphenResult);
+                await updateCommand(mergedArgv);
+              } else {
+                await updateCommand(argv);
+              }
+            });
           },
         })
         .command({
@@ -115,8 +128,10 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'Enable a disabled MCP server',
           builder: buildEnableCommand,
           handler: async (argv) => {
-            const { enableCommand } = await import('./enable.js');
-            await enableCommand(argv);
+            return runProductCommand('mcp', async () => {
+              const { enableCommand } = await import('./enable.js');
+              await enableCommand(argv);
+            });
           },
         })
         .command({
@@ -124,8 +139,10 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'Disable an MCP server without removing it',
           builder: buildDisableCommand,
           handler: async (argv) => {
-            const { disableCommand } = await import('./enable.js');
-            await disableCommand(argv);
+            return runProductCommand('mcp', async () => {
+              const { disableCommand } = await import('./enable.js');
+              await disableCommand(argv);
+            });
           },
         })
         .command({
@@ -133,8 +150,10 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'Restart a supervised stdio backend',
           builder: buildRestartCommand,
           handler: async (argv) => {
-            const { restartCommand } = await import('./restart.js');
-            await restartCommand(argv);
+            return runProductCommand('mcp', async () => {
+              const { restartCommand } = await import('./restart.js');
+              await restartCommand(argv);
+            });
           },
         })
         .command({
@@ -142,8 +161,10 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'List all configured MCP servers',
           builder: buildListCommand,
           handler: async (argv) => {
-            const { listCommand } = await import('./list.js');
-            await listCommand(argv);
+            return runProductCommand('mcp', async () => {
+              const { listCommand } = await import('./list.js');
+              await listCommand(argv);
+            });
           },
         })
         .command({
@@ -151,8 +172,10 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'Show status and details of MCP servers',
           builder: buildStatusCommand,
           handler: async (argv) => {
-            const { statusCommand } = await import('./status.js');
-            await statusCommand(argv);
+            return runProductCommand('mcp', async () => {
+              const { statusCommand } = await import('./status.js');
+              await statusCommand(argv);
+            });
           },
         })
         .command({
@@ -160,8 +183,10 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'Estimate MCP token usage for server capabilities',
           builder: buildTokensCommand,
           handler: async (argv) => {
-            const { tokensCommand } = await import('./tokens.js');
-            await tokensCommand(argv);
+            return runProductCommand('mcp', async () => {
+              const { tokensCommand } = await import('./tokens.js');
+              await tokensCommand(argv);
+            });
           },
         })
         .command({
@@ -193,17 +218,19 @@ export function setupMcpCommands(yargs: Argv): Argv {
               ]);
           },
           handler: async (argv) => {
-            // Delegate to registry search command
-            const { searchCommand } = await import('../registry/search.js');
-            const searchArgs = {
-              query: argv.query,
-              limit: argv.limit,
-              _: argv._ || [],
-              $0: argv.$0 || '1mcp',
-              config: argv.config,
-              'config-dir': argv['config-dir'],
-            };
-            await searchCommand(searchArgs as Parameters<typeof searchCommand>[0]);
+            return runProductCommand('mcp', async () => {
+              // Delegate to registry search command
+              const { searchCommand } = await import('../registry/search.js');
+              const searchArgs = {
+                query: argv.query,
+                limit: argv.limit,
+                _: argv._ || [],
+                $0: argv.$0 || '1mcp',
+                config: argv.config,
+                'config-dir': argv['config-dir'],
+              };
+              await searchCommand(searchArgs as Parameters<typeof searchCommand>[0]);
+            });
           },
         })
         .demandCommand(1, 'You must specify a subcommand')
@@ -212,9 +239,11 @@ export function setupMcpCommands(yargs: Argv): Argv {
         .epilogue("Use 'registry' to search and discover servers.\nRun 1mcp mcp <command> --help for command details.");
     },
     () => {
-      // This handler runs when 'mcp' is called without a subcommand
-      printer.info('Please specify a subcommand. Use --help for available commands.');
-      process.exit(1);
+      return runProductCommand('mcp', async () => {
+        // This handler runs when 'mcp' is called without a subcommand
+        printer.info('Please specify a subcommand. Use --help for available commands.');
+        process.exit(1);
+      });
     },
   );
 }

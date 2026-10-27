@@ -1,6 +1,7 @@
 import { GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
 import { createServerInstallationService } from '@src/domains/server-management/serverInstallationService.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import { inferTransportType } from '@src/transport/transportFactory.js';
 import printer from '@src/utils/ui/printer.js';
 import {
@@ -189,7 +190,7 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
     }
   } catch (error) {
     printer.error(`Failed to list servers: ${error instanceof Error ? error.message : error}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 

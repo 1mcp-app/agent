@@ -1,6 +1,7 @@
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
 import printer from '@src/utils/ui/printer.js';
 
@@ -38,7 +39,7 @@ export async function deleteCommand(argv: DeleteArguments): Promise<void> {
   } catch (error) {
     logger.error('delete.preset.delete.command.failed.2bcfe514', { error: error });
     printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 

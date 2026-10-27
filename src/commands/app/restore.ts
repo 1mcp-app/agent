@@ -3,6 +3,7 @@ import readline from 'readline';
 import { findBackupByMetaPath, listAppBackups, rollbackFromBackupPath } from '@src/domains/backup/backupManager.js';
 import { getAppPreset, isAppSupported } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
@@ -196,7 +197,7 @@ async function restoreFromBackupFile(backupPath: string, options: RestoreOptions
 
     if (!backupInfo) {
       printer.error(`Backup metadata not found or invalid: ${backupPath}`);
-      process.exit(1);
+      exitProductCommand(1);
     }
 
     printer.info(`Restoring from backup: ${backupPath}`);
@@ -232,7 +233,7 @@ async function restoreFromBackupFile(backupPath: string, options: RestoreOptions
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     printer.error(`Restore failed: ${errorMessage}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 
@@ -331,7 +332,7 @@ async function restoreAllApps(options: RestoreOptions): Promise<void> {
   }
 
   if (failed.length > 0) {
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 
@@ -342,7 +343,7 @@ async function restoreSpecificApp(appName: string, options: RestoreOptions): Pro
   if (!isAppSupported(appName)) {
     printer.error(`Unsupported application: ${appName}`);
     printer.info('Use "npx @1mcp/agent app list" to see supported applications.');
-    process.exit(1);
+    exitProductCommand(1);
   }
 
   const backups = listAppBackups(appName);
@@ -392,7 +393,7 @@ async function restoreSpecificApp(appName: string, options: RestoreOptions): Pro
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     printer.error(`Restore failed: ${errorMessage}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 

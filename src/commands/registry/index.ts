@@ -1,5 +1,6 @@
 import { GlobalOptions, withGlobalOptions } from '@src/globalOptions.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
+import { runProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
@@ -36,8 +37,10 @@ export function setupRegistryCommands(yargs: Argv): Argv {
             return buildSearchCommand(searchYargs);
           },
           async (argv) => {
-            configureGlobalLogger(argv as GlobalOptions);
-            await searchCommand(argv as unknown as SearchCommandArgs);
+            return runProductCommand('mcp', async () => {
+              configureGlobalLogger(argv as GlobalOptions);
+              await searchCommand(argv as unknown as SearchCommandArgs);
+            });
           },
         )
         .command(
@@ -47,8 +50,10 @@ export function setupRegistryCommands(yargs: Argv): Argv {
             return buildStatusCommand(statusYargs);
           },
           async (argv) => {
-            configureGlobalLogger(argv as GlobalOptions);
-            await registryStatusCommand(argv as unknown as RegistryStatusCommandArgs);
+            return runProductCommand('mcp', async () => {
+              configureGlobalLogger(argv as GlobalOptions);
+              await registryStatusCommand(argv as unknown as RegistryStatusCommandArgs);
+            });
           },
         )
         .command({
@@ -56,8 +61,10 @@ export function setupRegistryCommands(yargs: Argv): Argv {
           describe: 'Show detailed information about a specific MCP server',
           builder: (yargs) => buildShowCommand(yargs),
           handler: async (argv) => {
-            configureGlobalLogger(argv as GlobalOptions);
-            await showCommand(argv as unknown as ShowCommandCliArgs);
+            return runProductCommand('mcp', async () => {
+              configureGlobalLogger(argv as GlobalOptions);
+              await showCommand(argv as unknown as ShowCommandCliArgs);
+            });
           },
         })
         .command({
@@ -65,8 +72,10 @@ export function setupRegistryCommands(yargs: Argv): Argv {
           describe: 'List all available versions for a specific MCP server',
           builder: (yargs) => buildVersionsCommand(yargs),
           handler: async (argv) => {
-            configureGlobalLogger(argv as GlobalOptions);
-            await versionsCommand(argv as unknown as VersionsCommandCliArgs);
+            return runProductCommand('mcp', async () => {
+              configureGlobalLogger(argv as GlobalOptions);
+              await versionsCommand(argv as unknown as VersionsCommandCliArgs);
+            });
           },
         })
         .demandCommand(1, 'You must specify a registry command')
@@ -74,8 +83,10 @@ export function setupRegistryCommands(yargs: Argv): Argv {
         .alias('help', 'h');
     },
     () => {
-      // Default handler - show help
-      printer.info('Use --help to see available registry commands');
+      return runProductCommand('mcp', async () => {
+        // Default handler - show help
+        printer.info('Use --help to see available registry commands');
+      });
     },
   );
 }

@@ -150,6 +150,8 @@ export async function runInstructionsProcess(
     for (const key of Object.keys(environment)) {
       if (['ONE_MCP_PROJECT', 'ONE_MCP_PROJECT_SET'].includes(key.toUpperCase())) delete environment[key];
     }
+    // This implementation child belongs to the outer invocation, not a second command adoption.
+    environment.ONE_MCP_PRODUCT_TELEMETRY = 'false';
     const child = spawn(executable, args, { shell: false, env: environment, stdio: ['ignore', 'pipe', 'pipe'] });
     const chunks: Buffer[] = [];
     let settled = false;

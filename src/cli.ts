@@ -1,6 +1,7 @@
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import { GlobalOptions, globalOptions, withGlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { runProductCommand } from '@src/productTelemetry/commandScope.js';
 import { helpWidth, styleHelp } from '@src/utils/cli/help.js';
 import { normalizeCliArgv, normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
@@ -60,6 +61,10 @@ yargsInstance = yargsInstance
       // Default command - redirect to serve command
       configureGlobalLogger(argv as GlobalOptions, argv.transport);
       const { serveCommand } = await import('./commands/serve/serve.js');
+      if (argv.status || argv.stop) {
+        await runProductCommand('serve', () => serveCommand(argv as Parameters<typeof serveCommand>[0]));
+        return;
+      }
       await serveCommand(argv as Parameters<typeof serveCommand>[0]);
     },
   )
