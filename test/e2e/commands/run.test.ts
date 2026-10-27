@@ -79,6 +79,7 @@ describeRunE2E('run command E2E', () => {
     await startServeProcess();
     // Initialize the connection and schema worker before measuring an execution deadline.
     const warmup = await runner.runRunCommand('runner/wait', {
+      timeout: 20000,
       args: [
         ...getCliSessionCacheArgs(),
         '--args',
@@ -106,6 +107,7 @@ describeRunE2E('run command E2E', () => {
     expect(timedOut.stderr).toContain('cli_tool_execution_timeout');
     expect(timedOut.stderr).toContain('The tool may still be running');
     const succeeded = await runner.runRunCommand('runner/wait', {
+      timeout: 20000,
       args: [
         ...getCliSessionCacheArgs(),
         '--args',
