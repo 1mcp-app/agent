@@ -13,7 +13,7 @@ Only an active Aggregated Runtime observes these counts; ordinary CLI configurat
 
 `servers` counts validated static server definitions plus declared template definitions at successful configuration load or reload, including disabled definitions. A template definition counts once regardless of how many instances exist. A template takes precedence over a static definition with the same name, so that target counts once. This measures configured definitions, not connected or enabled backends. Failed loads or incomplete definition validation produce no fresh server-count observation.
 
-`tools` counts admitted external tool routes in an acquired runtime capability catalog, excluding internal tools and disabled source tools. It reflects the selected catalog and observed template instances, not every configured backend's potential tools. Disconnected, unavailable, uninstantiated, rejected or timed-out sources can reduce coverage. Different client selections can observe different counts. No extra backend request is made for telemetry.
+`tools` counts admitted external tool routes in a completely enumerated selected runtime capability catalog, excluding internal tools and disabled source tools. A failed tool listing or tool-admission timeout suppresses the fresh observation; a complete empty selected catalog records zero. The measurement covers selected connected sources and observed template instances, not every configured backend's potential tools. Disconnected or uninstantiated sources remain outside that coverage, and rejected tools have no admitted route. Different client selections can observe different counts. No extra backend request is made for telemetry.
 
 Only these numeric counts reach the observer; names, schemas, tags, presets, URLs, configuration values and runtime/session identifiers are excluded.
 
@@ -31,6 +31,8 @@ Only these numeric counts reach the observer; names, schemas, tags, presets, URL
 Only nonnegative safe integers are accepted. A zero observation means an observed zero count; a missing observation means unknown coverage.
 
 Each process keeps the latest snapshot for each measurement, replacing earlier snapshots even when the count decreases. The next admitted genuine activity consumes that snapshot once. Repeated refreshes before activity collapse to one observation; refreshes followed by separate activities may produce repeated observations. These are observation frequencies, not installation totals, current fleet inventory, or UTC-period maxima. UTC reports date the observation with the activity that consumes it, even if the snapshot was taken before UTC midnight. They can contain several buckets for the same installation as configuration or selection changes.
+
+An incomplete tool refresh leaves any previously captured, unconsumed complete tool snapshot pending. The next genuine activity may consume that older snapshot. The failed refresh does not replace it with a zero or partial count.
 
 ## Shared identity and report limits
 
