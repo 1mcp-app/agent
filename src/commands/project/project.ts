@@ -107,7 +107,7 @@ export async function projectCommand(options: ProjectCommandOptions): Promise<vo
     );
   if (attachment.status !== 'success') throw new Error(attachment.message);
   const result = projectResultSchema.parse(attachment.value);
-  process.stdout.write(`${formatProjectOutput(result, parsed.format)}\n`);
+  process.stdout.write(`${formatProjectOutput(result, parsed.format, parsed.action)}\n`);
   if (parsed.action === 'release') {
     if (!result.results.every((entry) => entry.ownerReleased === true)) process.exitCode = 1;
     return;
@@ -124,7 +124,11 @@ function requiresOperatorCredential(options: ProjectCommandOptions): boolean {
   return false;
 }
 
-export function formatProjectOutput(value: unknown, format: 'text' | 'json'): string {
+export function formatProjectOutput(
+  value: unknown,
+  format: 'text' | 'json',
+  action: ProjectCommandOptions['action'],
+): string {
   const result = projectResultSchema.parse(value);
   if (format === 'json') return JSON.stringify(result, null, 2);
   return result.results
@@ -133,8 +137,8 @@ export function formatProjectOutput(value: unknown, format: 'text' | 'json'): st
         (blocker) => `  ${blocker.kind}: ${blocker.id}${blocker.count === undefined ? '' : ` (${blocker.count})`}`,
       );
       const status: string[] = [entry.admission];
-      if (entry.ownerReleased !== undefined) {
-        status.push(entry.ownerReleased ? 'owner released' : 'owner release pending');
+      if (action === 'release') {
+        status.push(entry.ownerReleased === true ? 'owner released' : 'owner release pending');
       }
       status.push(`cleanup ${entry.complete ? 'complete' : 'pending'}`);
       return [`${entry.checkoutPath}: ${status.join('; ')}`, ...blockers].join('\n');

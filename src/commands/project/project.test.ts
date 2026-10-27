@@ -120,6 +120,23 @@ describe('project lifecycle results', () => {
     await expect(projectCommand({ action: 'drain', format: 'json' })).rejects.toThrow();
   });
 
+  it('requires caller-release proof for every selected checkout', async () => {
+    attach.mockResolvedValue({
+      status: 'success',
+      value: {
+        results: [
+          { ...pending.results[0], ownerReleased: true },
+          { ...pending.results[0], checkoutPath: '/second', complete: true, ownerReleased: false },
+        ],
+      },
+    });
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    await projectCommand({ action: 'release', 'project-owner': '/own.json', format: 'json' });
+
+    expect(process.exitCode).toBe(1);
+  });
+
   it('rejects release without this caller credential and invalid wait budgets before attachment', async () => {
     attach.mockClear();
     await expect(projectCommand({ action: 'release' })).rejects.toThrow('project-owner');
@@ -129,12 +146,26 @@ describe('project lifecycle results', () => {
   });
 
   it('shows checkout admission and blockers in human output', () => {
-    expect(formatProjectOutput(pending, 'text')).toBe('/checkout: draining; cleanup pending\n  owner: other-owner');
+    expect(formatProjectOutput(pending, 'text', 'status')).toBe(
+      '/checkout: draining; cleanup pending\n  owner: other-owner',
+    );
   });
 
   it('distinguishes caller release from checkout cleanup in human output', () => {
-    expect(formatProjectOutput({ results: [{ ...pending.results[0], ownerReleased: true }] }, 'text')).toBe(
+    expect(formatProjectOutput({ results: [{ ...pending.results[0], ownerReleased: true }] }, 'text', 'release')).toBe(
       '/checkout: draining; owner released; cleanup pending\n  owner: other-owner',
+    );
+  });
+
+  it.each([false, undefined])('shows pending caller release when proof is not true (%s)', (ownerReleased) => {
+    expect(
+      formatProjectOutput({ results: [{ ...pending.results[0], complete: true, ownerReleased }] }, 'text', 'release'),
+    ).toBe('/checkout: draining; owner release pending; cleanup complete\n  owner: other-owner');
+  });
+
+  it('does not label status inspection as a caller release', () => {
+    expect(formatProjectOutput({ results: [{ ...pending.results[0], ownerReleased: false }] }, 'text', 'status')).toBe(
+      '/checkout: draining; cleanup pending\n  owner: other-owner',
     );
   });
 });
