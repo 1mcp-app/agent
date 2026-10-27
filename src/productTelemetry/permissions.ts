@@ -108,10 +108,12 @@ function runPrivacyScript(script: string, background: boolean): Promise<void> {
       },
     );
     if (background) child.unref();
+    // Explicit controls can wait for cold PowerShell startup; background observation keeps its short bound.
+    const timeoutMs = background ? 3000 : 10_000;
     const deadline = setTimeout(() => {
       child.kill();
       reject(new Error('Product telemetry privacy verification timed out'));
-    }, 3000);
+    }, timeoutMs);
     if (background) deadline.unref();
     child.once('error', () => {
       clearTimeout(deadline);
