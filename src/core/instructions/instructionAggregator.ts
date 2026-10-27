@@ -399,7 +399,7 @@ export class InstructionAggregator extends EventEmitter {
     };
     return resolveEffectiveServerInstructions({
       target,
-      upstreamInstructions: this.rawInstructions.get(outboundKey) ?? this.serverInstructions.get(serverName),
+      upstreamInstructions: this.rawInstructions.get(outboundKey),
       configuredTargets: this.runtimeConfiguration.configuredTargets,
     });
   }
@@ -553,7 +553,7 @@ export class InstructionAggregator extends EventEmitter {
         };
       const upstreamInstructions = Object.hasOwn(renderMetadata, 'upstreamInstructions')
         ? renderUpstreamInstructions
-        : (this.rawInstructions.get(outboundKey) ?? this.serverInstructions.get(serverName));
+        : this.rawInstructions.get(outboundKey);
       const effectiveInstructions = resolveEffectiveServerInstructions({
         target,
         upstreamInstructions,

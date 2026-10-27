@@ -192,6 +192,8 @@ describe('apiRoutes inspect', () => {
       getInstructionAggregator: vi.fn(() => ({
         hasInstructions: (name: string) => name === 'context7' || name === 'serena',
         getServerInstructions: (name: string) => (name === 'context7' ? '# Context7 Instructions' : undefined),
+        getEffectiveServerInstructions: (_key: string, name: string) =>
+          name === 'context7' ? '# Context7 Instructions' : undefined,
       })),
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getServerRegistry: vi.fn(() => serverRegistry),
@@ -261,6 +263,7 @@ describe('apiRoutes inspect', () => {
       getInstructionAggregator: vi.fn(() => ({
         hasInstructions: () => false,
         getServerInstructions: () => undefined,
+        getEffectiveServerInstructions: () => undefined,
       })),
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getServerRegistry: vi.fn(() => ({
@@ -310,6 +313,7 @@ describe('apiRoutes inspect', () => {
       getInstructionAggregator: vi.fn(() => ({
         hasInstructions: () => false,
         getServerInstructions: () => undefined,
+        getEffectiveServerInstructions: () => undefined,
       })),
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getServerRegistry: vi.fn(() => ({
@@ -414,6 +418,8 @@ describe('apiRoutes inspect', () => {
       getInstructionAggregator: vi.fn(() => ({
         hasInstructions: (name: string) => name === 'serena',
         getServerInstructions: (name: string) => (name === 'serena' ? '# Serena Instructions' : undefined),
+        getEffectiveServerInstructions: (_key: string, name: string) =>
+          name === 'serena' ? '# Serena Instructions' : undefined,
       })),
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getServerRegistry: vi.fn(() => serverRegistry),
@@ -471,6 +477,7 @@ describe('apiRoutes inspect', () => {
       getInstructionAggregator: vi.fn(() => ({
         hasInstructions: () => false,
         getServerInstructions: () => undefined,
+        getEffectiveServerInstructions: () => undefined,
       })),
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getServerRegistry: vi.fn(() => serverRegistry),

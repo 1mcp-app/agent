@@ -79,7 +79,7 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
         metadata[outboundKey] = createRenderMetadata(
           summary,
           target,
-          activeAggregator.getServerInstructions(summary.server),
+          activeAggregator.getEffectiveServerInstructions(outboundKey, summary.server),
           runtimeConfiguration,
           false,
         );

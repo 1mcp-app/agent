@@ -2,6 +2,7 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 
 import * as runtimeCatalog from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { CapabilityCursorCapacityError } from '@src/core/capabilities/capabilityPagination.js';
+import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { LoadingState, LoadingStateTracker } from '@src/core/loading/loadingStateTracker.js';
 import { type ServerAdapter, ServerStatus, ServerType } from '@src/core/server/adapters/types.js';
 import { isSourceToolDisabled, withToolDisabledState } from '@src/core/server/disabledTools.js';
@@ -197,6 +198,8 @@ describe('apiRoutes inspect', () => {
       getInstructionAggregator: vi.fn(() => ({
         hasInstructions: (name: string) => name === 'context7' || name === 'serena',
         getServerInstructions: (name: string) => (name === 'context7' ? '# Context7 Instructions' : undefined),
+        getEffectiveServerInstructions: (_key: string, name: string) =>
+          name === 'context7' ? '# Context7 Instructions' : undefined,
       })),
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getServerRegistry: vi.fn(() => serverRegistry),
@@ -319,6 +322,47 @@ describe('apiRoutes inspect', () => {
     });
   });
 
+  it.each([undefined, 'CONFIGURED_MANUAL'])(
+    'returns only the selected instance manual with override %s',
+    async (override) => {
+      const aggregator = new InstructionAggregator();
+      aggregator.setInstructions({ source: 'mcpTemplates', name: 'serena' }, 'OWN_MANUAL', 'serena:own');
+      aggregator.setInstructions({ source: 'mcpTemplates', name: 'serena' }, 'FOREIGN_MANUAL', 'serena:foreign');
+      if (override)
+        aggregator.setRuntimeInstructionConfiguration({
+          configuredTargets: { mcpServers: {}, mcpTemplates: { serena: { instructionOverride: override } } },
+        });
+      const ownConnection = connection('serena', ['serena']);
+      const connections = new Map([
+        ['serena:own', ownConnection],
+        ['serena:foreign', connection('serena', ['serena'])],
+      ]);
+      const template = { type: 'stdio', command: 'node', args: [] };
+      mockedLoadDeclaredServerConfigs.mockReturnValue({
+        staticServers: {},
+        templateServers: { serena: template },
+        errors: [],
+      });
+      const handler = createInspectHandler({
+        getClients: () => connections,
+        getInstructionAggregator: () => aggregator,
+        getLazyLoadingOrchestrator: () => undefined,
+        getServerRegistry: () => ({
+          getServerNames: () => ['serena'],
+          get: () => ({ ...makeAdapter('serena', ['serena']), type: ServerType.Template }),
+          resolveConnection: () => ownConnection,
+        }),
+      } as never);
+      const req = { query: { target: 'serena' }, headers: { 'mcp-session-id': 'own' } };
+      const res = createMockResponse();
+      await invokeInspectRoute(scopeAuthMiddleware, req, res);
+      await invokeInspectRoute(handler, req, res);
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toMatchObject({ instructions: override ?? 'OWN_MANUAL' });
+      expect(JSON.stringify(res.body)).not.toContain('FOREIGN_MANUAL');
+    },
+  );
+
   it('returns 404 for disabled template tool inspect targets', async () => {
     mockedLoadDeclaredServerConfigs.mockReturnValue({
       staticServers: {},
@@ -379,6 +423,8 @@ describe('apiRoutes inspect', () => {
       getInstructionAggregator: vi.fn(() => ({
         hasInstructions: (name: string) => name === 'context7' || name === 'serena',
         getServerInstructions: (name: string) => (name === 'context7' ? '# Context7 Instructions' : undefined),
+        getEffectiveServerInstructions: (_key: string, name: string) =>
+          name === 'context7' ? '# Context7 Instructions' : undefined,
       })),
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getServerRegistry: vi.fn(() => serverRegistry),
@@ -545,35 +591,43 @@ describe('apiRoutes inspect', () => {
     });
   });
 
-  it('returns an inspectable empty result for an unavailable configured static server', async () => {
-    mockedLoadDeclaredServerConfigs.mockReturnValue({
-      staticServers: {
-        slow: { type: 'stdio', command: 'node', args: ['slow-server.js'], tags: ['slow'] },
-      },
-      templateServers: {},
-      errors: [],
-    });
-    const serverManager = {
-      getClients: vi.fn(() => new Map()),
-      getInstructionAggregator: vi.fn(() => undefined),
-      getLazyLoadingOrchestrator: vi.fn(() => undefined),
-      getServerRegistry: vi.fn(() => ({ getServerNames: vi.fn(() => []), get: vi.fn(() => undefined) })),
-    };
-    const handler = createInspectHandler(serverManager as never);
-    const res = createMockResponse();
+  it.each([undefined, '', 'CONFIGURED_MANUAL'])(
+    'inspects a loading static server with override %s',
+    async (override) => {
+      mockedLoadDeclaredServerConfigs.mockReturnValue({
+        staticServers: {
+          slow: { type: 'stdio', command: 'node', args: ['slow-server.js'], tags: ['slow'] },
+        },
+        templateServers: {},
+        errors: [],
+      });
+      const aggregator = new InstructionAggregator();
+      aggregator.setRuntimeInstructionConfiguration({
+        configuredTargets: { mcpServers: { slow: { instructionOverride: override } }, mcpTemplates: {} },
+      });
+      const serverManager = {
+        getClients: vi.fn(() => new Map()),
+        getInstructionAggregator: vi.fn(() => aggregator),
+        getLazyLoadingOrchestrator: vi.fn(() => undefined),
+        getServerRegistry: vi.fn(() => ({ getServerNames: vi.fn(() => []), get: vi.fn(() => undefined) })),
+      };
+      const handler = createInspectHandler(serverManager as never);
+      const res = createMockResponse();
 
-    await invokeInspectRoute(scopeAuthMiddleware, { query: { target: 'slow' } }, res);
-    await invokeInspectRoute(handler, { query: { target: 'slow' } }, res);
+      await invokeInspectRoute(scopeAuthMiddleware, { query: { target: 'slow' } }, res);
+      await invokeInspectRoute(handler, { query: { target: 'slow' } }, res);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toMatchObject({
-      kind: 'server',
-      server: 'slow',
-      available: false,
-      loadTracked: true,
-      tools: [],
-    });
-  });
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toMatchObject({
+        kind: 'server',
+        server: 'slow',
+        available: false,
+        instructions: override ?? null,
+        loadTracked: true,
+        tools: [],
+      });
+    },
+  );
 
   it('lists tools for a connected configured static server without a loading tracker', async () => {
     mockedLoadDeclaredServerConfigs.mockReturnValue({

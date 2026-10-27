@@ -1,10 +1,13 @@
 import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
 
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+
+import { bootstrapOwner } from '@src/commands/bootstrap/bootstrapOwnership.js';
+import { temporaryProjectOwnerStorage } from '@src/commands/shared/projectOwnerStorage.js';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -43,6 +46,7 @@ describeInspectE2E('inspect command E2E', () => {
 
   afterEach(async () => {
     await stopServeProcess();
+    await rm(temporaryProjectOwnerStorage(environment.getConfigDir()), { recursive: true, force: true });
     await environment.cleanup();
   });
 
@@ -363,7 +367,7 @@ describeInspectE2E('inspect command E2E', () => {
     expect(serverResult.stdout).toContain('find_symbol,');
   });
 
-  it('delivers cold instructions and targets one backend without starting an unrelated slow template', async () => {
+  it.each([false, true])('delivers cold and warm instructions without unrelated startup (owned: %s)', async (owned) => {
     const selectedMarker = join(environment.getTempDir(), 'selected-started');
     const unrelatedMarker = join(environment.getTempDir(), 'unrelated-started');
     const listMarker = join(environment.getTempDir(), 'selected-lists');
@@ -392,11 +396,23 @@ describeInspectE2E('inspect command E2E', () => {
       }),
       'utf8',
     );
+    const ownerArgs: string[] = [];
+    if (owned) {
+      const owner = await bootstrapOwner(
+        { client: 'codex', event: 'SessionStart', 'config-dir': environment.getConfigDir() },
+        JSON.stringify({
+          hook_event_name: 'SessionStart',
+          session_id: 'inspect-fixture',
+          cwd: environment.getTempDir(),
+        }),
+      );
+      ownerArgs.push('--project-owner', owner);
+    }
     await startServeProcess();
 
     const cold = await runner.runCommand('instructions', '', {
       cwd: environment.getTempDir(),
-      args: ['--config-dir', environment.getConfigDir()],
+      args: ['--config-dir', environment.getConfigDir(), ...ownerArgs],
     });
     runner.assertSuccess(cold, serveOutput);
     expect(cold.stdout).toContain('<server_summary name="selected">');
@@ -406,14 +422,21 @@ describeInspectE2E('inspect command E2E', () => {
 
     const selected = await runner.runInspectCommand('selected', {
       cwd: environment.getTempDir(),
-      args: getCliSessionCacheArgs(),
+      args: [...getCliSessionCacheArgs(), ...ownerArgs],
     });
     runner.assertSuccess(selected, serveOutput);
     expect(selected.stdout).toContain('# Serena Instructions');
     expect(selected.stdout).toContain('find_symbol');
     const invoked = await runner.runRunCommand('selected/find_symbol', {
       cwd: environment.getTempDir(),
-      args: [...getCliSessionCacheArgs(), '--args', '{"name_path_pattern":"Fixture"}', '--format', 'json'],
+      args: [
+        ...getCliSessionCacheArgs(),
+        ...ownerArgs,
+        '--args',
+        '{"name_path_pattern":"Fixture"}',
+        '--format',
+        'json',
+      ],
     });
     runner.assertSuccess(invoked, serveOutput);
     const content = runner.parseJsonOutput<Array<{ text: string }>>(invoked);
@@ -422,10 +445,10 @@ describeInspectE2E('inspect command E2E', () => {
 
     const warm = await runner.runCommand('instructions', '', {
       cwd: environment.getTempDir(),
-      args: ['--config-dir', environment.getConfigDir()],
+      args: ['--config-dir', environment.getConfigDir(), ...ownerArgs],
     });
     runner.assertSuccess(warm, serveOutput);
-    // Unowned CLI surfaces have separate bindings; the instruction surface must not borrow the inspect manual.
+    // CLI surfaces retain distinct context bindings, even for the same owner.
     expect(warm.stdout).not.toContain('# Serena Instructions');
     expect(await readFile(listMarker, 'utf8')).toBe(listsBefore);
     expect((await readFile(selectedMarker, 'utf8')).trim().split('\n')).toHaveLength(1);

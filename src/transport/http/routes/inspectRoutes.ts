@@ -662,7 +662,13 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         loadingInfo,
       );
       const type = adapter?.type ?? (declaredTemplateConfig ? 'template' : 'external');
-      const instructions = instructionAggregator?.getServerInstructions(serverName) ?? null;
+      const outboundKey = [...filteredConnections].find(([, candidate]) => candidate === connection)?.[0];
+      let instructions: string | null = null;
+      if (outboundKey) {
+        instructions = instructionAggregator?.getEffectiveServerInstructions(outboundKey, serverName) ?? null;
+      } else if (type !== 'template') {
+        instructions = instructionAggregator?.getEffectiveServerInstructions(serverName, serverName) ?? null;
+      }
       const loadTracked = isLoadTrackedStaticServer(declaredServers, serverName);
 
       // Static startup targets remain inspectable before the first atomic
