@@ -11,8 +11,8 @@
  */
 import { McpTestClient, TestProcessManager } from '@test/e2e/utils/index.js';
 
-import { randomBytes } from 'crypto';
-import { mkdir, rm, writeFile } from 'fs/promises';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -134,11 +134,7 @@ describe('Lazy Tools with Template MCP Servers E2E Tests', () => {
   let serverUrl: string;
 
   beforeEach(async () => {
-    // Create temporary config directory
-    const buildDir = join(process.cwd(), 'build');
-    await mkdir(buildDir, { recursive: true });
-    configDir = join(buildDir, `.tmp-test-lazy-template-${randomBytes(4).toString('hex')}`);
-    await mkdir(configDir, { recursive: true });
+    configDir = await mkdtemp(join(tmpdir(), '1mcp-test-lazy-template-'));
 
     // Create MCP server configuration with template servers
     const mockServerPath = resolve(__dirname, 'utils/mock-mcp-server-fast.js');
