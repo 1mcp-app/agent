@@ -17,6 +17,18 @@ vi.mock('@src/logger/configureGlobalLogger.js', () => ({
 describe('setupRunCommand', () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it('accepts an explicit tool deadline and the normal environment override', async () => {
+    const parser = () =>
+      setupRunCommand(yargs([]).env('ONE_MCP').exitProcess(false).help(false).version(false).strict());
+    await parser().parseAsync(['run', 'filesystem/read_file', '--timeout-ms', '120000']);
+    expect(runCommandMock).toHaveBeenLastCalledWith(expect.objectContaining({ 'timeout-ms': 120000 }));
+
+    vi.stubEnv('ONE_MCP_TIMEOUT_MS', '45000');
+    await parser().parseAsync(['run', 'filesystem/read_file']);
+    expect(runCommandMock).toHaveBeenLastCalledWith(expect.objectContaining({ 'timeout-ms': 45000 }));
   });
 
   it('registers --context for named runtime target attachment', async () => {

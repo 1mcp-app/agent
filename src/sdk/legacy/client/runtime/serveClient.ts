@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
+import { DEFAULT_TOOL_CALL_TIMEOUT_MS } from '@src/constants/cliTimeouts.js';
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { resolveFilterSelection } from '@src/core/filtering/filterSelection.js';
 import logger from '@src/logger/logger.js';
@@ -70,6 +71,16 @@ export interface CliSessionCachePathOptions {
 }
 
 export const SESSION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+export class ServeRequestTimeoutError extends Error {
+  constructor(
+    readonly method: string,
+    readonly timeoutMs: number,
+  ) {
+    super(`Timed out waiting for ${method} response after ${timeoutMs}ms.`);
+    this.name = 'ServeRequestTimeoutError';
+  }
+}
 
 export class StreamableServeClient {
   private readonly transport: StreamableHTTPClientTransport;
@@ -148,11 +159,19 @@ export class StreamableServeClient {
     return this.sendRequest<ListToolsResult>('tools/list', cursor === undefined ? {} : { cursor });
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<JsonRpcResponse<CallToolResult>> {
-    return this.sendRequest('tools/call', {
-      name,
-      arguments: args,
-    });
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+    timeoutMs = DEFAULT_TOOL_CALL_TIMEOUT_MS,
+  ): Promise<JsonRpcResponse<CallToolResult>> {
+    return this.sendRequest(
+      'tools/call',
+      {
+        name,
+        arguments: args,
+      },
+      timeoutMs,
+    );
   }
 
   get sessionId(): string | undefined {
@@ -163,14 +182,18 @@ export class StreamableServeClient {
     await this.transport.close();
   }
 
-  private async sendRequest<Result>(method: string, params: Record<string, unknown>): Promise<JsonRpcResponse<Result>> {
+  private async sendRequest<Result>(
+    method: string,
+    params: Record<string, unknown>,
+    timeoutMs = 30_000,
+  ): Promise<JsonRpcResponse<Result>> {
     const id = this.nextId++;
 
     return new Promise<JsonRpcResponse<Result>>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id);
-        reject(new Error(`Timed out waiting for ${method} response.`));
-      }, 30000);
+        reject(new ServeRequestTimeoutError(method, timeoutMs));
+      }, timeoutMs);
 
       this.pendingRequests.set(id, {
         resolve: resolve as PendingRequest<unknown>['resolve'],

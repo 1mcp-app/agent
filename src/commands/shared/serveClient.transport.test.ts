@@ -20,7 +20,29 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 }));
 
 describe('StreamableServeClient transport security', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it('honors a per-call tool deadline without sending the operation again', async () => {
+    vi.useFakeTimers();
+    const client = new StreamableServeClient(new URL('http://127.0.0.1/mcp'));
+    const transport = vi.mocked(StreamableHTTPClientTransport).mock.results.at(-1)?.value;
+    const rejected = vi.fn();
+    const pending = client.callTool('write', {}, 50).catch(rejected);
+    try {
+      await vi.advanceTimersByTimeAsync(50);
+      expect(rejected).toHaveBeenCalledOnce();
+      expect(rejected).toHaveBeenCalledWith(expect.objectContaining({ method: 'tools/call', timeoutMs: 50 }));
+      expect(transport.send).toHaveBeenCalledOnce();
+    } finally {
+      transport.onclose?.();
+      await pending;
+      await client.close();
+    }
+  });
   it('rejects redirects before sending proof-bearing initialize metadata', () => {
     new StreamableServeClient(new URL('https://runtime.example.com/mcp'), 'stream-session');
 

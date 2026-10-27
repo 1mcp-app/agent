@@ -61,6 +61,55 @@ describeRunE2E('run command E2E', () => {
     expect(output.count).toBe(2);
   });
 
+  it('reports an execution deadline without replay and accepts a subsequent call', async () => {
+    const marker = join(environment.getTempDir(), 'deadline-calls');
+    await writeFile(
+      environment.getConfigPath(),
+      JSON.stringify({
+        mcpServers: {
+          runner: {
+            transport: 'stdio',
+            command: 'node',
+            args: [join(process.cwd(), 'test/e2e/fixtures/deadline-tool-server.js'), marker],
+          },
+        },
+      }),
+      'utf8',
+    );
+    await startServeProcess();
+    const timedOut = await runner.runRunCommand('runner/wait', {
+      args: [
+        ...getCliSessionCacheArgs(),
+        '--args',
+        '{"id":"slow","delayMs":1000}',
+        '--timeout-ms',
+        '200',
+        '--format',
+        'json',
+      ],
+    });
+    runner.assertFailure(timedOut, 6);
+    expect(timedOut.stdout).toBe('');
+    expect(timedOut.stderr).toContain('cli_tool_execution_timeout');
+    expect(timedOut.stderr).toContain('The tool may still be running');
+    const succeeded = await runner.runRunCommand('runner/wait', {
+      args: [
+        ...getCliSessionCacheArgs(),
+        '--args',
+        '{"id":"next","delayMs":20}',
+        '--timeout-ms',
+        '1000',
+        '--format',
+        'json',
+      ],
+    });
+    runner.assertSuccess(succeeded);
+    expect(runner.parseJsonOutput(succeeded)).toEqual({ id: 'next', completed: true });
+    const calls = (await readFile(marker, 'utf8')).trim().split('\n');
+    expect(calls.filter((line) => line === 'slow:start')).toHaveLength(1);
+    expect(calls.filter((line) => line === 'next:start')).toHaveLength(1);
+  });
+
   it('blocks disabled tools before invocation', async () => {
     await disableRunnerTool('echo_args');
 
