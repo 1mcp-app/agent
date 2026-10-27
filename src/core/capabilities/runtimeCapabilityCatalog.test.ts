@@ -2,6 +2,7 @@ import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js'
 
 import type { OutboundConnections } from '@src/core/types/index.js';
 import { schemaBoundary, SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+import { observeProductRuntimeConfiguration } from '@src/productTelemetry/index.js';
 import { ErrorCode, type JsonValue, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 import { buildPublicResourceTemplate } from '@src/utils/core/resourceUris.js';
 
@@ -29,6 +30,8 @@ import {
   RUNTIME_CATALOG_SCOPE_TTL_MS,
 } from './runtimeCapabilityCatalog.js';
 
+vi.mock('@src/productTelemetry/index.js', () => ({ observeProductRuntimeConfiguration: vi.fn() }));
+
 const tool = (name: string) => ({ name, inputSchema: { type: 'object' } });
 function fixture(
   name = 'server',
@@ -44,6 +47,18 @@ function fixture(
 }
 
 describe('runtime capability catalog', () => {
+  it('observes only the admitted enabled external tool count, excluding internal tools', async () => {
+    vi.mocked(observeProductRuntimeConfiguration).mockClear();
+    const connection = fixture('private_backend', () => ({
+      tools: [tool('private_enabled'), tool('private_disabled')],
+    }));
+    await acquireRuntimeCapabilityCatalog(new Map([['private_backend', connection]]), undefined, {
+      serverConfigs: { private_backend: { command: 'secret', disabledTools: ['private_disabled'] } },
+      internalTools: [tool('internal')],
+    });
+    expect(observeProductRuntimeConfiguration).toHaveBeenCalledExactlyOnceWith('tools', 1);
+  });
+
   it('injects the native selected paths before validating inputs and keeps disabled tools inaccessible', async () => {
     const connection = fixture('native', () => ({
       tools: [

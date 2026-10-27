@@ -19,6 +19,7 @@ import {
   type ToolSchemaContracts,
 } from '@src/core/validation/toolSchemaBoundary.js';
 import { projectToolArguments } from '@src/domains/project-selection/projectPolicy.js';
+import { observeProductRuntimeConfiguration } from '@src/productTelemetry/index.js';
 import { ErrorCode, OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 
@@ -926,6 +927,14 @@ async function collectRuntimeCapabilityCatalog(
         );
     }
     publishCompleteConfiguredToolTargetSnapshots(connections);
+    observeProductRuntimeConfiguration(
+      'tools',
+      generation.entries.filter((entry) => {
+        if (entry.route.kind !== 'tools') return false;
+        if (entry.route.origin !== 'external') return false;
+        return !isSourceToolDisabled(options.serverConfigs ?? {}, entry.route.server, entry.route.upstreamIdentity);
+      }).length,
+    );
   }
   return snapshot;
 }

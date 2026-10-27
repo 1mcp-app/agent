@@ -16,6 +16,7 @@ import {
 import { validatePreparationConfig } from '@src/domains/backend-preparation/integrationDefinitions.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { observeProductRuntimeConfiguration } from '@src/productTelemetry/index.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 import type { ContextData } from '@src/types/context.js';
 import { createContextHash } from '@src/utils/context/contextHash.js';
@@ -119,6 +120,12 @@ export class ConfigManager extends EventEmitter {
       this.staticRuntimeFingerprints = this.createRuntimeFingerprints(this.transportConfig, runtimeEnvironment);
       this.templateRuntimeFingerprints = this.createRuntimeFingerprints(declared.templateServers, runtimeEnvironment);
       this.loader.markRuntimeEnvObserved(runtimeEnvSignature);
+      if (declared.errors.length === 0) {
+        observeProductRuntimeConfiguration(
+          'servers',
+          Object.keys(this.transportConfig).length + Object.keys(declared.templateServers).length,
+        );
+      }
 
       logger.info('configManager.configuration.loaded.successfully.environment.variable.substitution.c04b8bbe');
       writeLocalDiagnostic('info', 'config.loaded', () => ({
@@ -519,12 +526,16 @@ export class ConfigManager extends EventEmitter {
     let newConfig: Record<string, MCPServerParams>;
     let runtimeEnvironment: Readonly<Record<string, string>>;
     let declaredTemplates: Record<string, MCPServerParams>;
+    let configuredServerCount: number | undefined;
 
     try {
       runtimeEnvironment = loadRuntimeScopeEnvironment(this.loader.getConfigFilePath());
       newConfig = this.loader.loadConfigWithEnvSubstitution();
       const declared = this.loadDeclaredServerConfigs();
       declaredTemplates = declared.templateServers;
+      if (declared.errors.length === 0) {
+        configuredServerCount = Object.keys(newConfig).length + Object.keys(declaredTemplates).length;
+      }
     } catch (error) {
       this.loader.markRuntimeEnvAttempted(runtimeEnvSignature);
       logger.error('configManager.failed.to.load.or.validate.configuration.9145e701', { error: error });
@@ -560,6 +571,7 @@ export class ConfigManager extends EventEmitter {
     this.templateRuntimeFingerprints = nextTemplateFingerprints;
     McpConfigManager.getInstance(this.loader.getConfigFilePath()).reloadConfig();
     this.loader.markRuntimeEnvObserved(runtimeEnvSignature);
+    if (configuredServerCount !== undefined) observeProductRuntimeConfiguration('servers', configuredServerCount);
 
     logger.info('configManager.detected.configuration.changes.ffd1172b', { changeCount: changes.length });
     writeLocalDiagnostic('info', 'config.reload.applied', () => ({
