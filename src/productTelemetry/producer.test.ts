@@ -28,6 +28,124 @@ async function fixture() {
   return { producer, store, bodies };
 }
 describe('closed nonblocking collection facade', () => {
+  it('sends runtime startup at readiness once and on the five minute opportunity', async () => {
+    const { producer, bodies } = await fixture();
+    await producer.settled();
+    producer.startRuntime();
+    const startup = producer.beginCommand('serve');
+    startup.finish('success');
+    startup.finish('failure');
+    await producer.settled();
+    expect(bodies).toHaveLength(0);
+    vi.useFakeTimers();
+    producer.stopRuntime();
+    producer.startRuntime();
+    await vi.advanceTimersByTimeAsync(300_000);
+    await producer.settled();
+    expect(JSON.parse(bodies[0]).summaries[0].counters).toEqual([
+      {
+        kind: 'command',
+        name: 'serve',
+        outcome: 'success',
+        transport: 'none',
+        client: 'none',
+        bucket: 'none',
+        count: 1,
+      },
+    ]);
+    producer.stopRuntime();
+    vi.useRealTimers();
+  });
+  it('observes reset without retagging an earlier startup and admits later activity separately', async () => {
+    const { producer, store, bodies } = await fixture();
+    await producer.settled();
+    const old = producer.beginCommand('serve');
+    producer.startRuntime();
+    await store.control('reset');
+    vi.useFakeTimers();
+    producer.stopRuntime();
+    producer.startRuntime();
+    await vi.advanceTimersByTimeAsync(4_000);
+    await producer.settled();
+    old.finish('success');
+    await producer.settled();
+    expect((await store.status()).identityPresent).toBe(false);
+    producer.recordFeature('admin_open', 'success');
+    await producer.settled();
+    producer.recordFeature('admin_open', 'success');
+    await producer.settled();
+    await vi.advanceTimersByTimeAsync(300_000);
+    await producer.settled();
+    expect(JSON.parse(bodies[0]).summaries[0].counters).toEqual([
+      {
+        kind: 'feature',
+        name: 'admin_open',
+        outcome: 'success',
+        transport: 'none',
+        client: 'none',
+        bucket: 'none',
+        count: 1,
+      },
+    ]);
+    producer.stopRuntime();
+    vi.useRealTimers();
+  });
+  it('keeps disabled idle runtimes identity-free and aborts delivery after a live disable', async () => {
+    const { producer, store } = await fixture();
+    await producer.settled();
+    await store.control('disable');
+    const abortDelivery = vi.fn();
+    const runtime = new ProductUsageProducer({
+      store,
+      now: () => Date.parse('2026-10-27T10:12:34Z'),
+      dimensions: { version: '0.39.3', os: 'darwin', arch: 'arm64', node_major: 24, ci: false },
+      dispatch: vi.fn(),
+      abortDelivery,
+    });
+    await runtime.settled();
+    vi.useFakeTimers();
+    runtime.startRuntime();
+    await vi.advanceTimersByTimeAsync(300_000);
+    await runtime.settled();
+    expect((await store.status()).queuedSummaries).toBe(0);
+    expect(abortDelivery).not.toHaveBeenCalled();
+    await store.control('enable');
+    runtime.recordFeature('admin_open', 'success');
+    await runtime.settled();
+    runtime.recordFeature('admin_open', 'success');
+    await runtime.settled();
+    await store.control('disable');
+    await vi.advanceTimersByTimeAsync(2_000);
+    await runtime.settled();
+    expect(abortDelivery).toHaveBeenCalledOnce();
+    expect((await store.status()).queuedSummaries).toBe(0);
+    runtime.stopRuntime();
+    vi.useRealTimers();
+  });
+  it('does not manufacture activity from configuration snapshots or idle flushes', async () => {
+    const { producer, store, bodies } = await fixture();
+    await producer.settled();
+    producer.observeConfiguration('servers', 12);
+    vi.useFakeTimers();
+    producer.startRuntime();
+    await vi.advanceTimersByTimeAsync(300_000);
+    await producer.settled();
+    expect(bodies).toHaveLength(0);
+    expect((await store.status()).queuedSummaries).toBe(0);
+    producer.recordFeature('admin_open', 'success');
+    await producer.settled();
+    await vi.advanceTimersByTimeAsync(300_000);
+    await producer.settled();
+    expect(JSON.parse(bodies[0]).summaries[0].counters).toHaveLength(2);
+    expect(JSON.parse(bodies[0]).summaries[0].counters[1]).toMatchObject({
+      kind: 'configuration',
+      name: 'servers',
+      bucket: '6-20',
+      count: 1,
+    });
+    producer.stopRuntime();
+    vi.useRealTimers();
+  });
   it('counts each admitted inspect completion once without accepting command data', async () => {
     const { producer, bodies } = await fixture();
     await producer.settled();
@@ -65,7 +183,8 @@ describe('closed nonblocking collection facade', () => {
     expect(bodies).toHaveLength(1);
   });
   it('drops completion before admission and never delays command completion on stalled state', async () => {
-    const { store } = await fixture();
+    const { store, producer: initial } = await fixture();
+    await initial.settled();
     vi.spyOn(store, 'admit').mockReturnValue(new Promise(() => {}));
     const dispatch = vi.fn();
     const producer = new ProductUsageProducer({

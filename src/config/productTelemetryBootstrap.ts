@@ -8,8 +8,10 @@ let policy: CollectionPolicy = { testSuppressed: true, ci: false };
 
 /** Process-local and monotonic: later config/bootstrap cannot admit a suppressed producer. */
 export function configureProductTelemetryBootstrap(options: GlobalOptions): void {
-  testSuppressed = testSuppressed === true || options['product-telemetry-test-suppressed'] === true;
   const environment = getRuntimeParentEnvironment();
+  const launcherSuppressed = parseEnvironmentBoolean(environment.ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED);
+  testSuppressed =
+    testSuppressed === true || launcherSuppressed || options['product-telemetry-test-suppressed'] === true;
   policy = {
     testSuppressed,
     ci: parseEnvironmentBoolean(environment.CI),

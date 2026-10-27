@@ -34,11 +34,13 @@ Controls always apply locally, including when `--context` or `--url` selects a r
 - `enable` stores an on preference. It does not create a UUID or override process, CI or test suppression.
 - `reset` clears the local UUID and unsent data while preserving the preference. Only a later enabled admission creates a new UUID. It does not erase transmitted service records. A durable generation tombstone prevents old processes from restoring the old identity or queue.
 
+Running local runtimes observe saved disable/reset changes within five seconds under normal filesystem operation, discard stale facts, and try to abort their own active delivery. Already transmitted requests cannot be recalled. Polling and send opportunities create no usage or identity. After reset or re-enable, later genuine activity can admit a new generation; an activity arriving while admission is pending can be lost. Remote runtimes continue to follow their owner's settings.
+
 ## Collection policy
 
 Collection defaults on. Before first admission, a coordinated notice is written to stderr, including the off command and documentation link. Healthy concurrent starts share one notice and random UUID. A crash between printing and saving notice completion can repeat the notice.
 
-`inspect` currently contributes only the closed command family and success/failure outcome; cancellation is failure in wire schema v1. Arguments, server/tool names, paths, payloads, credentials, raw errors, diagnostics, traces and runtime/session identifiers are excluded. No other command or runtime activity is instrumented by this slice. Telemetry never writes to MCP stdout.
+`inspect` contributes a closed command family and success/failure outcome. `serve` and `proxy` contribute one startup outcome at readiness, failure or cancellation, with no second outcome at shutdown. A background launch or restart is owned by its invoking parent; supervised workers contribute the distinct `runtime_start` feature, including automatic replacements. Status and stop do not count in this slice; cancellation is failure in wire schema v1. Arguments, server/tool names, paths, payloads, credentials, raw errors, diagnostics, traces and runtime/session identifiers are excluded. Other command families and MCP operations are not instrumented by this slice. Telemetry never writes to MCP stdout.
 
 | Setting                                                                                     | Effect                                                                                                          |
 | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -56,7 +58,7 @@ The private store is `~/.config/1mcp/product-telemetry` on macOS/Linux and `~/Ap
 
 Summaries include the random installation UUID, actual activity time at second precision, version, OS, architecture, Node major and CI classification. Counts aggregate within a UTC day and these dimensions. Unsent data expires after seven days; the serialized queue is bounded to 256 KiB, with expired/oldest entries discarded. Batches contain at most 100 summaries and 64 KiB, with at most 16 counters per summary and 1,000,000 per counter.
 
-Sends are opportunistic, with a 1.5-second request deadline. A batch is durably removed before its one final send attempt. Errors, rejection, timeout, ambiguous responses and process termination never requeue attempted data. A crash between removal and transmission loses that batch. Commands, readiness and shutdown never wait for delivery; very short commands can lose their final measurement, including when admission is still pending. Background timers and transport handles do not keep the process alive.
+Sends are opportunistic, with a 1.5-second request deadline. A batch is durably removed before its one final send attempt. Errors, rejection, timeout, ambiguous responses and process termination never requeue attempted data. A crash between removal and transmission loses that batch. Commands, readiness and shutdown never wait for delivery; very short commands can lose their final measurement, including when admission is still pending. Long-running processes offer a send every five minutes. Background timers and transport handles do not keep the process alive.
 
 The first-party service retains detail for 90 days and installation-linked activity for at most 365 days. UUID-free daily totals may remain indefinitely. Counts are approximate observations of installations, not people or devices.
 

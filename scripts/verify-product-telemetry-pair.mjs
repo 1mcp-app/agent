@@ -40,6 +40,7 @@ const h = await harness();
 const now = Date.now();
 const day = new Date(now).toISOString().slice(0, 10);
 const bodies = [];
+const runtimeFixture = process.argv.includes('--runtime');
 const store = new InstallationStore(path.join(scratch, 'installation'), { notice: () => {}, now: () => now });
 const producer = async (ci) => {
   const usage = new ProductUsageProducer({
@@ -89,7 +90,33 @@ try {
   reset.beginCommand('inspect').finish('raw-private-error');
   await reset.settled();
   assert.equal((await store.status()).queuedSummaries, 0);
-  assert.equal(bodies.length, 4);
+  if (runtimeFixture) {
+    // Hand-computed startup fixture: serve success1/failure2 (including cancel),
+    // proxy success1/failure1, worker runtime_start success2/failure1; CI serve success1.
+    for (const [name, outcome] of [
+      ['serve', 'success'],
+      ['serve', 'failure'],
+      ['serve', 'failure'],
+      ['proxy', 'success'],
+      ['proxy', 'failure'],
+    ]) {
+      const startup = reset.beginCommand(name);
+      startup.finish(outcome);
+      startup.finish('failure'); // Shutdown/duplicate readiness must not add another fact.
+      await reset.settled();
+    }
+    for (const outcome of ['success', 'success', 'failure']) {
+      const startup = reset.beginRuntimeStartup();
+      startup.finish(outcome);
+      startup.finish('failure');
+      await reset.settled();
+    }
+    const runtimeCi = await producer(true);
+    runtimeCi.beginCommand('serve').finish('success');
+    await runtimeCi.settled();
+  }
+  const expectedBatches = runtimeFixture ? 13 : 4;
+  assert.equal(bodies.length, expectedBatches);
   const envelopes = bodies.map((body) => parseEnvelope(JSON.parse(body), now));
   for (const envelope of envelopes) {
     assert.deepEqual(Object.keys(envelope).sort(), ['batch_id', 'schema_version', 'summaries']);
@@ -106,8 +133,8 @@ try {
       ]);
       for (const c of s.counters) {
         assert.deepEqual(Object.keys(c).sort(), ['bucket', 'client', 'count', 'kind', 'name', 'outcome', 'transport']);
-        assert.equal(c.kind, 'command');
-        assert.equal(c.name, 'inspect');
+        assert(['command', 'feature'].includes(c.kind));
+        assert(['inspect', 'serve', 'proxy', 'runtime_start'].includes(c.name));
         assert.equal(c.transport, 'none');
         assert.equal(c.client, 'none');
         assert.equal(c.bucket, 'none');
@@ -140,7 +167,7 @@ try {
   const humanReport = await report(h.db, new URL(`https://dashboard.test/api/report?from=${day}&to=${day}`), now);
   const ciReport = await report(h.db, new URL(`https://dashboard.test/api/report?from=${day}&to=${day}&ci=true`), now);
   assert.equal(humanReport.observed_installations, 2);
-  assert.equal(ciReport.observed_installations, 1);
+  assert.equal(ciReport.observed_installations, runtimeFixture ? 2 : 1);
   const count = (r, outcome) =>
     r.measures
       .filter((m) => m.kind === 'command' && m.name === 'inspect' && m.outcome === outcome)
@@ -149,7 +176,20 @@ try {
   assert.equal(count(humanReport, 'failure'), 1);
   assert.equal(count(ciReport, 'success'), 1);
   assert.equal(count(ciReport, 'failure'), 0);
-  assert.equal((await h.db.prepare('SELECT COUNT(*) AS n FROM summaries').first()).n, 4);
+  const runtimeTotals = (r, kind, name, outcome) =>
+    r.measures
+      .filter((m) => m.kind === kind && m.name === name && m.outcome === outcome)
+      .reduce((n, m) => n + m.count, 0);
+  if (runtimeFixture) {
+    assert.equal(runtimeTotals(humanReport, 'command', 'serve', 'success'), 1);
+    assert.equal(runtimeTotals(humanReport, 'command', 'serve', 'failure'), 2);
+    assert.equal(runtimeTotals(humanReport, 'command', 'proxy', 'success'), 1);
+    assert.equal(runtimeTotals(humanReport, 'command', 'proxy', 'failure'), 1);
+    assert.equal(runtimeTotals(humanReport, 'feature', 'runtime_start', 'success'), 2);
+    assert.equal(runtimeTotals(humanReport, 'feature', 'runtime_start', 'failure'), 1);
+    assert.equal(runtimeTotals(ciReport, 'command', 'serve', 'success'), 1);
+  }
+  assert.equal((await h.db.prepare('SELECT COUNT(*) AS n FROM summaries').first()).n, expectedBatches);
   const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: agent, encoding: 'utf8' }).trim();
   const sourceFiles = ['producer.ts', 'installationStore.ts', 'permissions.ts', 'contract.ts'];
   const sourceHash = createHash('sha256');
@@ -165,9 +205,21 @@ try {
     producerSourceSha256: sourceHash.digest('hex'),
     serviceRevision: pinnedService,
     schemaVersion: 1,
-    batches: 4,
+    batches: expectedBatches,
     human: { installations: 2, success: 2, failure: 1 },
-    ci: { installations: 1, success: 1, failure: 0 },
+    ci: { installations: runtimeFixture ? 2 : 1, success: 1, failure: 0 },
+    runtimeStartup: runtimeFixture
+      ? {
+          human: {
+            serve: { success: 1, failure: 2 },
+            proxy: { success: 1, failure: 1 },
+            runtime_start: { success: 2, failure: 1 },
+          },
+          ci: { serve: { success: 1, failure: 0 } },
+          cancellation: 'failure',
+          shutdownDuplicates: 0,
+        }
+      : undefined,
     exactReplay: 200,
     contentConflict: 409,
     forbiddenField: 400,

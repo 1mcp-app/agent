@@ -42,6 +42,8 @@ import { GlobalOptions } from '@src/globalOptions.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
+import { beginProductStartup } from '@src/productTelemetry/index.js';
+import type { CommandCompletion } from '@src/productTelemetry/producer.js';
 import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
 import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
@@ -330,6 +332,16 @@ export function setupGracefulShutdown(
 export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
   configureProductTelemetryBootstrap(parsedArgv);
   let runtimeOwnership: RuntimeScopeOwnership | undefined;
+  let startup: CommandCompletion | undefined;
+  if (
+    !parsedArgv.status &&
+    !parsedArgv.stop &&
+    !parsedArgv['cooperative-bootstrap'] &&
+    !parsedArgv['background-bootstrap'] &&
+    !parsedArgv['runtime-owner-claim-id']
+  ) {
+    startup = beginProductStartup('serve');
+  }
   try {
     let cooperativeLaunch: RuntimeLaunchBootstrap | undefined;
     const cooperative = parsedArgv['cooperative-bootstrap']
@@ -353,6 +365,9 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       };
     }
     configureProductTelemetryBootstrap(parsedArgv);
+    if (parsedArgv['cooperative-bootstrap'] === 'worker' || parsedArgv['runtime-owner-claim-id']) {
+      startup = beginProductStartup('runtime_start');
+    }
     const { configFilePath, runtimeScope } = resolveServeConfigPaths(parsedArgv);
 
     // Lifecycle actions short-circuit before any server setup. They operate on
@@ -375,6 +390,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     if (parsedArgv.restart && !parsedArgv['background-bootstrap']) {
       const { restartCooperativeRuntime } = await import('@src/commands/serve/cooperativeRuntime.js');
       await restartCooperativeRuntime(parsedArgv);
+      startup?.finish('success');
       return;
     }
 
@@ -383,6 +399,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     if (parsedArgv.background && !parsedArgv['background-bootstrap']) {
       const { launchCooperativeRuntime } = await import('@src/commands/serve/cooperativeRuntime.js');
       await launchCooperativeRuntime(parsedArgv);
+      startup?.finish('success');
       return;
     }
 
@@ -676,6 +693,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         const transport = new StdioServerTransport();
         const filterConfig = await resolveStdioFilterConfig(parsedArgv);
         if (!filterConfig) {
+          startup?.finish('failure');
           runtimeOwnership?.release();
           return;
         }
@@ -695,6 +713,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
           }
         }
 
+        startup?.finish('success');
         logger.info('serve.server.started.with.stdio.transport.ea94ea8d');
         break;
       }
@@ -706,9 +725,14 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       case 'http': {
         // Use HTTP/SSE transport
         expressServer = new ExpressServer(serverManager, loadingManager, asyncOrchestrator, customTemplate);
-        expressServer.start(
-          cooperativeLaunch ? () => cooperative!.acknowledgeCooperativeWorker(cooperativeLaunch!) : undefined,
-        );
+        expressServer.start((error) => {
+          if (error) {
+            startup?.finish('failure');
+            return;
+          }
+          if (cooperativeLaunch) cooperative!.acknowledgeCooperativeWorker(cooperativeLaunch);
+          startup?.finish('success');
+        });
 
         // Write PID file for proxy auto-discovery
         const serverUrl = serverConfigManager.getUrl();
@@ -733,6 +757,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         break;
       }
       default:
+        startup?.finish('failure');
         logger.error('serve.invalid.transport.1860e43c');
         process.exit(1);
     }
@@ -771,6 +796,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       });
     });
   } catch (_error) {
+    startup?.finish('failure');
     runtimeOwnership?.release();
     if (parsedArgv.status || parsedArgv.stop) {
       process.stderr.write('Error: Serve command failed. See the configured log for bounded failure facts.\n');

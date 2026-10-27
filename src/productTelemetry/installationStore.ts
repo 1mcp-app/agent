@@ -79,6 +79,12 @@ export class InstallationStore {
     });
   }
 
+  /** Read-only live-control observation; never creates an identity or admits activity. */
+  async isCurrent(ticket: AdmissionTicket): Promise<boolean> {
+    await this.checkRoot(false);
+    return matches(await this.read(), ticket);
+  }
+
   async append(ticket: AdmissionTicket, facts: Omit<Summary, 'installation_id'>): Promise<boolean> {
     const incoming = summarySchema.omit({ installation_id: true }).parse(facts);
     return this.transaction(async () => {

@@ -29,6 +29,8 @@ import type { ApplicationConfig } from '@src/core/types/transport.js';
 import { appendSupervisorEvent } from '@src/logger/backgroundSupervisorLogger.js';
 import logger from '@src/logger/logger.js';
 import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
+import { beginProductStartup } from '@src/productTelemetry/index.js';
+import type { CommandCompletion } from '@src/productTelemetry/producer.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
 import type { AsyncLoadingCliOptions } from './asyncLoadingOptions.js';
@@ -374,6 +376,19 @@ function failBackgroundStart(message: string): void {
  * never starts a server in-process.
  */
 export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBackgroundDeps = {}): Promise<void> {
+  const startup = beginProductStartup('serve');
+  try {
+    await runServeBackgroundAttempt(parsedArgv, deps, startup);
+  } finally {
+    startup.finish('failure');
+  }
+}
+
+async function runServeBackgroundAttempt(
+  parsedArgv: ServeOptions,
+  deps: RunBackgroundDeps,
+  startup: CommandCompletion,
+): Promise<void> {
   const { runtimeScope: configDir } = resolveServeConfigPaths(parsedArgv);
   const loadAppConfig = deps.loadAppConfig ?? defaultLoadAppConfig;
   const appConfig = loadAppConfig(parsedArgv);
@@ -466,6 +481,7 @@ export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBack
   renderer.clear();
 
   if (result.ready && result.info) {
+    startup.finish('success');
     // One final probe so the report can show how many servers are already up.
     const summary = await probeLoadingSummary(result.info);
     process.stdout.write(`Background runtime started.\n${formatStartedReport(result.info, { summary, asyncEnabled })}`);

@@ -27,6 +27,13 @@ import dns from 'node:dns';
 import workers from 'node:worker_threads';
 import { syncBuiltinESMExports } from 'node:module';
 import { dispatchProductBatch } from './src/productTelemetry/delivery.ts';
+import { ProductUsageProducer } from './src/productTelemetry/producer.ts';
+// Controlled stalled initialization plus actual runtime timers must not retain Node/SEA.
+new ProductUsageProducer({
+  store: { admit: () => new Promise(() => {}) },
+  now: Date.now, dispatch: () => {},
+  dimensions: { version: '0.39.3', os: 'darwin', arch: 'arm64', node_major: 24, ci: false },
+}).startRuntime();
 const mode = process.argv.find(arg => arg === 'dns');
 if (mode) {
   dns.lookup = () => { process.send('dns-waiting'); setTimeout(() => {}, 60000); };

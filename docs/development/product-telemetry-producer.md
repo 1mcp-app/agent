@@ -1,6 +1,6 @@
 # Product Usage Telemetry producer acceptance
 
-Issue #677 implements the installation store, typed policy, local controls and the `inspect` command seam. Lifecycle, full CLI coverage and runtime operation hooks belong to subsequent tickets. The receiver contract is v1 from `1mcp-app/telemetry` revision `034b40fbf644e7a10df009c6554721b54318c9a6`.
+Issue #677 implements the installation store, typed policy, local controls and the `inspect` command seam. Issue #678 adds runtime startup ownership and live controls. Full CLI coverage and runtime operation hooks belong to subsequent tickets. The receiver contract is v1 from `1mcp-app/telemetry` revision `034b40fbf644e7a10df009c6554721b54318c9a6`.
 
 ## Public seams and checks
 
@@ -48,3 +48,13 @@ Public operator behavior is documented in [Telemetry Command](https://docs.1mcp.
 ## Hosted Windows gate
 
 The Native OAuth credentials workflow also runs `verify-product-telemetry-state.mjs` against the built Node CLI and actual SEA distribution on Windows, then runs the synthetic Node/SEA delivery check. All roots, HOME/USERPROFILE, Runtime Scopes and facts are fixture-owned, and ordinary CLI collection remains suppressed. Evidence is uploaded as `product-usage-windows-acceptance`. This checks help/version/status inertia, shared local scope, local controls despite remote selection, disable/reset identity behavior, current-user owner/ACL verification and stale tickets. An elevated token whose default owner differs from the user additionally proves existing populated foreign-owner entries are refused. The hosted workflow result must be read before claiming Windows acceptance.
+
+## Runtime startup and shared controls (#678)
+
+`serveCommand` owns one `serve` outcome for foreground starts (stdio connection or HTTP listening) and for the cooperative background parent after verified activation/restart. The supervisor emits no command. Each authorized supervised worker owns only the distinct `runtime_start` feature; automatic replacement is never a new user command. The legacy direct `runServeBackground` helper owns its own parent outcome. `proxyCommand` owns local `proxy` readiness after transport startup, including when attaching to a remote target. Startup guards arbitrate success/failure/cancellation once and remove their signal listeners on completion; no shutdown hook or flush is installed. Status/stop remain available for the later CLI-family ticket to classify; restart is already owned here.
+
+The producer uses unreferenced five-minute send and two-second preference-observation timers. Windows privacy inspection has a separate three-second fail-closed deadline. Observation never admits an identity; generation/policy is reread on append and final claim. Observed invalidation drops the local ticket and pending configuration snapshot and terminates this process's delivery workers where possible. Already transmitted bytes cannot be recalled. Only later real activity can request fresh admission; facts with stale tickets are dropped, never retagged. Slow or failed filesystem observation suppresses once detected and cannot guarantee a wall-clock deadline during an OS/filesystem stall.
+
+The closed facade exports `beginProductCommand(CommandName)`, `recordProductFeature(FeatureName, outcome)`, `recordProductOperation(OperationName, outcome, transport, client)` and `observeProductConfiguration('servers'|'tools', nonnegativeSafeInteger)`. Operation/client/transport labels come only from the v1 contract. Configuration snapshots store finite buckets in memory on an existing producer, attach once to later genuine activity, and create neither identity nor usage by themselves. Later tickets own their instrumentation and semantic observation points.
+
+Run the existing local paired harness with `--runtime` to add hand-computed startup facts: human serve success1/failure2 (one cancellation), proxy success1/failure1, worker `runtime_start` success2/failure1, and CI serve success1. Duplicate finishes add nothing. Combined with the inspect fixture there are thirteen actual serialized batches, two human identities and two CI identities (reset creates the latter second identity). The script verifies these totals through local Miniflare, D1, rollup and the private report; it never contacts a deployed collector.

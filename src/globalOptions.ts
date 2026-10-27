@@ -11,6 +11,7 @@
  */
 import { configureProductTelemetryBootstrap } from '@src/config/productTelemetryBootstrap.js';
 import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
+import { parseEnvironmentBoolean } from '@src/productTelemetry/policy.js';
 
 import type { Argv } from 'yargs';
 
@@ -34,7 +35,7 @@ export const globalOptions = {
     default: undefined,
     // A command-line false must never undo the launcher suppression decision.
     coerce: (value: boolean) =>
-      getRuntimeParentEnvironment().ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED === 'true' || value,
+      parseEnvironmentBoolean(getRuntimeParentEnvironment().ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED) || value,
   },
   'project-owner': {
     describe:
