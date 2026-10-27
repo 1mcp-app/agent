@@ -32,7 +32,7 @@ The `inspect` command is the discovery and schema step in the CLI workflow. Use 
 Depending on the target, `inspect` can:
 
 - List all exposed servers when no target is provided
-- List the exposed tools for a server when the target is `<server>`
+- List the exposed tools and applicable instructions for a server when the target is `<server>`
 - Show a readable tool schema summary when the target is `<server>/<tool>`
 
 When supported, `inspect` uses the authenticated `/api/v1/inspect` endpoint first and falls back to the MCP protocol when needed. It reports startup states for configured static servers before the first capability snapshot; use [`wait`](/commands/wait) when a script must wait for `connected` with `available: true`.
@@ -42,7 +42,7 @@ This is the command that turns the broad inventory from `instructions` into a sc
 ## Targets
 
 - **Omit target** - List all servers exposed by the running 1MCP instance
-- **`<server>`** - List tools for one server
+- **`<server>`** - List tools and instructions for one server; initialize only that template when needed
 - **`<server>/<tool>`** - Inspect a single tool schema
 
 ## Options

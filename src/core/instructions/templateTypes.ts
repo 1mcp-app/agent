@@ -11,6 +11,7 @@ export interface ServerSummaryData {
   loadTracked?: boolean;
   loadTrackedKnown: boolean;
   toolCount: number;
+  toolCountKnown?: boolean;
   hasInstructions: boolean;
 }
 
@@ -37,6 +38,7 @@ export interface ServerData {
   available?: boolean;
   loadTracked?: boolean;
   toolCount?: number;
+  toolCountKnown?: boolean;
   note?: string;
   availableKnown?: boolean;
   loadTrackedKnown?: boolean;
@@ -389,7 +391,7 @@ ${PREPARATION_GUIDANCE}
 {{/if}}{{#if summary.status}}	status: {{summary.status}}
 {{/if}}{{#if summary.availableKnown}}	available: {{#if summary.available}}yes{{else}}no{{/if}}
 {{/if}}{{#if summary.loadTrackedKnown}}	load_tracked: {{#if summary.loadTracked}}yes{{else}}no{{/if}}
-{{/if}}	tools: {{summary.toolCount}}
+{{/if}}	tools: {{#if (eq summary.toolCountKnown false)}}unknown{{else}}{{summary.toolCount}}{{/if}}
 	instructions: {{#if summary.hasInstructions}}yes{{else}}no{{/if}}
 </server_summary>
 {{/each}}
@@ -403,7 +405,7 @@ ${PREPARATION_GUIDANCE}
 {{/if}}{{#if status}}	status: {{status}}
 {{/if}}{{#if availableKnown}}	available: {{#if available}}yes{{else}}no{{/if}}
 {{/if}}{{#if loadTrackedKnown}}	load_tracked: {{#if loadTracked}}yes{{else}}no{{/if}}
-{{/if}}	tools: {{toolCount}}
+{{/if}}	tools: {{#if (eq toolCountKnown false)}}unknown{{else}}{{toolCount}}{{/if}}
 	instructions: {{#if hasInstructions}}yes{{else}}no{{/if}}
 {{#if hasInstructions}}	<server_instructions name="{{name}}">
 {{instructions}}

@@ -3,6 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { formatInstructionsOutput } from './instructionsUtils.js';
 
 describe('instructionsUtils', () => {
+  it('shows an unqueried inventory as unknown instead of an empty tool list', () => {
+    const server = { server: 'cold', type: 'template', toolCount: 0, toolCountKnown: false, hasInstructions: false };
+    const output = formatInstructionsOutput({ servers: [server], details: [server] });
+
+    expect(output).toContain('tools: unknown');
+    expect(output).not.toContain('tools: 0');
+  });
+
   it('formats the CLI playbook, summary blocks, and tagged server instruction payloads', () => {
     const output = formatInstructionsOutput({
       servers: [

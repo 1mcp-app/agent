@@ -14,6 +14,7 @@ const instructionServerSummarySchema = z.object({
   available: z.boolean().optional(),
   loadTracked: z.boolean().optional(),
   toolCount: z.number().int().nonnegative(),
+  toolCountKnown: z.boolean().optional(),
   hasInstructions: z.boolean(),
 });
 
@@ -44,6 +45,7 @@ export interface InstructionServerSummary {
   available?: boolean;
   loadTracked?: boolean;
   toolCount: number;
+  toolCountKnown?: boolean;
   hasInstructions: boolean;
 }
 

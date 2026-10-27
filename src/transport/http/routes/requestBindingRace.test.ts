@@ -20,8 +20,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createRequestContextPreparationDependencies,
   ensureRequestContextInitialized,
+  registerHttpRequestContext,
 } from './inspectRequestContext.js';
-import { buildServerSummaries, createInspectHandler, createServersHandler } from './inspectRoutes.js';
+import {
+  buildInstructionServerSummaries,
+  buildServerSummaries,
+  createInspectHandler,
+  createServersHandler,
+} from './inspectRoutes.js';
 import { setupModernHttpRoutes } from './modernHttpRoutes.js';
 import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
 
@@ -103,6 +109,47 @@ describe('HTTP project binding lifetime and inspect admission', () => {
       ),
     ).rejects.toThrow('Project binding is no longer available');
     expect(load).toHaveBeenCalledOnce();
+  });
+
+  it('registers current checkout policy without rendering or starting backends', async () => {
+    await writeFile(join(directory, '.1mcprc'), JSON.stringify({ tags: ['frontend'] }));
+    load.mockRejectedValue(new Error('Backend initialization must not delay instructions'));
+    const start = vi.spyOn(templates, 'createTemplateBasedServers');
+    const binding = await registerHttpRequestContext(
+      manager,
+      {
+        query: { context: Buffer.from(JSON.stringify(context())).toString('base64url') },
+        headers: {},
+      } as unknown as express.Request,
+      { setHeader: vi.fn() } as unknown as express.Response,
+      {},
+    );
+
+    expect(binding).toBeDefined();
+    expect(templates.getBindingContext(binding!)).toMatchObject({ project: { path: directory } });
+    expect(templates.getBindingPolicies(binding!)).toEqual([expect.objectContaining({ tags: ['frontend'] })]);
+    expect(load).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('rejects a binding removed during instruction registration', async () => {
+    const register = templates.registerBindingContext.bind(templates);
+    vi.spyOn(templates, 'registerBindingContext').mockImplementation(async (...args) => {
+      const id = await register(...args);
+      await templates.cleanupTemplateServers(args[1].sessionId!, clients, {});
+      return id;
+    });
+    await expect(
+      registerHttpRequestContext(
+        manager,
+        {
+          query: { context: Buffer.from(JSON.stringify(context())).toString('base64url') },
+          headers: {},
+        } as unknown as express.Request,
+        { setHeader: vi.fn() } as unknown as express.Response,
+        {},
+      ),
+    ).rejects.toThrow('Project binding is no longer available');
   });
 
   it.each(['2024-11-05', '2025-11-25', '2026-07-28'])(
@@ -209,6 +256,38 @@ describe('HTTP project binding lifetime and inspect admission', () => {
     );
     expect(summaries.map((entry) => entry.server)).toEqual(['allowed']);
     expect(allowed.adapter.request).toHaveBeenCalledOnce();
+    expect(denied.adapter.request).not.toHaveBeenCalled();
+  });
+
+  it('applies current policy to instruction summaries without querying any backend', () => {
+    const allowed = createMockOutboundConnection({ name: 'allowed' });
+    const denied = createMockOutboundConnection({ name: 'denied' });
+    const summaries = buildInstructionServerSummaries(
+      new Map([
+        ['allowed', allowed],
+        ['denied', denied],
+      ]),
+      registry as never,
+      instructions as never,
+      {
+        staticServers: {
+          allowed: { command: 'node', tags: ['frontend'], projectTarget: { mode: 'single' } },
+          denied: { command: 'node', tags: ['backend'], projectTarget: { mode: 'single' } },
+        },
+        templateServers: {},
+        errors: [],
+      },
+      {},
+      {
+        bindingId: 'selected',
+        projectContext: context(),
+        projectPolicies: [{ tags: ['frontend'], tagFilterMode: 'simple-or' }],
+      },
+    );
+
+    expect(summaries).toMatchObject([{ server: 'allowed', toolCountKnown: false }]);
+    expect(summaries).toHaveLength(1);
+    expect(allowed.adapter.request).not.toHaveBeenCalled();
     expect(denied.adapter.request).not.toHaveBeenCalled();
   });
 

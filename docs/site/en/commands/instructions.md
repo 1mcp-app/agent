@@ -34,9 +34,13 @@ The `instructions` command is the entrypoint for CLI-mode agent workflows. It pr
 - A fixed playbook telling the agent to use `inspect` before `run`
 - A server summary section
 - A server details section
-- Per-server instruction blocks when the server provides them
+- Available per-server instruction blocks and configured overrides
 
 Use this command first when an agent or terminal session needs current guidance from the running 1MCP instance.
+
+Instruction delivery applies the current project selection, permissions, and filters without starting template backends or requesting their tool inventories. Tool counts appear as `unknown` until an inventory is queried. A cold template's upstream instructions may be unavailable; use `1mcp inspect <server>` to start only the selected backend and read its instructions before invoking a tool. Warm instructions remain scoped to the selected session. This metadata does not establish backend preparation readiness.
+
+Older runtimes without the instruction endpoint retain the legacy discovery behavior, which can initialize backends.
 
 In practice, `instructions` is what replaces a large direct-MCP starting surface in the agent loop. Instead of expecting the agent to carry every available tool and schema up front, 1MCP gives it a compact playbook plus the current inventory, then tells it to narrow further with `inspect`.
 
@@ -54,7 +58,7 @@ Each server entry includes metadata such as:
 - Server type
 - Connection status
 - Availability
-- Tool count
+- Tool count, or `unknown` when not queried
 - Whether instructions are available
 
 ## Options

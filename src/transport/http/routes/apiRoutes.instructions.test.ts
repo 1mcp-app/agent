@@ -16,6 +16,9 @@ const mockedGetRuntimeInstructionConfiguration = vi.hoisted(() => vi.fn());
 const mockedEnsureRequestContextInitialized = vi.hoisted(() =>
   vi.fn(() => Promise.resolve<string | undefined>('request-session')),
 );
+const mockedRegisterHttpRequestContext = vi.hoisted(() =>
+  vi.fn(() => Promise.resolve<string | undefined>('request-session')),
+);
 
 vi.mock('@src/config/configManager.js', () => ({
   ConfigManager: {
@@ -28,11 +31,16 @@ vi.mock('@src/config/configManager.js', () => ({
 
 vi.mock('./inspectRoutes.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('./inspectRoutes.js')>();
-  return { ...original, buildServerSummaries: mockedBuildServerSummaries };
+  return {
+    ...original,
+    buildServerSummaries: mockedBuildServerSummaries,
+    buildInstructionServerSummaries: mockedBuildServerSummaries,
+  };
 });
 
 vi.mock('./inspectRequestContext.js', () => ({
   ensureRequestContextInitialized: mockedEnsureRequestContextInitialized,
+  registerHttpRequestContext: mockedRegisterHttpRequestContext,
 }));
 
 describe('apiRoutes /api/instructions', () => {
@@ -47,6 +55,28 @@ describe('apiRoutes /api/instructions', () => {
     mockedGetRuntimeInstructionConfiguration.mockReset();
     mockedEnsureRequestContextInitialized.mockReset();
     mockedEnsureRequestContextInitialized.mockResolvedValue('request-session');
+    mockedRegisterHttpRequestContext.mockReset();
+    mockedRegisterHttpRequestContext.mockResolvedValue('request-session');
+  });
+
+  it('delivers scoped instructions without waiting for backend startup', async () => {
+    mockedEnsureRequestContextInitialized.mockRejectedValue(new Error('Backend startup is unavailable'));
+    mockedBuildServerSummaries.mockResolvedValue([]);
+    mockedLoadDeclaredServerConfigs.mockReturnValue({ staticServers: {}, templateServers: {} });
+    mockedGetRuntimeInstructionConfiguration.mockReturnValue({
+      configuredTargets: { mcpServers: {}, mcpTemplates: {} },
+    });
+    const app = express().use(
+      '/api/v1',
+      createApiRoutes(makeServerManager(new InstructionAggregator()) as never, scopeAuthMiddleware),
+    );
+
+    const response = await request(app).get('/api/v1/instructions');
+
+    expect(response.status).toBe(200);
+    expect(response.body.rendered).toContain('1MCP CLI Instructions');
+    expect(mockedRegisterHttpRequestContext).toHaveBeenCalledOnce();
+    expect(mockedEnsureRequestContextInitialized).not.toHaveBeenCalled();
   });
 
   it('renders the active CLI variant with effective overrides and the selected filters', async () => {
@@ -90,8 +120,6 @@ describe('apiRoutes /api/instructions', () => {
     });
     expect(mockedBuildServerSummaries).toHaveBeenCalledWith(
       expect.any(Map),
-      undefined,
-      undefined,
       expect.anything(),
       aggregator,
       expect.anything(),
@@ -152,7 +180,10 @@ describe('apiRoutes /api/instructions', () => {
         details: [
           { ...servers[0], instructions: 'Alpha instructions' },
           { ...servers[1], note: '(unavailable: server is not currently connected)' },
-          { ...servers[2], note: '(unavailable: template server could not be initialized with the current context)' },
+          {
+            ...servers[2],
+            note: '(unavailable: template server is not initialized for this context; inspect the selected server before use)',
+          },
         ],
       }),
     );
@@ -161,7 +192,10 @@ describe('apiRoutes /api/instructions', () => {
       details: [
         { ...servers[0], instructions: 'Alpha instructions' },
         { ...servers[1], note: '(unavailable: server is not currently connected)' },
-        { ...servers[2], note: '(unavailable: template server could not be initialized with the current context)' },
+        {
+          ...servers[2],
+          note: '(unavailable: template server is not initialized for this context; inspect the selected server before use)',
+        },
       ],
     });
   });
@@ -346,6 +380,7 @@ describe('apiRoutes /api/instructions', () => {
 
   it('does not inherit contextual template connections when no request context exists', async () => {
     mockedEnsureRequestContextInitialized.mockResolvedValue(undefined);
+    mockedRegisterHttpRequestContext.mockResolvedValue(undefined);
     const aggregator = new InstructionAggregator();
     aggregator.setInstructions({ source: 'mcpTemplates', name: 'contextual' }, 'private', 'contextual:other-session');
     mockedBuildServerSummaries.mockResolvedValue([]);
@@ -367,6 +402,44 @@ describe('apiRoutes /api/instructions', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.rendered).not.toContain('private');
+  });
+
+  it('does not borrow a different session manual for a declared cold template', async () => {
+    const aggregator = new InstructionAggregator();
+    aggregator.setInstructions(
+      { source: 'mcpTemplates', name: 'contextual' },
+      'FOREIGN_MANUAL',
+      'contextual:other-session',
+    );
+    mockedBuildServerSummaries.mockResolvedValue([
+      {
+        server: 'contextual',
+        type: 'template',
+        status: 'unknown',
+        available: false,
+        toolCount: 0,
+        toolCountKnown: false,
+        hasInstructions: true,
+      },
+    ]);
+    mockedLoadDeclaredServerConfigs.mockReturnValue({ staticServers: {}, templateServers: { contextual: {} } });
+    mockedGetRuntimeInstructionConfiguration.mockReturnValue({
+      configuredTargets: { mcpServers: {}, mcpTemplates: {} },
+    });
+    const clients = new Map([['contextual:other-session', makeConnection('contextual')]]);
+    const app = express().use(
+      '/api/v1',
+      createApiRoutes(makeServerManager(aggregator, clients) as never, scopeAuthMiddleware),
+    );
+
+    const response = await request(app).get('/api/v1/instructions');
+
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(response.body)).not.toContain('FOREIGN_MANUAL');
+    expect(response.body.rendered).toContain('tools: unknown');
+    expect(response.body.formatting.details).toMatchObject([
+      { server: 'contextual', hasInstructions: false, toolCountKnown: false },
+    ]);
   });
 });
 

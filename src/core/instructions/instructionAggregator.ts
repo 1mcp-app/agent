@@ -39,6 +39,7 @@ interface InstructionRenderPresentationMetadata {
   available?: boolean;
   loadTracked?: boolean;
   toolCount?: number;
+  toolCountKnown?: boolean;
   note?: string;
   hasInstructions?: boolean;
   summary?: InstructionRenderPresentationMetadata & { hasInstructions?: boolean };

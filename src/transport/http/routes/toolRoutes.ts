@@ -324,14 +324,13 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         return;
       }
       const { tool: toolRef, args: toolArgs = {} } = parsed.data;
-      const requestSessionId = await initializeRequestContextForApi(serverManager, req, res);
-
       const target = parseTarget(toolRef);
       if (!target || target.kind !== 'tool') {
         res.status(400).json({ error: 'Invalid tool reference. Use "server/tool" format.' });
         return;
       }
 
+      const requestSessionId = await initializeRequestContextForApi(serverManager, req, res, target.serverName);
       const projectContext = requestSessionId
         ? serverManager.getTemplateServerManager?.().getBindingContext?.(requestSessionId)
         : undefined;
@@ -618,9 +617,10 @@ async function initializeRequestContextForApi(
   serverManager: ServerManager,
   req: Request,
   res: Response,
+  serverName?: string,
 ): Promise<string | undefined> {
   const filterConfig = buildFilterConfig(res);
-  const result = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+  const result = await ensureRequestContextInitialized(serverManager, req, res, filterConfig, serverName);
   if (result) {
     return result;
   }

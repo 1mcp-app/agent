@@ -11,6 +11,7 @@ export interface InstructionsServerSummary {
   available?: boolean;
   loadTracked?: boolean;
   toolCount: number;
+  toolCountKnown?: boolean;
   hasInstructions: boolean;
 }
 
@@ -21,6 +22,7 @@ export interface InstructionsServerDetail {
   available?: boolean;
   loadTracked?: boolean;
   toolCount: number;
+  toolCountKnown?: boolean;
   hasInstructions: boolean;
   instructions?: string | null;
   note?: string;
@@ -60,7 +62,7 @@ function formatMetadataLines(item: InstructionsServerSummary | InstructionsServe
     lines.push(`load_tracked: ${item.loadTracked ? 'yes' : 'no'}`);
   }
 
-  lines.push(`tools: ${item.toolCount}`);
+  lines.push(`tools: ${item.toolCountKnown === false ? 'unknown' : item.toolCount}`);
   lines.push(`instructions: ${item.hasInstructions ? 'yes' : 'no'}`);
 
   return lines;

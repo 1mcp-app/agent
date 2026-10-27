@@ -306,9 +306,8 @@ describeInspectE2E('inspect command E2E', () => {
     expect(instructionsResult.stdout).toContain('=== SERVER SUMMARY ===');
     expect(instructionsResult.stdout).toContain('<server_summary name="serena">');
     expect(instructionsResult.stdout).toContain('type: template');
-    expect(instructionsResult.stdout).toContain('<server_instructions name="serena">');
-    expect(instructionsResult.stdout).toContain('# Serena Instructions');
-    expect(instructionsResult.stdout).toContain('Use Serena for semantic code navigation and editing.');
+    expect(instructionsResult.stdout).toContain('tools: unknown');
+    expect(instructionsResult.stdout).not.toContain('# Serena Instructions');
 
     const listResult = await runner.runCommand('inspect', '', {
       cwd: environment.getTempDir(),
@@ -358,10 +357,79 @@ describeInspectE2E('inspect command E2E', () => {
     runner.assertSuccess(serverResult);
     expect(serverResult.stdout).toContain('kind: server');
     expect(serverResult.stdout).toContain('server: serena');
-    expect(serverResult.stdout).not.toContain('instructions:');
-    expect(serverResult.stdout).not.toContain('# Serena Instructions');
+    expect(serverResult.stdout).toContain('instructions:');
+    expect(serverResult.stdout).toContain('# Serena Instructions');
     expect(serverResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
     expect(serverResult.stdout).toContain('find_symbol,');
+  });
+
+  it('delivers cold instructions and targets one backend without starting an unrelated slow template', async () => {
+    const selectedMarker = join(environment.getTempDir(), 'selected-started');
+    const unrelatedMarker = join(environment.getTempDir(), 'unrelated-started');
+    const listMarker = join(environment.getTempDir(), 'selected-lists');
+    await writeFile(
+      environment.getConfigPath(),
+      JSON.stringify({
+        mcpServers: {},
+        mcpTemplates: {
+          selected: {
+            transport: 'stdio',
+            command: process.execPath,
+            args: [join(process.cwd(), 'test/e2e/fixtures/inspect-template-server.js'), '{{project.path}}'],
+            env: { INSPECT_START_MARKER: selectedMarker, INSPECT_LIST_MARKER: listMarker },
+            template: { shareable: true },
+          },
+          unrelated: {
+            transport: 'stdio',
+            command: process.execPath,
+            args: [
+              '-e',
+              `require('node:fs').writeFileSync(${JSON.stringify(unrelatedMarker)}, 'started'); setInterval(() => {}, 1000)`,
+            ],
+            template: { shareable: true },
+          },
+        },
+      }),
+      'utf8',
+    );
+    await startServeProcess();
+
+    const cold = await runner.runCommand('instructions', '', {
+      cwd: environment.getTempDir(),
+      args: ['--config-dir', environment.getConfigDir()],
+    });
+    runner.assertSuccess(cold, serveOutput);
+    expect(cold.stdout).toContain('<server_summary name="selected">');
+    expect(cold.stdout).toContain('tools: unknown');
+    await expect(readFile(selectedMarker)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(unrelatedMarker)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    const selected = await runner.runInspectCommand('selected', {
+      cwd: environment.getTempDir(),
+      args: getCliSessionCacheArgs(),
+    });
+    runner.assertSuccess(selected, serveOutput);
+    expect(selected.stdout).toContain('# Serena Instructions');
+    expect(selected.stdout).toContain('find_symbol');
+    const invoked = await runner.runRunCommand('selected/find_symbol', {
+      cwd: environment.getTempDir(),
+      args: [...getCliSessionCacheArgs(), '--args', '{"name_path_pattern":"Fixture"}', '--format', 'json'],
+    });
+    runner.assertSuccess(invoked, serveOutput);
+    const content = runner.parseJsonOutput<Array<{ text: string }>>(invoked);
+    expect(JSON.parse(content[0].text).matched).toBe('Fixture');
+    const listsBefore = await readFile(listMarker, 'utf8');
+
+    const warm = await runner.runCommand('instructions', '', {
+      cwd: environment.getTempDir(),
+      args: ['--config-dir', environment.getConfigDir()],
+    });
+    runner.assertSuccess(warm, serveOutput);
+    // Unowned CLI surfaces have separate bindings; the instruction surface must not borrow the inspect manual.
+    expect(warm.stdout).not.toContain('# Serena Instructions');
+    expect(await readFile(listMarker, 'utf8')).toBe(listsBefore);
+    expect((await readFile(selectedMarker, 'utf8')).trim().split('\n')).toHaveLength(1);
+    await expect(readFile(unrelatedMarker)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   async function configureSearchInventory(): Promise<void> {
