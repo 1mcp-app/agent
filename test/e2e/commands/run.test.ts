@@ -77,13 +77,26 @@ describeRunE2E('run command E2E', () => {
       'utf8',
     );
     await startServeProcess();
+    // Initialize the connection and schema worker before measuring an execution deadline.
+    const warmup = await runner.runRunCommand('runner/wait', {
+      args: [
+        ...getCliSessionCacheArgs(),
+        '--args',
+        '{"id":"warmup","delayMs":0}',
+        '--timeout-ms',
+        '10000',
+        '--format',
+        'json',
+      ],
+    });
+    runner.assertSuccess(warmup);
     const timedOut = await runner.runRunCommand('runner/wait', {
       args: [
         ...getCliSessionCacheArgs(),
         '--args',
-        '{"id":"slow","delayMs":1000}',
+        '{"id":"slow","delayMs":60000}',
         '--timeout-ms',
-        '200',
+        '3000',
         '--format',
         'json',
       ],
@@ -98,7 +111,7 @@ describeRunE2E('run command E2E', () => {
         '--args',
         '{"id":"next","delayMs":20}',
         '--timeout-ms',
-        '1000',
+        '10000',
         '--format',
         'json',
       ],
