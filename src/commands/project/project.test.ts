@@ -84,6 +84,32 @@ describe('project lifecycle results', () => {
     expect(process.exitCode).toBeUndefined();
   });
 
+  it('succeeds when this caller releases while another owner keeps the checkout active', async () => {
+    const result = { results: [{ ...pending.results[0], admission: 'open', ownerReleased: true }] };
+    attach.mockResolvedValue({ status: 'success', value: result });
+    const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    await projectCommand({ action: 'release', 'project-owner': '/own.json', format: 'json' });
+
+    expect(process.exitCode).toBeUndefined();
+    expect(JSON.parse(String(output.mock.calls[0][0]))).toEqual(result);
+  });
+
+  it.each([false, undefined])(
+    'refuses to report release success without caller release proof (%s)',
+    async (ownerReleased) => {
+      attach.mockResolvedValue({
+        status: 'success',
+        value: { results: [{ ...pending.results[0], complete: true, ownerReleased }] },
+      });
+      vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+      await projectCommand({ action: 'release', 'project-owner': '/own.json', format: 'json' });
+
+      expect(process.exitCode).toBe(1);
+    },
+  );
+
   it('returns zero for completed drain and refuses a malformed success result', async () => {
     const result = { results: [{ ...pending.results[0], complete: true, blockers: [] }] };
     attach.mockResolvedValue({ status: 'success', value: result });
@@ -104,5 +130,11 @@ describe('project lifecycle results', () => {
 
   it('shows checkout admission and blockers in human output', () => {
     expect(formatProjectOutput(pending, 'text')).toBe('/checkout: draining; cleanup pending\n  owner: other-owner');
+  });
+
+  it('distinguishes caller release from checkout cleanup in human output', () => {
+    expect(formatProjectOutput({ results: [{ ...pending.results[0], ownerReleased: true }] }, 'text')).toBe(
+      '/checkout: draining; owner released; cleanup pending\n  owner: other-owner',
+    );
   });
 });
