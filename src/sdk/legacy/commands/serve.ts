@@ -14,6 +14,7 @@ import {
 } from '@src/commands/serve/serveOptions.js';
 import { resolveTemplateContextTrust } from '@src/commands/serve/templateContextTrust.js';
 import { ConfigManager } from '@src/config/configManager.js';
+import { configureProductTelemetryBootstrap } from '@src/config/productTelemetryBootstrap.js';
 import { getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import {
@@ -48,6 +49,7 @@ import { InsecureFilePermissionsError } from '@src/utils/filePermissions.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
 
 export interface ServeOptions {
+  'product-telemetry-test-suppressed'?: boolean;
   config?: string;
   'config-dir'?: string;
   /** Lifecycle action: report the scoped runtime's state and exit. */
@@ -326,6 +328,7 @@ export function setupGracefulShutdown(
  * Start the server using the specified transport.
  */
 export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
+  configureProductTelemetryBootstrap(parsedArgv);
   let runtimeOwnership: RuntimeScopeOwnership | undefined;
   try {
     let cooperativeLaunch: RuntimeLaunchBootstrap | undefined;
@@ -349,6 +352,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         'runtime-owner-claim-id': cooperativeLaunch.claimId,
       };
     }
+    configureProductTelemetryBootstrap(parsedArgv);
     const { configFilePath, runtimeScope } = resolveServeConfigPaths(parsedArgv);
 
     // Lifecycle actions short-circuit before any server setup. They operate on

@@ -107,6 +107,10 @@ export class CommandTestEnvironment {
       // Prevent real app discovery
       TEST_DISABLE_AUTO_DISCOVERY: 'true',
       ...this.config.envOverrides,
+      ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED: 'true',
+      ONE_MCP_PROJECT_OWNER: '',
+      CODEX_SESSION_ID: '',
+      CODEX_THREAD_ID: '',
     };
 
     if (this.configPath) {

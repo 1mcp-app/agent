@@ -11,6 +11,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { createTestProcessEnvironment } from '../../../scripts/test-process-environment.mjs';
+
 interface CliResult {
   code: number | null;
   stdout: string;
@@ -52,7 +54,7 @@ function environment(scope: Scope): Record<string, string | undefined> {
   if (!binary)
     env.NODE_OPTIONS = `--import=${pathToFileURL(path.join(fixtures, 'cooperative-inspection-denied.mjs')).href}`;
   else delete env.NODE_OPTIONS; // SEA does not promise support for Node preload injection.
-  return env;
+  return createTestProcessEnvironment({}, env);
 }
 
 function scope(): Scope {

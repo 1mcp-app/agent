@@ -9,9 +9,21 @@
  * - ONE_MCP_LOG_LEVEL
  * - ONE_MCP_LOG_FILE
  */
+import { configureProductTelemetryBootstrap } from '@src/config/productTelemetryBootstrap.js';
+import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
+
 import type { Argv } from 'yargs';
 
 export const globalOptions = {
+  'product-telemetry-test-suppressed': {
+    describe: 'Suppress Product Usage Telemetry in test-owned processes',
+    type: 'boolean' as const,
+    hidden: true,
+    default: undefined,
+    // A command-line false must never undo the launcher suppression decision.
+    coerce: (value: boolean) =>
+      getRuntimeParentEnvironment().ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED === 'true' || value,
+  },
   'project-owner': {
     describe:
       'Override automatic session ownership with your own private bootstrap credential (env: ONE_MCP_PROJECT_OWNER)',
@@ -55,13 +67,17 @@ const configuredParsers = new WeakSet<Argv>();
 export function withGlobalOptions(yargs: Argv): Argv<GlobalOptions> {
   if (configuredParsers.has(yargs)) return yargs;
   configuredParsers.add(yargs);
-  return yargs.options(globalOptions).group(Object.keys(globalOptions), 'Global options:');
+  return yargs
+    .options(globalOptions)
+    .group(Object.keys(globalOptions), 'Global options:')
+    .middleware((argv) => configureProductTelemetryBootstrap(argv), true);
 }
 
 /**
  * Type definition for global options interface
  */
 export interface GlobalOptions {
+  'product-telemetry-test-suppressed'?: boolean;
   'project-owner'?: string;
   config?: string;
   'config-dir'?: string;

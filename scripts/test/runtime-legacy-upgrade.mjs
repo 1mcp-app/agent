@@ -8,6 +8,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { createTestProcessEnvironment } from '../test-process-environment.mjs';
+
 const execute = promisify(execFile);
 const legacy = fs.realpathSync(process.argv[2]);
 const candidate = fs.realpathSync(process.argv[3] ?? 'build/index.js');
@@ -23,7 +25,7 @@ async function run(cli, scope, args) {
     javascript ? process.execPath : executable,
     [...(javascript ? [cli] : []), 'serve', '--config-dir', scope, ...args],
     {
-      env,
+      env: createTestProcessEnvironment({}, env),
       cwd: scope,
       timeout: 60000,
       maxBuffer: 2 * 1024 * 1024,
@@ -50,7 +52,7 @@ try {
       // Match old default/inherited scope invocations without --config-dir in argv.
       const supervisor = spawn(process.execPath, [legacy, 'serve', '--background-bootstrap', ...options], {
         cwd: scope,
-        env: { ...env, ONE_MCP_CONFIG_DIR: scope },
+        env: createTestProcessEnvironment({ ONE_MCP_CONFIG_DIR: scope }, env),
         stdio: 'ignore',
       });
       const deadline = Date.now() + 30000;

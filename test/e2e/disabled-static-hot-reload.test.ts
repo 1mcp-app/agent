@@ -14,6 +14,7 @@ import { buildPublicResourceUri } from '@src/utils/core/resourceUris.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import { createTestProcessEnvironment } from '../../scripts/test-process-environment.mjs';
 import { startDisabledStaticRemote } from './fixtures/disabledStaticRemote.js';
 
 interface Identity {
@@ -76,7 +77,7 @@ describe('Disabled Static Server real stdio lifecycle', () => {
           '--log-level',
           'error',
         ],
-        env,
+        env: createTestProcessEnvironment({}, env),
         stderr: 'pipe',
       });
       const client = new Client({ name: 'disabled-static-lifecycle', version: '1' });
@@ -211,7 +212,7 @@ describe('Disabled Static Server remote connection lifecycle', () => {
           '--log-level',
           'error',
         ],
-        env,
+        env: createTestProcessEnvironment({}, env),
         stderr: 'pipe',
       });
       try {

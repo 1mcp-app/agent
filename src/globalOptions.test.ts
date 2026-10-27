@@ -1,6 +1,6 @@
 import { globalOptions, withGlobalOptions } from '@src/globalOptions.js';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import yargs from 'yargs';
 
 describe('global CLI options', () => {
@@ -59,5 +59,36 @@ describe('globalOptions', () => {
     ];
 
     expect(Object.keys(globalOptions)).not.toEqual(expect.arrayContaining(registryGlobalOptions));
+  });
+});
+
+describe('test suppression CLI boundary', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('keeps explicit launcher suppression despite a command-line false', async () => {
+    vi.stubEnv('ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED', 'true');
+    let observed: unknown;
+    const parser = withGlobalOptions(yargs([]).env('ONE_MCP').exitProcess(false).strict()).command(
+      'probe',
+      'fixture',
+      () => {},
+      (argv) => {
+        observed = argv['product-telemetry-test-suppressed'];
+      },
+    );
+    await parser.parseAsync(['probe', '--product-telemetry-test-suppressed=false']);
+    expect(observed).toBe(true);
+  });
+
+  it('does not infer suppression from generic test or CI variables', async () => {
+    vi.stubEnv('ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED', 'false');
+    vi.stubEnv('NODE_ENV', 'test');
+    vi.stubEnv('TEST_MODE', 'true');
+    vi.stubEnv('CI', 'true');
+    expect(
+      (await withGlobalOptions(yargs([]).env('ONE_MCP').exitProcess(false)).parseAsync([]))[
+        'product-telemetry-test-suppressed'
+      ],
+    ).toBe(false);
   });
 });

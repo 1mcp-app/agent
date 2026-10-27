@@ -2,6 +2,8 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { createTestProcessEnvironment, isolatedTestEnvironment } from './test-process-environment.mjs';
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixtureRoot = path.join(root, 'test/conformance/fixtures');
 const steps = [
@@ -20,12 +22,20 @@ const steps = [
     root,
   ],
 ];
-for (const [command, args, cwd] of steps) {
-  const result = spawnSync(command, args, {
-    cwd,
-    env: { ...process.env, CODEX_SESSION_ID: '', CODEX_THREAD_ID: '', NODE_ENV: 'test' },
-    stdio: 'inherit',
-  });
-  if (result.error) console.error(result.error.message);
-  if (result.error || result.status !== 0) process.exit(result.status || 1);
+const isolated = isolatedTestEnvironment();
+try {
+  for (const [command, args, cwd] of steps) {
+    const result = spawnSync(command, args, {
+      cwd,
+      env: createTestProcessEnvironment({ NODE_ENV: 'test' }, isolated.env),
+      stdio: 'inherit',
+    });
+    if (result.error) console.error(result.error.message);
+    if (result.error || result.status !== 0) {
+      process.exitCode = result.status || 1;
+      break;
+    }
+  }
+} finally {
+  isolated.cleanup();
 }

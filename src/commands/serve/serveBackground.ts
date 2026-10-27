@@ -49,6 +49,7 @@ export const RUNTIME_OWNER_CLAIM_ID_FLAG = 'runtime-owner-claim-id';
 export const BACKGROUND_LAUNCH_CONFIG_FLAG = 'background-launch-config';
 
 const BACKGROUND_STARTUP_OPTION_KEYS = [
+  'product-telemetry-test-suppressed',
   'config',
   'config-dir',
   'log-level',

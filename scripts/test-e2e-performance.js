@@ -1,10 +1,16 @@
 #!/usr/bin/env node
-
 import { spawn } from 'node:child_process';
 import { access, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
+
+import { createTestProcessEnvironment, isolatedTestEnvironment } from './test-process-environment.mjs';
+
+const isolated = isolatedTestEnvironment();
+for (const key of Object.keys(process.env)) if (key.startsWith('ONE_MCP_')) delete process.env[key];
+Object.assign(process.env, isolated.env);
+process.once('exit', () => isolated.cleanup());
 
 const rootDir = process.cwd();
 const benchmarkRoot = join(rootDir, '.tmp', 'benchmarks', 'run-command');
@@ -47,13 +53,13 @@ async function main() {
     ],
     {
       cwd: rootDir,
-      env: {
+      env: createTestProcessEnvironment({
         ...process.env,
         NODE_ENV: 'test',
         ONE_MCP_CONFIG: configPath,
         ONE_MCP_CONFIG_DIR: configDir,
         ONE_MCP_LOG_LEVEL: 'error',
-      },
+      }),
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
@@ -112,7 +118,7 @@ async function ensureBuild() {
   console.log('Building with pnpm build...');
   await runProcess('pnpm', ['build'], {
     cwd: rootDir,
-    env: process.env,
+    env: createTestProcessEnvironment(),
     stdio: 'inherit',
   });
 }
@@ -181,12 +187,12 @@ async function runTimedCommand(configDir, args, options = {}) {
   const startedAt = performance.now();
   await runProcess('node', [buildCliPath, ...args, '--config-dir', configDir, '--log-level', 'error'], {
     cwd: rootDir,
-    env: {
+    env: createTestProcessEnvironment({
       ...process.env,
       NODE_ENV: 'test',
       ONE_MCP_CONFIG_DIR: configDir,
       ONE_MCP_LOG_LEVEL: 'error',
-    },
+    }),
     input: options.input,
   });
   return performance.now() - startedAt;
@@ -196,7 +202,7 @@ async function runProcess(command, args, options) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      env: options.env,
+      env: createTestProcessEnvironment(options.env),
       stdio: options.stdio ?? ['pipe', 'pipe', 'pipe'],
     });
 
