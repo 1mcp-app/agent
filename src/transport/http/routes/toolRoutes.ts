@@ -335,6 +335,11 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       const projectContext = requestSessionId
         ? serverManager.getTemplateServerManager?.().getBindingContext?.(requestSessionId)
         : undefined;
+      let bindingCurrent: (() => boolean) | undefined;
+      if (projectContext && requestSessionId) {
+        const bindingId = requestSessionId;
+        bindingCurrent = () => Boolean(serverManager.getTemplateServerManager?.().getBindingContext?.(bindingId));
+      }
       const targetConfig = getServerConfigs()[target.serverName];
       if (projectContext) {
         try {
@@ -475,6 +480,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           validateOutput.assertCurrent();
           if (resolved.connection.adapter !== adapter || !snapshot.isCurrent() || controller.signal.aborted)
             throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+          if (bindingCurrent && !bindingCurrent()) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
           const upstreamResult = await requestLegacyAdapter(
             adapter,
             'tools/call',
@@ -564,13 +570,18 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           getServerConfigs,
           templateHashProvider: getTemplateHashProvider(serverManager),
         });
+        let beforeDispatch = preparation.kind === 'ready' ? preparation.beforeDispatch : undefined;
+        if (!beforeDispatch && bindingCurrent) {
+          const assertCurrent = bindingCurrent;
+          beforeDispatch = async () => ({ assertCurrent });
+        }
         const catalogResult = await catalog.invokeVisibleTool(
           { server: target.serverName, toolName: target.toolName, args: toolArgs },
           selectedVisibility,
           {
             toolRegistry,
             signal: controller.signal,
-            beforeDispatch: preparation.kind === 'ready' ? preparation.beforeDispatch : undefined,
+            beforeDispatch,
           },
         );
         if (!catalogResult.error) {

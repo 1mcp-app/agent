@@ -6,6 +6,8 @@ import { join } from 'node:path';
 
 import * as authority from '@src/transport/http/utils/templateContextAuthority.js';
 import { ConfigManager } from '@src/config/configManager.js';
+import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
+import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { authorizeTemplateContext } from '@src/core/context/templateContextTrust.js';
 import { prepareRequestContext } from '@src/core/server/requestContextPreparation.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
@@ -30,6 +32,7 @@ import {
 } from './inspectRoutes.js';
 import { setupModernHttpRoutes } from './modernHttpRoutes.js';
 import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
+import { createToolInvocationsHandler } from './toolRoutes.js';
 
 describe('HTTP project binding lifetime and inspect admission', () => {
   let directory: string;
@@ -352,4 +355,58 @@ describe('HTTP project binding lifetime and inspect admission', () => {
     expect(selected.adapter.request).toHaveBeenCalledOnce();
     expect(sibling.adapter.request).not.toHaveBeenCalled();
   });
+  it.each([
+    [false, 'bound'],
+    [true, 'bound'],
+    [false, 'removed'],
+    [true, 'removed'],
+    [false, 'header-only'],
+    [true, 'header-only'],
+  ] as const)(
+    'rechecks invocation binding without rejecting header-only sessions (lazy=%s, mode=%s)',
+    async (lazy, mode) => {
+      const callTool = vi.fn(async () => ({ content: [{ type: 'text', text: 'called' }] }));
+      clients.set(
+        'shared',
+        createMockOutboundConnection({
+          name: 'shared',
+          capabilities: { tools: {} },
+          adapter: {
+            request: vi.fn(async ({ method }) => {
+              if (method === 'tools/list') {
+                if (mode === 'removed') {
+                  expect(templates.getBindingContexts().size).toBe(1);
+                  const boundContext = [...templates.getBindingContexts().values()][0];
+                  await templates.cleanupTemplateServers(boundContext.sessionId!, clients, {});
+                  expect(templates.getBindingContexts().size).toBe(0);
+                }
+                return { tools: [{ name: 'call', inputSchema: { type: 'object' } }] };
+              }
+              return callTool();
+            }),
+          },
+        }),
+      );
+      if (lazy)
+        vi.spyOn(manager, 'getLazyLoadingOrchestrator').mockReturnValue({
+          getToolRegistry: () => ToolRegistry.fromToolsWithServer([]),
+          getSchemaCache: () => new SchemaCache({ maxEntries: 10 }),
+          callMetaTool: vi.fn(),
+        } as never);
+      const app = express();
+      app.use(express.json());
+      app.post('/invoke', createToolInvocationsHandler(manager));
+      let invocation = request(app).post('/invoke').set('mcp-session-id', 'session-a');
+      if (mode !== 'header-only')
+        invocation = invocation.query({ context: Buffer.from(JSON.stringify(context())).toString('base64url') });
+      const response = await invocation.send({ tool: 'shared/call', args: {} });
+      if (mode === 'removed') {
+        expect(response.status, JSON.stringify(response.body)).toBe(503);
+        expect(callTool).not.toHaveBeenCalled();
+      } else {
+        expect(response.status, JSON.stringify(response.body)).toBe(200);
+        expect(callTool).toHaveBeenCalledOnce();
+      }
+    },
+  );
 });
