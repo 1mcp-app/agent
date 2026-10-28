@@ -140,14 +140,17 @@ describe('Disabled Static Server real stdio lifecycle', () => {
           definition('disabled-edit', true),
         );
         if (notificationsEnabled) {
-          await vi.waitFor(() =>
-            expect(notes).toEqual(
-              expect.arrayContaining([
-                'notifications/tools/list_changed',
-                'notifications/resources/list_changed',
-                'notifications/prompts/list_changed',
-              ]),
-            ),
+          // The runtime batches notifications for one second before delivering them over stdio.
+          await vi.waitFor(
+            () =>
+              expect(notes).toEqual(
+                expect.arrayContaining([
+                  'notifications/tools/list_changed',
+                  'notifications/resources/list_changed',
+                  'notifications/prompts/list_changed',
+                ]),
+              ),
+            { timeout: 5000, interval: 100 },
           );
         } else {
           expect(notes).toEqual([]);
