@@ -65,6 +65,26 @@ describe('StdioProxyTransport', () => {
       expect(vi.mocked(StreamableHTTPClientTransport).mock.calls[0]?.[1]?.sessionId).toBeUndefined();
     });
 
+    it('sends the logical context session on modern requests only', async () => {
+      const delegate = vi.fn<typeof fetch>().mockResolvedValue(new Response());
+      vi.stubGlobal('fetch', delegate);
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+      const customFetch = proxy['createDynamicHeaderFetch']();
+
+      await customFetch('http://localhost:3050/mcp');
+      expect(new Headers(delegate.mock.calls.at(-1)?.[1]?.headers).get('mcp-session-id')).toBeNull();
+
+      proxy['downstreamPin'] = { era: 'legacy', revision: '2025-06-18' };
+      await customFetch('http://localhost:3050/mcp', { headers: { 'mcp-session-id': 'server-session' } });
+      expect(new Headers(delegate.mock.calls.at(-1)?.[1]?.headers).get('mcp-session-id')).toBe('server-session');
+
+      proxy['downstreamPin'] = { era: 'modern', revision: '2026-07-28' };
+      await customFetch('http://localhost:3050/mcp');
+      expect(new Headers(delegate.mock.calls.at(-1)?.[1]?.headers).get('mcp-session-id')).toBe(
+        proxy['context'].sessionId,
+      );
+    });
+
     it('should create proxy with tags', () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',

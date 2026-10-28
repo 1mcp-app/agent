@@ -370,6 +370,10 @@ export class StdioProxyTransport {
       // Merge headers: preserve existing headers, add/update User-Agent
       const headers = new Headers(init?.headers);
       headers.set('User-Agent', currentUserAgent);
+      // Modern requests have no initialize handshake to establish the signed logical session.
+      if (this.downstreamPin?.era === 'modern' && this.context.sessionId) {
+        headers.set('mcp-session-id', this.context.sessionId);
+      }
       if (this.options.bearerToken) {
         headers.set('Authorization', `Bearer ${this.options.bearerToken}`);
       }

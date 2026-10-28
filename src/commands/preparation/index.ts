@@ -30,12 +30,10 @@ export function setupPreparationCommands(yargs: Argv): Argv {
   const start = (argv: unknown) => invoke({ ...(argv as object), action: 'prepare' });
   const controls = ['inspect', 'status', 'wait', 'cancel', 'retry'] as const;
   const jobOptions = (command: Argv) =>
-    options(command)
-      .positional('id', { type: 'string', describe: 'Preparation job id returned by project prepare or status' })
-      .option('wait-ms', {
-        type: 'number',
-        describe: 'Bounded wait in milliseconds (wait only; runtime default when omitted)',
-      });
+    options(command).positional('id', {
+      type: 'string',
+      describe: 'Preparation job id returned by project prepare or status',
+    });
   return withGlobalOptions(yargs).command('prepare', 'Prepare backends and manage jobs', (command) => {
     let family = command
       .command('$0 <backend>', 'Request preparation using runtime-owned permissions', options, start)
@@ -52,7 +50,14 @@ export function setupPreparationCommands(yargs: Argv): Argv {
       family = family.command(
         `${action} <backend> ${id}`.trim(),
         `${action} a runtime-owned preparation operation`,
-        jobOptions,
+        (builder) => {
+          const selected = jobOptions(builder);
+          if (action !== 'wait') return selected;
+          return selected.option('wait-ms', {
+            type: 'number',
+            describe: 'Bounded wait in milliseconds (runtime default when omitted)',
+          });
+        },
         (argv) => invoke({ ...argv, action }),
       );
     }

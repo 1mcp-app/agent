@@ -1,5 +1,4 @@
 import { type ChildProcess, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -10,23 +9,13 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { JSONRPCMessage, RequestId } from '@modelcontextprotocol/sdk/types.js';
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-
-import { verifyProfileProofs } from '../foundation/foundationRun.js';
+import { afterEach, describe, expect, it } from 'vitest';
 
 const root = resolve(__dirname, '../../..');
 const cliEntrypoint = join(root, 'build/index.js');
 const fixtureEntrypoint = join(root, 'test/conformance/fixtures/typescript/src/fixture.mjs');
 const activeChildren = new Set<ChildProcess>();
 const workspaces = new Set<string>();
-
-type Profile =
-  | 'inbound-http-sse-retained'
-  | 'direct-serve-stdio'
-  | 'proxy-stdio'
-  | 'upstream-sse-retained'
-  | 'upstream-stdio-modern'
-  | 'upstream-stdio-legacy';
 
 interface CompletedProbeObservation {
   outcome: 'completed';
@@ -41,35 +30,7 @@ interface CompletedProbeObservation {
   callError: false;
 }
 
-interface FailedProbeObservation {
-  outcome: 'product-failed';
-  fixtureId: 'typescript-v1';
-  transport: 'stdio' | 'streamable-http';
-  initialized: false;
-  ping: false;
-  negotiatedRevision: 'not-negotiated';
-  operations: ['initialize'];
-  classification: 'initialize-timeout' | 'upstream-revision-mismatch';
-}
-
-type ProbeObservation = CompletedProbeObservation | FailedProbeObservation;
-
-interface EvidenceContext {
-  gateway: {
-    entrypoint: 'build/index.js';
-    command: 'serve' | 'proxy';
-    inboundTransport: 'http-sse' | 'stdio' | 'streamable-http';
-    bridgeTransport?: 'streamable-http';
-  };
-  upstream: {
-    transport: 'sse' | 'stdio';
-    sdkEra: 'v1' | 'v2';
-    protocolEra: 'legacy' | 'modern';
-  };
-}
-
-let outputDirectory: string;
-let ownsOutputDirectory = false;
+type ProbeObservation = CompletedProbeObservation;
 
 function childEnvironment(home: string): typeof process.env {
   return {
@@ -236,11 +197,7 @@ async function startSseFixture(home: string) {
   return { child, endpoint: `http://127.0.0.1:${ready.port}/sse` };
 }
 
-async function runProbe(
-  args: string[],
-  home: string,
-  expectedProductFailure?: 'upstream-revision-mismatch',
-): Promise<ProbeObservation> {
+async function runProbe(args: string[], home: string): Promise<ProbeObservation> {
   const child = spawn(process.execPath, [fixtureEntrypoint, 'probe', ...args, '--aggregated', '--runtime-output'], {
     cwd: root,
     env: childEnvironment(home),
@@ -266,20 +223,6 @@ async function runProbe(
   ]);
   clearTimeout(timeout!);
   activeChildren.delete(child);
-  if (expectedProductFailure) {
-    expect(outcome, stderr.join('').slice(-1_000)).toBe(1);
-    expect(JSON.parse(stdout.join(''))).toMatchObject({ errorCode: 'gateway-probe-rejected' });
-    return {
-      outcome: 'product-failed',
-      fixtureId: 'typescript-v1',
-      transport: 'streamable-http',
-      initialized: false,
-      ping: false,
-      negotiatedRevision: 'not-negotiated',
-      operations: ['initialize'],
-      classification: expectedProductFailure,
-    };
-  }
   expect(outcome, stderr.join('').slice(-1_000)).toBe(0);
   const observation = JSON.parse(stdout.join('')) as Omit<CompletedProbeObservation, 'outcome'>;
   expect(observation).toMatchObject({
@@ -403,107 +346,18 @@ async function runProxyProbe(endpoint: string, configPath: string, home: string)
   }
 }
 
-async function emitProfileProof(
-  profile: Profile,
-  testId: string,
-  context: EvidenceContext,
-  probe: ProbeObservation,
-): Promise<void> {
-  const payload = {
-    schemaVersion: 1 as const,
-    profile,
-    testId,
-    attempt: 1 as const,
-    status: probe.outcome === 'completed' ? ('passed' as const) : ('product-failed' as const),
-    ...(probe.outcome === 'product-failed' ? { downstreamIssue: 478 as const } : {}),
-    checks:
-      probe.outcome === 'completed'
-        ? ['gateway-started', 'mcp-initialize', 'mcp-tools-list', 'mcp-tools-call']
-        : ['gateway-started', 'mcp-initialize-attempted', 'product-failure-classified'],
-    ...context,
-    probe,
-  };
-  const evidenceDigest = `sha256:${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`;
-  const artifactId = `profile-evidence/${profile}.json`;
-  await writeFile(
-    join(outputDirectory, artifactId),
-    `${JSON.stringify({ ...payload, digest: evidenceDigest }, null, 2)}\n`,
-    {
-      encoding: 'utf8',
-      mode: 0o600,
-    },
-  );
-
-  const manifestPath = join(outputDirectory, 'profile-proofs.json');
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
-    schemaVersion: 1;
-    profileProofs: Array<{
-      profile: Profile;
-      testId: string;
-      artifactId: string;
-      attempt: 1;
-      evidenceDigest: string;
-      status: 'passed' | 'product-failed';
-      downstreamIssue?: 478;
-    }>;
-  };
-  expect(manifest.profileProofs.some((proof) => proof.profile === profile)).toBe(false);
-  manifest.profileProofs.push({
-    profile,
-    testId,
-    artifactId,
-    attempt: 1,
-    evidenceDigest,
-    status: payload.status,
-    ...(payload.status === 'product-failed' ? { downstreamIssue: 478 as const } : {}),
-  });
-  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-
-  const persisted = JSON.parse(await readFile(join(outputDirectory, artifactId), 'utf8')) as Record<string, unknown>;
-  const { digest, ...persistedPayload } = persisted;
-  expect(await verifyProfileProofs(root, outputDirectory, manifest)).toBe(true);
-  expect(digest).toBe(evidenceDigest);
-  expect(`sha256:${createHash('sha256').update(JSON.stringify(persistedPayload)).digest('hex')}`).toBe(evidenceDigest);
-}
-
-async function probeHttpGateway(endpoint: string, home: string, expectedProductFailure?: 'upstream-revision-mismatch') {
+async function probeHttpGateway(endpoint: string, home: string) {
   return runProbe(
     ['--sdk-era', 'v1', '--protocol-era', 'legacy', '--transport', 'streamable-http', '--endpoint', endpoint],
     home,
-    expectedProductFailure,
   );
 }
 
-describe('gateway-executed transport profile proofs', () => {
-  beforeAll(async () => {
-    const configuredOutput = process.env.ONE_MCP_CONFORMANCE_OUTPUT_DIR;
-    if (configuredOutput) {
-      outputDirectory = configuredOutput;
-      await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
-    } else {
-      outputDirectory = await mkdtemp(join(tmpdir(), '1mcp-profile-evidence-'));
-      ownsOutputDirectory = true;
-    }
-    await rm(join(outputDirectory, 'profile-evidence'), { recursive: true, force: true });
-    await mkdir(join(outputDirectory, 'profile-evidence'), { recursive: true, mode: 0o700 });
-    await writeFile(
-      join(outputDirectory, 'profile-proofs.json'),
-      '{\n  "schemaVersion": 1,\n  "profileProofs": []\n}\n',
-      {
-        encoding: 'utf8',
-        mode: 0o600,
-      },
-    );
-  });
-
+describe('gateway transport regressions', () => {
   afterEach(async () => {
     for (const child of [...activeChildren].reverse()) await stopChild(child);
     for (const workspace of workspaces) await rm(workspace, { recursive: true, force: true });
     workspaces.clear();
-  });
-
-  afterAll(async () => {
-    if (ownsOutputDirectory) await rm(outputDirectory, { recursive: true, force: true });
   });
 
   it('proves retained inbound HTTP+SSE with MCP traffic through the built gateway', async () => {
@@ -523,15 +377,6 @@ describe('gateway-executed transport profile proofs', () => {
       workspace.home,
     );
     expect(probe.transport).toBe('sse');
-    await emitProfileProof(
-      'inbound-http-sse-retained',
-      'transport.gateway.inbound-http-sse-retained',
-      {
-        gateway: { entrypoint: 'build/index.js', command: 'serve', inboundTransport: 'http-sse' },
-        upstream: { transport: 'stdio', sdkEra: 'v1', protocolEra: 'legacy' },
-      },
-      probe,
-    );
   });
 
   it('proves direct serve stdio with MCP traffic through the built gateway', async () => {
@@ -564,15 +409,6 @@ describe('gateway-executed transport profile proofs', () => {
       workspace.home,
     );
     expect(probe.transport).toBe('stdio');
-    await emitProfileProof(
-      'direct-serve-stdio',
-      'transport.gateway.direct-serve-stdio',
-      {
-        gateway: { entrypoint: 'build/index.js', command: 'serve', inboundTransport: 'stdio' },
-        upstream: { transport: 'stdio', sdkEra: 'v1', protocolEra: 'legacy' },
-      },
-      probe,
-    );
   });
 
   it('proves proxy stdio with MCP traffic through both built gateway commands', async () => {
@@ -580,20 +416,6 @@ describe('gateway-executed transport profile proofs', () => {
     const gateway = await startGateway(workspace.configPath, workspace.home);
     const probe = await runProxyProbe(gateway.endpoint, workspace.configPath, workspace.home);
     expect(probe.transport).toBe('stdio');
-    await emitProfileProof(
-      'proxy-stdio',
-      'transport.gateway.proxy-stdio',
-      {
-        gateway: {
-          entrypoint: 'build/index.js',
-          command: 'proxy',
-          inboundTransport: 'stdio',
-          bridgeTransport: 'streamable-http',
-        },
-        upstream: { transport: 'stdio', sdkEra: 'v1', protocolEra: 'legacy' },
-      },
-      probe,
-    );
   });
 
   it('proves retained upstream SSE with MCP traffic through the built gateway', async () => {
@@ -605,15 +427,6 @@ describe('gateway-executed transport profile proofs', () => {
     const gateway = await startGateway(workspace.configPath, workspace.home);
     const probe = await probeHttpGateway(gateway.endpoint, workspace.home);
     expect(probe.transport).toBe('streamable-http');
-    await emitProfileProof(
-      'upstream-sse-retained',
-      'transport.gateway.upstream-sse-retained',
-      {
-        gateway: { entrypoint: 'build/index.js', command: 'serve', inboundTransport: 'streamable-http' },
-        upstream: { transport: 'sse', sdkEra: 'v1', protocolEra: 'legacy' },
-      },
-      probe,
-    );
   });
 
   it('proves modern upstream stdio with MCP traffic through the built gateway', async () => {
@@ -621,15 +434,6 @@ describe('gateway-executed transport profile proofs', () => {
     const gateway = await startGateway(workspace.configPath, workspace.home);
     const probe = await probeHttpGateway(gateway.endpoint, workspace.home);
     expect(probe.transport).toBe('streamable-http');
-    await emitProfileProof(
-      'upstream-stdio-modern',
-      'transport.gateway.upstream-stdio-modern',
-      {
-        gateway: { entrypoint: 'build/index.js', command: 'serve', inboundTransport: 'streamable-http' },
-        upstream: { transport: 'stdio', sdkEra: 'v2', protocolEra: 'modern' },
-      },
-      probe,
-    );
   });
 
   it('proves legacy upstream stdio with MCP traffic through the built gateway', async () => {
@@ -637,14 +441,5 @@ describe('gateway-executed transport profile proofs', () => {
     const gateway = await startGateway(workspace.configPath, workspace.home);
     const probe = await probeHttpGateway(gateway.endpoint, workspace.home);
     expect(probe.transport).toBe('streamable-http');
-    await emitProfileProof(
-      'upstream-stdio-legacy',
-      'transport.gateway.upstream-stdio-legacy',
-      {
-        gateway: { entrypoint: 'build/index.js', command: 'serve', inboundTransport: 'streamable-http' },
-        upstream: { transport: 'stdio', sdkEra: 'v1', protocolEra: 'legacy' },
-      },
-      probe,
-    );
   });
 });

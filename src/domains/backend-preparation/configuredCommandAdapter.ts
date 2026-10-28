@@ -22,6 +22,14 @@ const mappingSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('ready') }).strict(),
   z.object({ state: z.literal('required'), action: actionSchema, instructions: z.string().min(1).max(4096) }).strict(),
   z.object({ state: z.literal('conflict'), instructions: z.string().min(1).max(4096) }).strict(),
+  z.object({ state: z.literal('unsupported'), instructions: z.string().min(1).max(4096) }).strict(),
+  z
+    .object({
+      state: z.literal('unknown'),
+      reason: z.literal('probe_failed'),
+      instructions: z.string().min(1).max(4096),
+    })
+    .strict(),
 ]);
 export const ConfiguredCommandIntegrationSchema = z
   .object({
@@ -142,6 +150,8 @@ export class ConfiguredCommandPreparationAdapter implements BackendPreparationAd
           instructions: `Unmapped readiness exit ${result.code}; configure an explicit readiness mapping.`,
         };
       if (mapping.state === 'conflict') return mapping;
+      if (mapping.state === 'unsupported') return mapping;
+      if (mapping.state === 'unknown') return mapping;
       const evidence = {
         freshness: 'unknown' as const,
         coverage: 'unknown' as const,

@@ -263,7 +263,7 @@ describe('test-and-validate workflow', () => {
     expect(unitJob).toMatch(/pnpm test:unit[\s\S]*pnpm test:admin/);
     expect(unitJob).not.toContain('needs:');
     expect(ciJob).toContain('if: always()');
-    expect(ciJob).toContain('needs: [static, unit-admin]');
+    expect(ciJob).toContain('needs: [static, unit-admin, test-protocol]');
     expect(ciJob).toContain('test "$STATIC_RESULT" = success && test "$TEST_RESULT" = success');
     expect(packageJson.scripts['test:e2e:shardable']).toContain('**/cooperative-runtime.test.ts');
     for (const file of ['capability-catalog-eras.test.ts', 'admin-spa-package.e2e.test.ts']) {
@@ -337,25 +337,35 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:system']).toContain('--maxWorkers=1');
   });
 
-  it('requires harness and product conformance without serializing their runners', () => {
+  it('requires protocol regressions without migration evidence machinery', () => {
     const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
       jobs: Record<string, { needs?: string[]; steps?: { run?: string }[] }>;
     };
     const packageJson = JSON.parse(readRepoFile('package.json')) as { scripts: Record<string, string> };
     const staticJob = workflow.jobs.static;
-    const productJob = workflow.jobs['test-conformance'];
+    const productJob = workflow.jobs['test-protocol'];
     expect(staticJob.needs).toBeUndefined();
     expect(productJob.needs).toBeUndefined();
-    expect(staticJob.steps?.some((step) => step.run?.includes('pnpm test:conformance:harness'))).toBe(true);
-    expect(packageJson.scripts['test:conformance:harness']).toBe('node scripts/run-conformance.mjs --suite harness');
-    expect(productJob.steps?.some((step) => step.run?.includes('--suite product --mode'))).toBe(true);
+    expect(staticJob.steps?.some((step) => step.run?.includes('conformance'))).toBe(false);
+    expect(packageJson.scripts['test:protocol']).toBe('node scripts/run-protocol.mjs');
+    expect(productJob.steps?.some((step) => step.run?.includes('pnpm test:protocol'))).toBe(true);
     expect(workflow.jobs.ci.needs).toContain('static');
-    expect(workflow.jobs['release-result'].needs).toEqual(expect.arrayContaining(['static', 'test-conformance']));
+    expect(workflow.jobs['release-result'].needs).toEqual(expect.arrayContaining(['static', 'test-protocol']));
+  });
+
+  it('runs every aggregate dependency even for manually dispatched tag refs', () => {
+    const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
+      jobs: Record<string, { needs?: string[]; if?: string }>;
+    };
+    expect(workflow.jobs.ci.needs).toEqual(['static', 'unit-admin', 'test-protocol']);
+    for (const name of workflow.jobs.ci.needs!) {
+      expect(workflow.jobs[name].if, name).toBeUndefined();
+    }
   });
 
   it('fails aggregate gates when any required job fails, is cancelled, or is skipped', () => {
     for (const [file, job, inputs] of [
-      ['.github/workflows/test-and-validate.yml', 'ci', ['STATIC_RESULT', 'TEST_RESULT']],
+      ['.github/workflows/test-and-validate.yml', 'ci', ['STATIC_RESULT', 'TEST_RESULT', 'PROTOCOL_RESULT']],
       ['.github/workflows/cooperative-runtime.yml', 'lifecycle', ['LIFECYCLE_RESULT']],
     ] as const) {
       const workflow = YAML.parse(readRepoFile(file)) as {

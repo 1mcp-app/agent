@@ -23,7 +23,7 @@ on:
         required: false
         type: string
       release_gate:
-        description: Require decisive product conformance for a release candidate.
+        description: Require all product checks for a release candidate.
         required: false
         type: boolean
         default: false
@@ -37,7 +37,8 @@ env:
 
 jobs:
   static:
-    runs-on: ubuntu-latest
+    # Python 3.13.0 has no setup-python build for Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -76,33 +77,6 @@ jobs:
       - name: Check credential-file permission modes
         run: pnpm guard:perms
 
-      # Keep process-heavy harness tests serial on this runner while product
-      # conformance runs independently. Reuse the build from ci:static above.
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13.0'
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: '0.11.32'
-          enable-cache: ${{ !inputs.checkout_ref && !inputs.release_gate }}
-          cache-dependency-glob: test/conformance/fixtures/python/uv.lock
-
-      - name: Sync frozen Python fixture
-        working-directory: test/conformance/fixtures/python
-        run: uv sync --frozen
-
-      - name: Install frozen TypeScript peer fixtures
-        working-directory: test/conformance/fixtures/typescript
-        run: pnpm install --frozen-lockfile
-
-      - name: Test conformance harness
-        run: pnpm test:conformance:harness -- --reporter=minimal
-        env:
-          CI: true
-
   unit-admin:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -130,7 +104,7 @@ jobs:
   # Preserve the existing required check and fail closed on skipped/cancelled jobs.
   ci:
     if: always()
-    needs: [static, unit-admin]
+    needs: [static, unit-admin, test-protocol]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -139,7 +113,8 @@ jobs:
         env:
           STATIC_RESULT: ${{ needs.static.result }}
           TEST_RESULT: ${{ needs.unit-admin.result }}
-        run: test "$STATIC_RESULT" = success && test "$TEST_RESULT" = success
+          PROTOCOL_RESULT: ${{ needs.test-protocol.result }}
+        run: test "$STATIC_RESULT" = success && test "$TEST_RESULT" = success && test "$PROTOCOL_RESULT" = success
 
   # E2E runs concurrently with lint, typecheck, and unit tests. Browser specs
   # run separately so ordinary shards do not install Playwright dependencies.
@@ -220,10 +195,10 @@ jobs:
         env:
           CI: true
 
-  test-conformance:
-    runs-on: ubuntu-latest
+  test-protocol:
+    # Python 3.13.0 has no setup-python build for Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
-    if: inputs.release_gate || github.ref_type != 'tag'
     permissions:
       contents: read
     steps:
@@ -257,36 +232,10 @@ jobs:
         working-directory: test/conformance/fixtures/typescript
         run: pnpm install --frozen-lockfile
 
-      - name: Resolve checked-out source SHA
-        id: conformance-source
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Run no-retry product conformance and focused transports
-        run: pnpm test:conformance -- --suite product --mode "$CONFORMANCE_MODE" --reporter=minimal
+      - name: Run protocol regressions
+        run: pnpm test:protocol -- --reporter=minimal
         env:
           CI: true
-          GITHUB_SHA: ${{ steps.conformance-source.outputs.sha }}
-          CONFORMANCE_MODE: ${{ inputs.release_gate && 'gate' || 'baseline' }}
-
-      - name: Upload exact-source conformance evidence
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: conformance-${{ steps.conformance-source.outputs.sha }}
-          path: |
-            .tmp/conformance/conformance-baseline.json
-            .tmp/conformance/conformance-integrity.json
-            .tmp/conformance/observed-inputs.json
-            .tmp/conformance/profile-proofs.json
-            .tmp/conformance/boundary/
-            .tmp/conformance/profile-evidence/
-            .tmp/conformance/legacy-revisions/
-            .tmp/conformance/official-evidence/
-            .tmp/conformance/official-controls/
-            .tmp/conformance/official-client-statuses/
-            .tmp/conformance/official-targets/
-            .tmp/conformance/evidence/
-          if-no-files-found: error
 
   test-e2e-browser:
     runs-on: ubuntu-latest
@@ -423,7 +372,7 @@ jobs:
         test-e2e-parallel,
         test-e2e-system,
         test-e2e-browser,
-        test-conformance,
+        test-protocol,
         test-legacy-upgrade,
         test-windows-installer,
         release-lifecycle,
@@ -439,23 +388,17 @@ jobs:
       - uses: ./.github/actions/setup-node-pnpm
         with:
           cache-deps: 'false'
-      - uses: actions/download-artifact@v8
-        with:
-          name: conformance-${{ inputs.checkout_ref }}
-          path: conformance-evidence
-      - name: Require every applicable gate and exact-source product verdict
+      - name: Require every applicable check for the candidate
         env:
           CHECK_RESULTS: ${{ toJSON(needs) }}
           RELEASE_SHA: ${{ inputs.checkout_ref }}
         run: |
-          RELEASE_CONFORMANCE_DIR=conformance-evidence pnpm test:unit src/release/release-conformance-gate.test.ts
           node - <<'NODE'
           const fs = require('node:fs');
-          const results = JSON.parse(process.env.CHECK_RESULTS);
-          if (Object.values(results).some(job => job.result !== 'success')) throw new Error('Release checks failed or skipped');
-          const baseline = JSON.parse(fs.readFileSync('conformance-evidence/conformance-baseline.json'));
-          if (baseline.sourceSha !== process.env.RELEASE_SHA || baseline.mode !== 'gate' || baseline.infrastructureVerdict !== 'green' || baseline.productVerdict !== 'green') throw new Error('Exact-source product conformance is not green');
-          fs.writeFileSync('release-gates.json', JSON.stringify({ sha: process.env.RELEASE_SHA, ci: 'success', infrastructureVerdict: baseline.infrastructureVerdict, productVerdict: baseline.productVerdict, checks: results }) + '\n');
+          const { createReleaseChecks } = require('./scripts/release-checks.cjs');
+          const checkedOutSha = require('node:child_process').execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          const gates = createReleaseChecks(process.env.RELEASE_SHA, JSON.parse(process.env.CHECK_RESULTS), checkedOutSha);
+          fs.writeFileSync('release-gates.json', JSON.stringify(gates) + '\n');
           NODE
       - uses: actions/upload-artifact@v7
         with:

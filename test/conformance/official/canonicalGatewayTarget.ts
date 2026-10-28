@@ -10,8 +10,9 @@ import { join } from 'node:path';
 import { UriTemplate } from '@modelcontextprotocol/sdk/shared/uriTemplate.js';
 import { JSONRPCMessageSchema as LegacyMessageSchema } from '@modelcontextprotocol/sdk/types.js';
 
-import type { OfficialConformanceRevision } from './officialRunner.js';
 import { OFFICIAL_REFERENCE_COMMIT } from './referenceServer.js';
+
+type OfficialConformanceRevision = '2025-11-25' | '2026-07-28';
 
 const LIMIT = 1_048_576;
 const SERVER = 'official_conformance';

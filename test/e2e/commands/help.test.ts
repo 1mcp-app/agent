@@ -137,6 +137,27 @@ describe('CLI help', () => {
     expect(result.stderr).toContain('1mcp');
   });
 
+  it('rejects an unadvertised release wait budget before contacting a runtime', async () => {
+    const help = await runner.runCommand('project', 'release', { args: ['--help'] });
+    runner.assertSuccess(help);
+    expect(help.stdout).not.toContain('--wait-ms');
+    const result = await runner.runCommand('project', 'release', { args: ['--wait-ms', '5000'] });
+    runner.assertFailure(result, 1);
+    expect(result.stderr).toContain('Unknown arguments');
+    expect(result.stderr).toContain('wait-ms');
+  });
+
+  it('delivers a categorized bootstrap gap without echoing invalid hook input', async () => {
+    const result = await runner.runCommand('bootstrap', '', {
+      args: ['--client', 'codex', '--event', 'SubagentStart'],
+      input: 'private invalid hook input',
+    });
+    runner.assertSuccess(result);
+    const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
+    expect(context).toContain('Bootstrap coverage gap [invalid_hook_input]');
+    expect(context).not.toContain('private invalid hook input');
+  });
+
   it.each(['prepare', 'preparation'])('rejects removed root command %s', async (command) => {
     const result = await runner.runCommand(command, '', { args: ['inspect', 'example'] });
     runner.assertFailure(result, 1);

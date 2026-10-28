@@ -12,8 +12,9 @@ export function setupProjectCommands(yargs: Argv): Argv {
       family = family.command(
         action,
         `${action} selected checkout runtime resources`,
-        (builder) =>
-          (action === 'recover' ? builder : withProjectSelectionOptions(builder))
+        (builder) => {
+          if (action === 'recover') return builder;
+          const selected = withProjectSelectionOptions(builder)
             .option('url', { type: 'string', describe: 'Runtime URL' })
             .option('context', { type: 'string', describe: 'Named Runtime Target Context' })
             .option('expected-runtime-scope', { type: 'string', hidden: true })
@@ -21,11 +22,18 @@ export function setupProjectCommands(yargs: Argv): Argv {
             .option('preset', { type: 'string', describe: 'Runtime filter preset' })
             .option('tags', { type: 'array', string: true, describe: 'Runtime tag filter' })
             .option('tag-filter', { type: 'string', describe: 'Advanced tag filter' })
-            .option('format', { type: 'string', choices: ['text', 'json'], default: 'text', describe: 'Output format' })
-            .option('wait-ms', {
-              type: 'number',
-              describe: 'Drain wait budget, 0–60000 ms; timeout keeps admission closed',
-            }),
+            .option('format', {
+              type: 'string',
+              choices: ['text', 'json'],
+              default: 'text',
+              describe: 'Output format',
+            });
+          if (action !== 'drain') return selected;
+          return selected.option('wait-ms', {
+            type: 'number',
+            describe: 'Drain wait budget, 0–60000 ms; timeout keeps admission closed',
+          });
+        },
         async (argv) => {
           const { projectCommand } = await import('./project.js');
           await runCliCommand({ ...argv, action } as Parameters<typeof projectCommand>[0], projectCommand);

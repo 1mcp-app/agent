@@ -28,7 +28,7 @@ Run commands from the repository root. Install dependencies with `pnpm install`.
 | Documentation changes                       | `pnpm docs:build`                                                                            |
 | Process, HTTP, browser, or protocol changes | Build first, then choose the relevant E2E lane from [test/e2e/README.md](test/e2e/README.md) |
 
-`pnpm check` runs static/build checks, source and Admin tests, release tests, and the permission guard. It does not include the docs build, E2E, or protocol conformance suites. Select additional checks for the affected behavior from `package.json` and the relevant CI workflow; diagnose failures rather than waiving a gate.
+`pnpm check` runs static/build checks, source and Admin tests, release tests, and the permission guard. It does not include the docs build, E2E, or protocol regression suite. For MCP protocol or SDK dependency changes, run `pnpm test:protocol` after installing the TypeScript and Python peer fixtures as described in [protocol regression testing](docs/development/protocol-regressions.md). Select additional checks for the affected behavior from `package.json` and the relevant CI workflow; diagnose failures rather than waiving a gate.
 
 Reuse existing fixtures and `test/unit-utils/MockFactories.ts`. For command tests, use the E2E harness's isolated configuration, temporary state, loopback ports, and owned subprocess teardown. Keep manual experiments isolated with a task-specific `ONE_MCP_CONFIG_DIR`; never exercise mutations against the user's live configuration. Use the SDK client for protocol journeys instead of incomplete hand-written JSON-RPC examples.
 
@@ -50,7 +50,7 @@ Reuse existing fixtures and `test/unit-utils/MockFactories.ts`. For command test
 
 ### SDK boundaries
 
-Keep legacy `@modelcontextprotocol/sdk` dependencies inside `src/sdk/legacy/`. Before changing SDK imports or compatibility shims, read [the import policy](scripts/sdk-boundary/import-policy.mjs) and [topology checks](scripts/check-sdk-topology.mjs); preserve their enforced boundaries rather than copying imports from an unrelated transport implementation.
+Keep legacy `@modelcontextprotocol/sdk` dependencies inside `src/sdk/legacy/`. Before changing SDK imports or compatibility shims, read [the import policy](scripts/sdk-boundary/import-policy.mjs) and [retained transport checks](scripts/vendor-legacy-transport.mjs); preserve their enforced boundaries rather than copying imports from an unrelated transport implementation.
 
 ### Logging and output
 

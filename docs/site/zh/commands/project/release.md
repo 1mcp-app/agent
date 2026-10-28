@@ -19,7 +19,7 @@ description: 释放当前会话或工作代理的绑定，保护其他所有者�
 
 ## 结果与后续操作
 
-退出码为零表示所有选定目录的清理结果均已完成。非零退出码可能表示其他所有者、已准入任务、订阅或后端进程仍在阻塞清理。检查 `results[].complete`、`results[].ownerReleased` 和 `results[].blockers`，等待剩余工作结束，必要时再次释放。
+退出码为零表示每个选定目录的 `results[].ownerReleased` 均为 true。其他所有者、已准入任务、订阅或共享后端仍可能使 `complete` 为 false，但不会因此将当前调用方的释放判为失败。文本输出分别显示调用方释放状态与目录清理状态。调用方释放证明为 false 或缺失时返回非零，应先检查结果再决定是否重试。通过 `results[].complete` 和 `results[].blockers` 单独判断目录清理状态。
 
 释放不会关闭准入或删除目录。移除目录时，应遵循[管理器移除流程](/zh/commands/project/#管理器移除流程)，并由操作员[排空目录](/zh/commands/project/drain)。
 

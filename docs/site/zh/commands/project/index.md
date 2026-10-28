@@ -44,7 +44,7 @@ Windows 上无法验证优雅终止时，存活的 stdio 后端会保留为阻�
 
 JSON 输出包含 `results` 数组，每项包含 `checkoutPath`、`admission`（`open` 或 `draining`）、`complete`、`blockers`。`release` 另返回 `ownerReleased`：true 证明当前调用方已无需为该选择保留释放权限，即使其他所有者或共享资源仍存活；false 或缺少证明时保留终止清理重试状态。HTTP 成功或接受排空请求不代表完成清理。
 
-`status` 在检查成功时退出码为零，即使仍有阻塞。`drain` 仅在选定结果均完成时退出码为零；等待中、阻塞、超时和错误均返回非零。`release` 在目录仍未完成清理时也返回非零。使用 `--format json` 时，命令错误遵循 CLI 的结构化错误格式。
+`status` 在检查成功时退出码为零，即使仍有阻塞。`drain` 仅在选定结果均完成时退出码为零；等待中、阻塞、超时和错误均返回非零。`release` 在所有选定结果均为 `ownerReleased: true` 时退出码为零，即使其他所有者仍使目录清理处于等待状态。调用方释放证明为 false 或缺失时返回非零。使用 `--format json` 时，命令错误遵循 CLI 的结构化错误格式。
 
 关闭状态在运行时重启，以及规范化路径被删除后重新创建时仍然保留，必须显式执行 `resume`。重复执行释放、排空和恢复不会删除已准备的索引或配置。
 

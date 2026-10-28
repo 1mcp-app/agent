@@ -155,3 +155,18 @@ test('invalid or historical recovery evidence emits no usable workflow outputs',
     assert.deepEqual(outputs, {});
   }
 });
+
+test('recovery CLI accepts versioned protocol gates and rejects unsuccessful protocol checks', (t) => {
+  const { REQUIRED_CHECKS, createReleaseChecks } = require('../../scripts/release-checks.cjs');
+  const gates = createReleaseChecks(
+    'a'.repeat(40),
+    Object.fromEntries(REQUIRED_CHECKS.map((name) => [name, { result: 'success' }])),
+    'a'.repeat(40),
+  );
+  const recovered = dispatch(t, { RECOVERY_RUN_ID: '123' }, { gates });
+  assert.equal(recovered.result.status, 0, recovered.result.stderr);
+  for (const result of ['failure', 'cancelled', 'skipped']) {
+    const invalid = { ...gates, checks: { ...gates.checks, 'test-protocol': { result } } };
+    assert.notEqual(dispatch(t, { RECOVERY_RUN_ID: '123' }, { gates: invalid }).result.status, 0);
+  }
+});

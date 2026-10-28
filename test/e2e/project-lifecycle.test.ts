@@ -152,6 +152,7 @@ it('isolates owners, verifies backend exit, and persists drain through restart a
     expect(instructions.code, String(instructions.output)).toBe(0);
     expect(instructions.output).toContain('CODEX_THREAD_ID');
     const releaseA = await cli(['project', 'release', '--format', 'json'], undefined, 'parent');
+    expect(releaseA.code, JSON.stringify(releaseA.output)).toBe(0);
     expect(releaseA.output.results[0]).toMatchObject({ complete: false, ownerReleased: true });
     // Exercise the public hook subprocess, including terminal release proof with a live sibling.
     const endSession = async (sessionId = 'parent') =>
