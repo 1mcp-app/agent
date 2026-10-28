@@ -100,6 +100,11 @@ describe('process incarnation evidence', () => {
     expect(inspectProcessIdentity(1, undefined, { processAlive })).toBe('unknown');
     expect(inspectProcessIdentity(1, identity, { readIdentity: () => undefined, processAlive })).toBe('unknown');
   });
+
+  it('treats missing evidence as dead only when the recorded PID is provably absent', () => {
+    expect(inspectProcessIdentity(1, undefined, { processAlive: () => false })).toBe('dead');
+    expect(inspectProcessIdentity(1, undefined, { processAlive: () => true })).toBe('unknown');
+  });
 });
 
 describe('platform identity capture', () => {
@@ -242,8 +247,9 @@ describe('platform identity capture', () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
     const exec = vi.spyOn(childProcess, 'execFileSync');
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
-    expect(inspectProcessIdentity(123, undefined)).toBe('unknown');
-    expect(processIdentityRecoveryMessage(123)).toContain('legacy format');
+    const processAlive = () => true;
+    expect(inspectProcessIdentity(123, undefined, { processAlive })).toBe('unknown');
+    expect(processIdentityRecoveryMessage(123, undefined, { processAlive })).toContain('legacy format');
     expect(exec).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
   });
@@ -287,7 +293,7 @@ describe('process identity recovery guidance', () => {
     ['another boot', identity, () => ({ ...identity, bootId: 'other' }), 'another boot session'],
     ['another namespace', identity, () => ({ ...identity, pidNamespace: 'other' }), 'another PID namespace'],
   ])('explains %s without authorizing cleanup', (_label, recorded, readIdentity, reason) => {
-    const message = processIdentityRecoveryMessage(123, recorded, { readIdentity });
+    const message = processIdentityRecoveryMessage(123, recorded, { readIdentity, processAlive: () => true });
     expect(message).toContain(reason);
     expect(message).toContain('PID 123');
     expect(message).toContain('Do not delete lifecycle metadata');
