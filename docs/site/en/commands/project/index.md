@@ -44,7 +44,7 @@ Lifecycle actions support `--format text|json`, `--project`, runtime `--context`
 
 JSON output contains a `results` array. Each entry includes `checkoutPath`, `admission` (`open` or `draining`), `complete`, and `blockers`. `release` also reports `ownerReleased`: true proves this caller no longer needs release authority for that selection, even if other owners or shared resources remain. False or missing proof retains terminal-cleanup retry state. HTTP success or accepting a drain request does not mean cleanup is complete.
 
-`status` exits zero after a successful inspection even when blocked. `drain` exits zero only when every selected result is complete; pending work, blockers, timeout and errors return nonzero. `release` also returns nonzero while checkout cleanup remains pending. Command errors use the CLI's structured error envelope with `--format json`.
+`status` exits zero after a successful inspection even when blocked. `drain` exits zero only when every selected result is complete; pending work, blockers, timeout and errors return nonzero. `release` exits zero when every selected result has `ownerReleased: true`, even if other owners keep checkout cleanup pending. False or missing caller-release proof returns nonzero. Command errors use the CLI's structured error envelope with `--format json`.
 
 Admission stays closed across runtime restart and deletion/recreation of the canonical checkout path. Explicit `resume` is required. Release, drain and resume can be repeated; they preserve prepared indexes and configuration.
 
