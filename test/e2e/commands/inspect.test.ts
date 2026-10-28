@@ -1,10 +1,13 @@
 import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
 
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+
+import { bootstrapOwner } from '@src/commands/bootstrap/bootstrapOwnership.js';
+import { temporaryProjectOwnerStorage } from '@src/commands/shared/projectOwnerStorage.js';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -43,6 +46,7 @@ describeInspectE2E('inspect command E2E', () => {
 
   afterEach(async () => {
     await stopServeProcess();
+    await rm(temporaryProjectOwnerStorage(environment.getConfigDir()), { recursive: true, force: true });
     await environment.cleanup();
   });
 
@@ -302,13 +306,12 @@ describeInspectE2E('inspect command E2E', () => {
 
     runner.assertSuccess(instructionsResult, `Instructions failed. Fixture server output:\n${serveOutput}`);
     expect(instructionsResult.stdout).toContain('1MCP CLI Instructions');
-    expect(instructionsResult.stdout).toContain('Run `1mcp inspect <server>`');
+    expect(instructionsResult.stdout).toContain('Run `1mcp instructions <server>`');
     expect(instructionsResult.stdout).toContain('=== SERVER SUMMARY ===');
     expect(instructionsResult.stdout).toContain('<server_summary name="serena">');
     expect(instructionsResult.stdout).toContain('type: template');
-    expect(instructionsResult.stdout).toContain('<server_instructions name="serena">');
-    expect(instructionsResult.stdout).toContain('# Serena Instructions');
-    expect(instructionsResult.stdout).toContain('Use Serena for semantic code navigation and editing.');
+    expect(instructionsResult.stdout).toContain('tools: unknown');
+    expect(instructionsResult.stdout).not.toContain('# Serena Instructions');
 
     const listResult = await runner.runCommand('inspect', '', {
       cwd: environment.getTempDir(),
@@ -350,18 +353,127 @@ describeInspectE2E('inspect command E2E', () => {
     expect(Number.isInteger(waitOutput.waitedMs)).toBe(true);
     expect(waitOutput.waitedMs).toBeGreaterThanOrEqual(0);
 
-    const serverResult = await runner.runInspectCommand('serena', {
+    const inventory = await runner.runInspectCommand('serena', {
+      cwd: environment.getTempDir(),
+      args: [...getCliSessionCacheArgs(), '--format', 'json'],
+    });
+    runner.assertSuccess(inventory);
+    expect(JSON.parse(inventory.stdout)).not.toHaveProperty('instructions');
+    expect(inventory.stdout).toContain('find_symbol');
+
+    const serverResult = await runner.runCommand('instructions', 'serena', {
       cwd: environment.getTempDir(),
       args: getCliSessionCacheArgs(),
     });
 
     runner.assertSuccess(serverResult);
-    expect(serverResult.stdout).toContain('kind: server');
-    expect(serverResult.stdout).toContain('server: serena');
-    expect(serverResult.stdout).not.toContain('instructions:');
-    expect(serverResult.stdout).not.toContain('# Serena Instructions');
+    expect(serverResult.stdout).toContain('# Serena Instructions');
     expect(serverResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
-    expect(serverResult.stdout).toContain('find_symbol,');
+    expect(serverResult.stdout).not.toContain('find_symbol,');
+  });
+
+  it.each([false, true])('delivers cold and warm instructions without unrelated startup (owned: %s)', async (owned) => {
+    const warmListMarker = join(environment.getTempDir(), 'warm-lists');
+    const selectedMarker = join(environment.getTempDir(), 'selected-started');
+    const unrelatedMarker = join(environment.getTempDir(), 'unrelated-started');
+    const listMarker = join(environment.getTempDir(), 'selected-lists');
+    await writeFile(
+      environment.getConfigPath(),
+      JSON.stringify({
+        mcpServers: {
+          warm: {
+            transport: 'stdio',
+            command: process.execPath,
+            args: [join(process.cwd(), 'test/e2e/fixtures/inspect-template-server.js')],
+            env: { INSPECT_LIST_MARKER: warmListMarker },
+            instructionOverride: 'Warm backend manual',
+          },
+        },
+        mcpTemplates: {
+          selected: {
+            transport: 'stdio',
+            command: process.execPath,
+            args: [join(process.cwd(), 'test/e2e/fixtures/inspect-template-server.js'), '{{project.path}}'],
+            env: { INSPECT_START_MARKER: selectedMarker, INSPECT_LIST_MARKER: listMarker },
+            template: { shareable: true },
+          },
+          unrelated: {
+            transport: 'stdio',
+            command: process.execPath,
+            args: [
+              '-e',
+              `require('node:fs').writeFileSync(${JSON.stringify(unrelatedMarker)}, 'started'); setInterval(() => {}, 1000)`,
+            ],
+            template: { shareable: true },
+          },
+        },
+      }),
+      'utf8',
+    );
+    const ownerArgs: string[] = [];
+    if (owned) {
+      const owner = await bootstrapOwner(
+        { client: 'codex', event: 'SessionStart', 'config-dir': environment.getConfigDir() },
+        JSON.stringify({
+          hook_event_name: 'SessionStart',
+          session_id: 'inspect-fixture',
+          cwd: environment.getTempDir(),
+        }),
+      );
+      ownerArgs.push('--project-owner', owner);
+    }
+    await startServeProcess(owned ? ['--enable-lazy-loading'] : []);
+    const warmBackend = await runner.runInspectCommand('warm', {
+      cwd: environment.getTempDir(),
+      args: [...getCliSessionCacheArgs(), ...ownerArgs],
+    });
+    runner.assertSuccess(warmBackend, serveOutput);
+    const warmListsBefore = await readFile(warmListMarker, 'utf8');
+
+    const cold = await runner.runCommand('instructions', '', {
+      cwd: environment.getTempDir(),
+      args: ['--config-dir', environment.getConfigDir(), ...ownerArgs],
+    });
+    runner.assertSuccess(cold, serveOutput);
+    expect(cold.stdout).toContain('<server_summary name="selected">');
+    expect(cold.stdout).toContain('tools: unknown');
+    await expect(readFile(selectedMarker)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(unrelatedMarker)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    const invoked = await runner.runRunCommand('selected/find_symbol', {
+      cwd: environment.getTempDir(),
+      args: [
+        ...getCliSessionCacheArgs(),
+        ...ownerArgs,
+        '--args',
+        '{"name_path_pattern":"Fixture"}',
+        '--format',
+        'json',
+      ],
+    });
+    runner.assertSuccess(invoked, serveOutput);
+    const content = runner.parseJsonOutput<Array<{ text: string }>>(invoked);
+    expect(JSON.parse(content[0].text).matched).toBe('Fixture');
+    const selected = await runner.runCommand('instructions', 'selected', {
+      cwd: environment.getTempDir(),
+      args: [...getCliSessionCacheArgs(), ...ownerArgs],
+    });
+    runner.assertSuccess(selected, serveOutput);
+    expect(await readFile(warmListMarker, 'utf8')).toBe(warmListsBefore);
+    expect(selected.stdout).toContain('# Serena Instructions');
+    expect(selected.stdout).not.toContain('find_symbol');
+    const listsBefore = await readFile(listMarker, 'utf8');
+
+    const warm = await runner.runCommand('instructions', '', {
+      cwd: environment.getTempDir(),
+      args: ['--config-dir', environment.getConfigDir(), ...ownerArgs],
+    });
+    runner.assertSuccess(warm, serveOutput);
+    // Targeted and aggregate instructions share the same scoped binding.
+    expect(warm.stdout).toContain('# Serena Instructions');
+    expect(await readFile(listMarker, 'utf8')).toBe(listsBefore);
+    expect((await readFile(selectedMarker, 'utf8')).trim().split('\n')).toHaveLength(1);
+    await expect(readFile(unrelatedMarker)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   async function configureSearchInventory(): Promise<void> {
@@ -543,7 +655,7 @@ describeInspectE2E('inspect command E2E', () => {
     expect(JSON.parse(ordinary.stdout).description).toEqual(expect.any(String));
   });
 
-  async function startServeProcess(): Promise<void> {
+  async function startServeProcess(extraArgs: string[] = []): Promise<void> {
     if (serveProcess) {
       return;
     }
@@ -564,6 +676,7 @@ describeInspectE2E('inspect command E2E', () => {
         '--no-enable-config-reload',
         '--log-level',
         'error',
+        ...extraArgs,
       ],
       {
         cwd: process.cwd(),

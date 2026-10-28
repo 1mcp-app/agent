@@ -121,7 +121,7 @@ npx -y @1mcp/agent cli-setup --codex --scope all
 
 1. 如果当前会话尚未通过 hooks 注入最新内容，就先执行 `1mcp instructions`
 2. 不知道提供方或工具时，可先执行 `1mcp inspect --search <query>`（也可指定服务器）；已知目标时跳过发现步骤
-3. 缺少服务器清单或指令时执行 `1mcp inspect <server>`，并阅读适用的服务器指令
+3. 缺少服务器指令时执行 `1mcp instructions <server>`，并阅读适用的服务器指令
 4. 工具参数结构未知时执行 `1mcp inspect <server>/<tool>`
 5. 只有在确认 schema 之后才执行 `1mcp run <server>/<tool> --args '<json>'`
 

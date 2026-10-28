@@ -11,6 +11,7 @@ export interface ServerSummaryData {
   loadTracked?: boolean;
   loadTrackedKnown: boolean;
   toolCount: number;
+  toolCountKnown?: boolean;
   hasInstructions: boolean;
 }
 
@@ -37,6 +38,7 @@ export interface ServerData {
   available?: boolean;
   loadTracked?: boolean;
   toolCount?: number;
+  toolCountKnown?: boolean;
   note?: string;
   availableKnown?: boolean;
   loadTrackedKnown?: boolean;
@@ -363,7 +365,7 @@ export const DEFAULT_CLI_INSTRUCTION_TEMPLATE = `1MCP CLI Instructions
 
 1. Start here before selecting tools.
 2. Review the available servers below and their applicable instructions. If the provider or tool is unknown, optionally discover candidates with \`1mcp inspect --search <query>\` or \`1mcp inspect <server> --search <query>\`.
-3. Run \`1mcp inspect <server>\` when its inventory or instructions are missing; read its applicable instructions. When inspection is needed and the target is known, inspect it directly without searching.
+3. Run \`1mcp instructions <server>\` when its instructions are missing; read its applicable instructions. When inspection is needed and the target is known, inspect it directly without searching.
 4. Run \`1mcp inspect <server>/<tool>\` when the tool schema and arguments are not already known.
 5. Run \`1mcp wait <server>\` when a configured static server is still loading.
 6. Run \`1mcp run <server>/<tool> --args '<json>'\` using the known tool schema.
@@ -389,7 +391,7 @@ ${PREPARATION_GUIDANCE}
 {{/if}}{{#if summary.status}}	status: {{summary.status}}
 {{/if}}{{#if summary.availableKnown}}	available: {{#if summary.available}}yes{{else}}no{{/if}}
 {{/if}}{{#if summary.loadTrackedKnown}}	load_tracked: {{#if summary.loadTracked}}yes{{else}}no{{/if}}
-{{/if}}	tools: {{summary.toolCount}}
+{{/if}}	tools: {{#if (eq summary.toolCountKnown false)}}unknown{{else}}{{summary.toolCount}}{{/if}}
 	instructions: {{#if summary.hasInstructions}}yes{{else}}no{{/if}}
 </server_summary>
 {{/each}}
@@ -403,7 +405,7 @@ ${PREPARATION_GUIDANCE}
 {{/if}}{{#if status}}	status: {{status}}
 {{/if}}{{#if availableKnown}}	available: {{#if available}}yes{{else}}no{{/if}}
 {{/if}}{{#if loadTrackedKnown}}	load_tracked: {{#if loadTracked}}yes{{else}}no{{/if}}
-{{/if}}	tools: {{toolCount}}
+{{/if}}	tools: {{#if (eq toolCountKnown false)}}unknown{{else}}{{toolCount}}{{/if}}
 	instructions: {{#if hasInstructions}}yes{{else}}no{{/if}}
 {{#if hasInstructions}}	<server_instructions name="{{name}}">
 {{instructions}}

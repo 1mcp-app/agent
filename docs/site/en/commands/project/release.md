@@ -19,7 +19,7 @@ The session assignment is the default. Override one invocation with `--project`,
 
 ## Results and next steps
 
-Exit code zero means all selected checkout results are complete. A nonzero exit can mean that other owners, admitted work, subscriptions, or backend processes still block cleanup. Inspect `results[].complete`, `results[].ownerReleased`, and `results[].blockers`, let the remaining work finish, and repeat release when appropriate.
+Exit code zero means `results[].ownerReleased` is true for every selected checkout. Other owners, admitted work, subscriptions, or shared backends may still keep `complete: false`; their presence does not make your release fail. Human-readable output shows caller release and checkout cleanup separately. A false or missing caller-release proof returns nonzero; inspect the result before retrying. Use `results[].complete` and `results[].blockers` to assess checkout cleanup separately.
 
 Release does not close admission or delete the checkout. For removal, follow the [manager removal sequence](/commands/project/#manager-removal-sequence) and have an operator [drain the checkout](/commands/project/drain).
 

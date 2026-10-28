@@ -30,7 +30,7 @@ npx -y @1mcp/agent run <server>/<tool> [options]
 The `run` command is the execution step in the CLI workflow:
 
 1. Read the guidance delivered by bootstrap, or run [`instructions`](/commands/instructions) if it is missing or needs refreshing
-2. Run [`inspect`](/commands/inspect) only when server inventory, applicable instructions, capabilities, or tool schemas are missing or need refreshing
+2. Read missing server instructions with `1mcp instructions <server>`; use [`inspect`](/commands/inspect) when server inventory, capabilities, or tool schemas are missing or need refreshing
 3. Run `run` using applicable server instructions and the known tool schema
 
 `run` talks to a running `1mcp serve` instance, forwards preset and tag filters, and prints tool output to stdout. Errors are written to stderr only so the command stays pipe-friendly.
@@ -58,6 +58,18 @@ If `--args` is omitted and stdin is provided, `run` tries to map stdin automatic
 
 - If stdin is a JSON object, it is used as the tool arguments
 - Otherwise, stdin is mapped into the first required string argument after schema inspection
+
+### Execution Deadline
+
+- **`--timeout-ms <milliseconds>`** - Maximum time to wait for tool execution (default: `30000`; integer range: `1`–`600000`). Set `ONE_MCP_TIMEOUT_MS` for the environment default; an explicit flag takes precedence.
+
+The same execution budget applies to REST and MCP calls. Server and schema discovery keep their separate budgets. This option bounds the caller's wait; it does not extend a backend's own deadline.
+
+A timeout reports whether it occurred during server discovery, schema discovery, or tool execution and exits with code `6`. An execution timeout leaves the outcome uncertain: the tool may still be running. Check its outcome before retrying. The CLI does not switch transports or replay a tool after an execution timeout.
+
+```bash
+1mcp run analyzer/analyze --args '{"path":"./src"}' --timeout-ms 120000
+```
 
 ### Output Options
 

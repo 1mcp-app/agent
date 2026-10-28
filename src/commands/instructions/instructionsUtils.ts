@@ -11,6 +11,7 @@ export interface InstructionsServerSummary {
   available?: boolean;
   loadTracked?: boolean;
   toolCount: number;
+  toolCountKnown?: boolean;
   hasInstructions: boolean;
 }
 
@@ -21,6 +22,7 @@ export interface InstructionsServerDetail {
   available?: boolean;
   loadTracked?: boolean;
   toolCount: number;
+  toolCountKnown?: boolean;
   hasInstructions: boolean;
   instructions?: string | null;
   note?: string;
@@ -60,7 +62,7 @@ function formatMetadataLines(item: InstructionsServerSummary | InstructionsServe
     lines.push(`load_tracked: ${item.loadTracked ? 'yes' : 'no'}`);
   }
 
-  lines.push(`tools: ${item.toolCount}`);
+  lines.push(`tools: ${item.toolCountKnown === false ? 'unknown' : item.toolCount}`);
   lines.push(`instructions: ${item.hasInstructions ? 'yes' : 'no'}`);
 
   return lines;
@@ -73,7 +75,7 @@ export function formatInstructionsOutput(output: InstructionsOutput): string {
     [
       '1. Start here before selecting tools.',
       '2. Review the available servers below and their applicable instructions. If the provider or tool is unknown, optionally discover candidates with `1mcp inspect --search <query>` or `1mcp inspect <server> --search <query>`.',
-      '3. Run `1mcp inspect <server>` when its inventory or instructions are missing; read its applicable instructions. When inspection is needed and the target is known, inspect it directly without searching.',
+      '3. Run `1mcp instructions <server>` when its instructions are missing; read its applicable instructions. When inspection is needed and the target is known, inspect it directly without searching.',
       '4. Run `1mcp inspect <server>/<tool>` when the tool schema and arguments are not already known.',
       '5. Run `1mcp wait <server>` when a configured static server is still loading.',
       "6. Run `1mcp run <server>/<tool> --args '<json>'` using the known tool schema.",

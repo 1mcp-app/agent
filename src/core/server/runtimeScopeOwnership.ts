@@ -5,10 +5,13 @@ import path from 'node:path';
 import { readBackgroundSupervisorState } from '@src/core/server/backgroundRuntimeSupervisorState.js';
 import { getPidFilePath, isProcessAlive, readPidFile } from '@src/core/server/pidFileManager.js';
 import {
+  acquireProcessIdentity,
   inspectProcessIdentity,
   type ProcessIdentity,
   processIdentitySchema,
   readProcessIdentity,
+  type UnavailableIdentityEvidence,
+  unavailableIdentityEvidenceSchema,
 } from '@src/core/server/processIdentity.js';
 import { acquireRuntimeFileLock, type RuntimeFileLock } from '@src/core/server/runtimeFileLock.js';
 import logger from '@src/logger/logger.js';
@@ -30,6 +33,8 @@ export interface RuntimeScopeOwnershipRecord {
   kind: RuntimeScopeClaimantKind;
   claimedAt: string;
   processIdentity?: ProcessIdentity;
+  /** Explicit degraded evidence; readers keep the record held while its PID lives. */
+  identityEvidence?: UnavailableIdentityEvidence;
   coordination?: 'flock';
   cooperative?: true;
 }
@@ -60,6 +65,8 @@ export class RuntimeScopeOwnedError extends Error {
     public readonly reason: RuntimeScopeOwnershipFailureReason,
     public readonly owner: RuntimeScopeOwnershipRecord | null,
     detail?: string,
+    /** Basenames only; safe to show to the local operator. */
+    public readonly unknownEntries?: string[],
   ) {
     const ownerDescription = owner ? ` by ${owner.kind} (PID: ${owner.pid})` : '';
     super(`Runtime Scope is already owned${ownerDescription}${detail ? `: ${detail}` : ''}`);
@@ -74,6 +81,7 @@ const runtimeScopeOwnershipRecordSchema = z.object({
   kind: z.enum(['foreground-http', 'foreground-stdio', 'background-supervisor']),
   claimedAt: z.string().datetime(),
   processIdentity: processIdentitySchema.optional(),
+  identityEvidence: unavailableIdentityEvidenceSchema.optional(),
   coordination: z.literal('flock').optional(),
   cooperative: z.literal(true).optional(),
 }) satisfies z.ZodType<RuntimeScopeOwnershipRecord>;
@@ -92,6 +100,7 @@ interface OwnershipDependencies {
   processAlive?: (pid: number) => boolean;
   createClaimId?: () => string;
   now?: () => Date;
+  acquireIdentity?: typeof acquireProcessIdentity;
 }
 
 interface ObservedOwnership {
@@ -130,15 +139,29 @@ export function claimRuntimeScope(
   const processAlive = dependencies.processAlive ?? isProcessAlive;
   const createClaimId = dependencies.createClaimId ?? randomUUID;
   const now = dependencies.now ?? currentDate;
+  const pid = claimant.pid ?? process.pid;
+  const claimedAt = now().toISOString();
+  const acquisition = claimant.cooperative ? undefined : (dependencies.acquireIdentity ?? acquireProcessIdentity)(pid);
   const record: RuntimeScopeOwnershipRecord = {
     version: 1,
-    pid: claimant.pid ?? process.pid,
+    pid,
     claimId: createClaimId(),
     kind: claimant.kind,
-    claimedAt: now().toISOString(),
+    claimedAt,
     ...(claimant.cooperative
       ? { cooperative: true as const }
-      : { processIdentity: readProcessIdentity(claimant.pid ?? process.pid) }),
+      : acquisition?.identity
+        ? { processIdentity: acquisition.identity }
+        : acquisition?.failure
+          ? {
+              identityEvidence: {
+                status: 'unavailable' as const,
+                code: acquisition.failure.code,
+                elapsedMs: acquisition.failure.elapsedMs,
+                at: claimedAt,
+              },
+            }
+          : {}),
   };
 
   fs.mkdirSync(configDir, { recursive: true });
@@ -165,6 +188,9 @@ export function claimRuntimeScope(
 
         const existing = inspectRuntimeScopeOwnership(configDir);
         if (!existing) {
+          // An empty canonical directory cannot be a legitimate claim state:
+          // claims publish atomically via candidate+rename.
+          removeEmptyOwnershipDirectory(configDir);
           continue;
         }
         if (claimant.cooperative || !ownerIsDead(existing.record, processAlive, fileLock !== null)) {
@@ -183,7 +209,7 @@ export function claimRuntimeScope(
           assertNoActiveStopLock(configDir, processAlive);
         }
       } catch (error) {
-        releaseRuntimeScopeOwnership(configDir, record);
+        releaseRuntimeScopeOwnershipBestEffort(configDir, record, 'ownership');
         throw error;
       }
 
@@ -195,11 +221,15 @@ export function claimRuntimeScope(
           if (released) {
             return;
           }
-          released = true;
           try {
-            releaseRuntimeScopeOwnership(configDir, record);
+            // Mark only after a completed (or no-longer-ours) cleanup, so a
+            // transient failure can be retried by a later call.
+            const outcome = releaseRuntimeScopeOwnershipBestEffort(configDir, record, 'ownership');
+            if (outcome !== 'failed') released = true;
+          } catch (error) {
+            logCleanupFailure('ownership', error);
           } finally {
-            fileLock?.release();
+            releaseFileLockBestEffort(fileLock);
           }
         },
       };
@@ -208,7 +238,7 @@ export function claimRuntimeScope(
     throw new RuntimeScopeOwnedError(ownerDir, 'ambiguous', null, 'ownership changed during claim');
   } finally {
     removeCandidateDirectoryIfPresent(candidateDir);
-    if (!retained) fileLock?.release();
+    if (!retained) releaseFileLockBestEffort(fileLock);
   }
 }
 
@@ -280,7 +310,7 @@ export function acquireRuntimeScopeStopLock(
               );
             }
           } finally {
-            fileLock?.release();
+            releaseFileLockBestEffort(fileLock);
           }
         },
       };
@@ -288,7 +318,7 @@ export function acquireRuntimeScopeStopLock(
     throw new RuntimeScopeOwnedError(stopLockPath, 'ambiguous', null, 'stop lock changed during acquisition');
   } finally {
     removeCandidateDirectoryIfPresent(candidateDir);
-    if (!retained) fileLock?.release();
+    if (!retained) releaseFileLockBestEffort(fileLock);
   }
 }
 
@@ -313,7 +343,7 @@ export function reclaimStaleRuntimeScopeOwnership(
     }
     return reclaimObservedOwnership(configDir, observed, processAlive, fileLock !== null);
   } finally {
-    fileLock?.release();
+    releaseFileLockBestEffort(fileLock);
   }
 }
 
@@ -349,7 +379,7 @@ function reclaimObservedOwnership(
     assertDeadSupervisorIsReclaimable(configDir, ownerDir, current.record, processAlive);
     return removeObservedOwnership(configDir, current);
   } finally {
-    stopLock.release();
+    releaseStopLockBestEffort(stopLock);
   }
 }
 
@@ -492,7 +522,7 @@ function assertNoActiveStopLock(configDir: string, processAlive: (pid: number) =
       throw new RuntimeScopeOwnedError(stopLockPath, 'ambiguous', null, 'stop lock changed during stale cleanup');
     }
   } finally {
-    fileLock?.release();
+    releaseFileLockBestEffort(fileLock);
   }
 }
 
@@ -638,6 +668,51 @@ export function readRuntimeScopeOwnership(configDir: string): RuntimeScopeOwners
 }
 
 /**
+ * Atomically upgrades one observed ownership generation from unavailable
+ * evidence to kernel evidence. Never creates, replaces, or crosses generations.
+ */
+export function updateRuntimeScopeOwnershipIdentity(
+  configDir: string,
+  expected: RuntimeScopeOwnershipIdentity,
+  identity: ProcessIdentity,
+): boolean {
+  const observed = inspectRuntimeScopeOwnership(configDir);
+  if (!observed || observed.interruptedReclaim || !ownershipMatches(observed.record, expected)) {
+    return false;
+  }
+  const next: RuntimeScopeOwnershipRecord = {
+    ...observed.record,
+    processIdentity: identity,
+    identityEvidence: undefined,
+  };
+  // Keep the temp file outside the canonical ownership directory so a leftover
+  // is never an unknown ownership entry; configDir keeps it on the same
+  // filesystem, which is required for an atomic rename.
+  const tempPath = path.join(configDir, `${OWNERSHIP_DIR_NAME}.${expected.claimId}.identity.tmp`);
+  try {
+    fs.writeFileSync(tempPath, `${JSON.stringify(next)}\n`, { encoding: 'utf8', mode: 0o600 });
+    // Re-observe immediately before publication. The claim's owner lock is held
+    // for the runtime lifetime, so this is the strongest available generation
+    // guard on platforms without flock; a forced replacement of a live owner
+    // remains the only residual window.
+    const current = inspectRuntimeScopeOwnership(configDir);
+    if (!current || current.interruptedReclaim || !ownershipMatches(current.record, expected)) {
+      fs.unlinkSync(tempPath);
+      return false;
+    }
+    fs.renameSync(tempPath, current.recordPath);
+  } catch (error) {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {
+      // Best-effort cleanup; the original error is more useful.
+    }
+    throw error;
+  }
+  return true;
+}
+
+/**
  * Releases only the owner observed by a lifecycle recovery command. Both PID
  * and claim ID must still match so a replacement owner is never removed.
  */
@@ -647,6 +722,52 @@ export function releaseRuntimeScopeOwnership(configDir: string, expected: Runtim
     return false;
   }
   return removeObservedOwnership(configDir, observed);
+}
+
+export type OwnershipReleaseOutcome = 'released' | 'ownership-changed' | 'failed';
+
+/**
+ * Process-lifetime cleanup contract: never throws, logs a secondary failure,
+ * and never masks the primary error of the path that invoked it.
+ */
+export function releaseRuntimeScopeOwnershipBestEffort(
+  configDir: string,
+  expected: RuntimeScopeOwnershipIdentity,
+  stage: ReleaseStage = 'ownership',
+): OwnershipReleaseOutcome {
+  try {
+    return releaseRuntimeScopeOwnership(configDir, expected) ? 'released' : 'ownership-changed';
+  } catch (error) {
+    logCleanupFailure(stage, error);
+    return 'failed';
+  }
+}
+
+type ReleaseStage = 'ownership' | 'stop-lock' | 'file-lock';
+
+function logCleanupFailure(stage: ReleaseStage, error: unknown): void {
+  try {
+    logger.warn('runtimeScopeOwnership.release.failed', { error: error, stage });
+  } catch {
+    // Diagnostics must never replace the primary cleanup control flow.
+  }
+}
+
+function releaseFileLockBestEffort(fileLock: RuntimeFileLock | null): void {
+  if (!fileLock) return;
+  try {
+    fileLock.release();
+  } catch (error) {
+    logCleanupFailure('file-lock', error);
+  }
+}
+
+function releaseStopLockBestEffort(stopLock: RuntimeScopeStopLock): void {
+  try {
+    stopLock.release();
+  } catch (error) {
+    logCleanupFailure('stop-lock', error);
+  }
 }
 
 function inspectRuntimeScopeOwnership(configDir: string): ObservedOwnership | null {
@@ -679,6 +800,11 @@ function inspectRuntimeScopeOwnership(configDir: string): ObservedOwnership | nu
     );
   }
 
+  if (entries.length === 0) {
+    // Structurally impossible during a live claim; treat as absent so the
+    // caller can remove the leftover directory and retry.
+    return null;
+  }
   const tombstones = entries.filter((entry) => /^owner\.[a-f0-9]{64}\.reclaiming\.json$/.test(entry));
   if (entries.length !== 1 || tombstones.length !== 1) {
     throw new RuntimeScopeOwnedError(
@@ -686,6 +812,7 @@ function inspectRuntimeScopeOwnership(configDir: string): ObservedOwnership | nu
       'ambiguous',
       null,
       'ownership directory is incomplete or contains unknown files',
+      entries.slice(0, 8),
     );
   }
   const tombstonePath = path.join(ownerDir, tombstones[0]);
@@ -816,6 +943,19 @@ function ownershipMatches(record: RuntimeScopeOwnershipIdentity, expected: Runti
 
 function currentDate(): Date {
   return new Date();
+}
+
+function removeEmptyOwnershipDirectory(configDir: string): boolean {
+  const ownerDir = getRuntimeScopeOwnershipPath(configDir);
+  try {
+    if (fs.readdirSync(ownerDir).length !== 0) return false;
+    fs.rmdirSync(ownerDir);
+    return true;
+  } catch (error) {
+    if (isCode(error, 'ENOENT')) return true;
+    logger.warn('runtimeScopeOwnership.empty.ownership.directory.reclaim.failed', { error: error });
+    return false;
+  }
 }
 
 function removeCandidateDirectoryIfPresent(candidateDir: string): void {

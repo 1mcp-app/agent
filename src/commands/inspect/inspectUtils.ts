@@ -345,6 +345,10 @@ function formatServerOutput(serverInfo: InspectServerInfo): string {
 
   const sections: string[] = [chalk.bold.cyan('Inspect: Server'), summaryLines.join('\n')];
 
+  if (serverInfo.instructions?.trim()) {
+    sections.push(`${chalk.bold('instructions:')}\n${serverInfo.instructions}`);
+  }
+
   sections.push(chalk.bold(`tools (${totalTools}):`));
   sections.push(
     serverInfo.tools

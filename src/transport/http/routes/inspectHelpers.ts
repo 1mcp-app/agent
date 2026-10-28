@@ -31,6 +31,7 @@ export interface ServerSummary {
   /** True only for enabled, configured static servers tracked during startup. */
   loadTracked: boolean;
   toolCount: number;
+  toolCountKnown?: boolean;
   hasInstructions: boolean;
 }
 

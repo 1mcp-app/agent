@@ -14,6 +14,7 @@ const instructionServerSummarySchema = z.object({
   available: z.boolean().optional(),
   loadTracked: z.boolean().optional(),
   toolCount: z.number().int().nonnegative(),
+  toolCountKnown: z.boolean().optional(),
   hasInstructions: z.boolean(),
 });
 
@@ -44,6 +45,7 @@ export interface InstructionServerSummary {
   available?: boolean;
   loadTracked?: boolean;
   toolCount: number;
+  toolCountKnown?: boolean;
   hasInstructions: boolean;
 }
 
@@ -192,7 +194,7 @@ export function renderManagedDocContent(): string {
     '## Tool workflow',
     '',
     '1. Review server instructions. If the provider/tool is unknown, search with `1mcp inspect --search <query>` or `1mcp inspect <server> --search <query>`. When the target is known, skip discovery.',
-    '2. Run `1mcp inspect <server>` when its inventory or instructions are missing; read its applicable instructions.',
+    '2. Run `1mcp instructions <server>` when its instructions are missing; read its applicable instructions.',
     '3. Inspect unknown schemas with `1mcp inspect <server>/<tool>`.',
     "4. Invoke with `1mcp run <server>/<tool> --args '<json>'`.",
     '',

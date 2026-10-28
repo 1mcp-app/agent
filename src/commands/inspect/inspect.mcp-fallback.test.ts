@@ -590,41 +590,44 @@ describe('inspect command internals', () => {
     ]);
   });
 
-  it('falls back to MCP when a server target is declared but currently disconnected over REST', async () => {
-    mockedApiClientGet.mockResolvedValue({
-      ok: false,
-      status: 503,
-      error: "Server 'serena' is not currently connected",
-    });
-    transportState.schemaPayload = {
-      tools: [
-        {
-          name: 'serena_1mcp_find_symbol',
-          description: 'Find symbol',
-          inputSchema: {
-            type: 'object',
-            properties: { name_path_pattern: { type: 'string' } },
-            required: ['name_path_pattern'],
-          },
-        },
-      ],
-    } as any;
+  it.each(['serena', 'serena/find_symbol'])(
+    'propagates targeted REST unavailability without MCP fallback: %s',
+    async (target) => {
+      mockedApiClientGet.mockResolvedValue({ ok: false, status: 503, error: 'Selected backend unavailable' });
+      const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'rest-unavailable');
+      await rm(cacheDir, { recursive: true, force: true });
+      await mkdir(cacheDir, { recursive: true });
+      await expect(
+        inspectCommand({
+          target,
+          'config-dir': cacheDir,
+          'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+        } as never),
+      ).rejects.toThrow('Selected backend unavailable');
+      expect(transportState.instances).toHaveLength(0);
+      expect(mockedStdoutWrite).not.toHaveBeenCalled();
+    },
+  );
 
-    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'rest-disconnected-server');
+  it('propagates unavailability observed after compatibility initialization', async () => {
+    mockedApiClientGet
+      .mockResolvedValueOnce({ ok: false, status: 404, error: 'HTTP 404' })
+      .mockResolvedValue({ ok: false, status: 503, error: 'Selected backend unavailable' });
+    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'rest-unavailable-after-init');
     await rm(cacheDir, { recursive: true, force: true });
     await mkdir(cacheDir, { recursive: true });
-
-    await inspectCommand({
-      target: 'serena',
-      format: 'text',
-      'config-dir': cacheDir,
-      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
-    } as never);
-
-    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Server'));
-    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('server: serena'));
-    expect(transportState.instances.map((instance) => instance.sentMessages.map((message) => message.method))).toEqual([
-      ['initialize', 'notifications/initialized', 'tools/list'],
+    await expect(
+      getInspectResult({
+        target: 'runner',
+        'config-dir': cacheDir,
+        'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+      } as never),
+    ).rejects.toThrow('Selected backend unavailable');
+    expect(transportState.instances).toHaveLength(1);
+    expect(transportState.instances[0].sentMessages.map((message) => message.method)).toEqual([
+      'initialize',
+      'notifications/initialized',
+      'tools/list',
     ]);
   });
 

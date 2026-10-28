@@ -20,7 +20,7 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 `run` 是 CLI 工作流中的执行步骤：
 
 1. 阅读 bootstrap 已交付的指引；仅在缺少指引或需要刷新时运行 [`instructions`](/zh/commands/instructions)
-2. 仅在服务器清单、适用指令、能力或工具参数结构缺失或需要刷新时运行 [`inspect`](/zh/commands/inspect)
+2. 缺少服务器指令时运行 `1mcp instructions <server>`；服务器清单、能力或工具参数结构缺失或需要刷新时运行 [`inspect`](/zh/commands/inspect)
 3. 根据适用的服务器指令和已知工具参数结构，运行 `run` 调用目标工具
 
 `run` 会连接到运行中的 `1mcp serve` 实例，透传 preset 和标签过滤，并把工具输出写入 stdout。错误只写入 stderr，因此适合脚本和管道。
@@ -48,6 +48,18 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 
 - 如果 stdin 是 JSON 对象，就直接作为工具参数使用
 - 否则会先查看工具 schema，再将 stdin 映射到第一个必填字符串参数
+
+### 执行超时
+
+- **`--timeout-ms <毫秒>`** - 等待工具执行的最长时间（默认：`30000`；整数范围：`1`–`600000`）。可通过 `ONE_MCP_TIMEOUT_MS` 设置环境默认值；显式命令行参数优先。
+
+REST 和 MCP 调用使用相同的执行时限。服务器发现和模式发现保留各自的时限。此选项限制调用方的等待时间，不会延长后端自身的执行时限。
+
+超时错误会注明发生在服务器发现、模式发现还是工具执行阶段，并以退出码 `6` 结束。执行超时意味着结果尚不确定：工具可能仍在运行。重试前请先核实执行结果。执行超时后，CLI 不会切换传输方式或重复调用工具。
+
+```bash
+1mcp run analyzer/analyze --args '{"path":"./src"}' --timeout-ms 120000
+```
 
 ### 输出选项
 

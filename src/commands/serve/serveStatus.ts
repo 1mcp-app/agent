@@ -310,6 +310,11 @@ function appendRuntimeDetails(lines: string[], info: ServerPidInfo, ready: boole
   lines.push(`URL: ${info.url}`);
   lines.push(`Started: ${info.startedAt}`);
   lines.push(`Log file: ${info.logFile ?? '(console only)'}`);
+  lines.push(
+    info.processIdentity
+      ? 'Identity evidence: kernel'
+      : `Identity evidence: unavailable${info.identityEvidence ? ` (${info.identityEvidence.code}, ${info.identityEvidence.elapsedMs}ms)` : ''}`,
+  );
   lines.push('Process: alive');
   lines.push(`Readiness (/health/ready): ${ready ? 'ready' : 'not ready'}`);
 }

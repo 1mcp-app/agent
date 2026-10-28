@@ -32,8 +32,10 @@ npx -y @1mcp/agent inspect [target] [选项]
 ## Target 形式
 
 - **省略 target** - 列出运行中的 1MCP 实例暴露的所有服务器
-- **`<server>`** - 列出某个服务器的工具
+- **`<server>`** - 列出某个服务器的工具；需要初始化时，仅启动所选模板
 - **`<server>/<tool>`** - 查看单个工具的 schema
+
+使用 `1mcp instructions <server>` 阅读服务器指令。普通 `inspect` 输出不包含指令块。
 
 ## 选项
 
@@ -76,7 +78,7 @@ npx -y @1mcp/agent inspect [target] [选项]
 1mcp inspect --search 'read a file' --include-descriptions
 1mcp inspect --search read --show-descriptions --format json
 # 阅读所选服务器的适用指令，然后查看 schema 并调用。
-1mcp inspect filesystem
+1mcp instructions filesystem
 1mcp inspect filesystem/read_file
 1mcp run filesystem/read_file --args '{"path":"README.md"}'
 ```
