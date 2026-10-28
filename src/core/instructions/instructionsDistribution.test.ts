@@ -347,4 +347,23 @@ describe('instructionsDistribution', () => {
 
     expect(upsertStartupDocManagedBlock('# Existing\n@1MCP.md\n', block)).toBe('# Existing\n@/tmp/.codex/1MCP.md\n');
   });
+
+  it.each(['@1MCP.md', '@.codex/1MCP.md', '@/tmp/.codex/1MCP.md'])(
+    'preserves the position of an existing %s reference',
+    (reference) => {
+      for (const prefix of ['', '# Instructions\n\n']) {
+        const content = `${prefix}${reference}\n\nKeep these instructions after the reference.\n\n`;
+        expect(upsertStartupDocManagedBlock(content, `${reference}\n`)).toBe(content);
+      }
+    },
+  );
+
+  it('migrates and deduplicates references at the first existing position', () => {
+    const block = '@/tmp/.codex/1MCP.md\n';
+    const content = `# Before\n@1MCP.md\n# After\n${block}`;
+    const expected = `# Before\n${block}# After\n`;
+
+    expect(upsertStartupDocManagedBlock(content, block)).toBe(expected);
+    expect(upsertStartupDocManagedBlock(expected, block)).toBe(expected);
+  });
 });

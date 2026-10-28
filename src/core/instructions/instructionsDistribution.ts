@@ -240,11 +240,21 @@ export function upsertStartupDocManagedBlock(existingContent: string, managedBlo
   }
 
   const withoutLegacyBlocks = normalizedExisting.replace(LEGACY_MANAGED_BLOCK_PATTERN, '');
-  const remainingLines = withoutLegacyBlocks
+  let foundReference = false;
+  const updatedContent = withoutLegacyBlocks
     .split('\n')
-    .filter((line) => !managedReferenceAliases.has(line.trim()))
-    .join('\n')
-    .trimEnd();
+    .flatMap((line) => {
+      if (!managedReferenceAliases.has(line.trim())) return [line];
+      if (foundReference) return [];
+
+      foundReference = true;
+      return [line.trim() === referenceLine ? line : referenceLine];
+    })
+    .join('\n');
+
+  if (foundReference) return updatedContent;
+
+  const remainingLines = updatedContent.trimEnd();
 
   if (remainingLines.length === 0) {
     return `${referenceLine}\n`;
