@@ -67,7 +67,7 @@ head:
 1mcp app consolidate claude-desktop
 ```
 
-重启 Claude Desktop 前，请将生成的软件包启动器替换为下方[已安装命令的配置](#installed-command-configuration)。整合目前写入 `npx` 启动器，要使用已安装的 `1mcp`，需要进行此手动调整。会自动创建备份；可随时恢复：
+重启 Claude Desktop 前，请将生成的软件包启动器替换为下方[已安装命令的配置](#installed-command-configuration)。整合命令目前会写入 `npx` 启动器，要使用已安装的 `1mcp`，需要进行此手动调整。会自动创建备份；可随时恢复：
 
 ```bash
 1mcp app backups claude-desktop
@@ -252,10 +252,10 @@ head:
 
 1. **检查磁盘空间**
 2. **检查权限**：验证备份目录写入权限
-3. **强制模式**：在必要时无备份继续（谨慎）
+3. **重试备份**：解决磁盘空间或权限问题后，先创建备份，保留现有配置。`--force` 不会跳过备份。
 
    ```bash
-   1mcp app consolidate claude-desktop --force --backup-only
+   1mcp app consolidate claude-desktop --backup-only
    ```
 
 #### 代理连接问题
@@ -436,7 +436,7 @@ head:
 - 在代理命令中使用 `--preset` 参数进行筛选
 - 预览整合 → `--dry-run`
 - 自动备份；整合后重启 Claude Desktop
-- 保持 agent 更新；用 `mcp status` 监控
+- 保持 1MCP Agent 为最新版本；用 `mcp status` 监控
 
 ### 远程
 
@@ -477,7 +477,7 @@ npm install -g @1mcp/agent
 
 <a id="installed-command-configuration"></a>
 
-整合目前生成基于 `npx` 的软件包启动器。要使用已安装的 `1mcp`，请关闭 Claude Desktop，并在重启前将该启动器替换为下方配置。这是手动调整，不是整合自动生成的输出。如果 Claude Desktop 无法通过 PATH 找到 `1mcp`，请使用可执行文件的绝对路径；软件包启动器的替代方式见[安装指南](/zh/guide/installation)。
+整合目前生成基于 `npx` 的软件包启动器。要使用已安装的 `1mcp`，请关闭 Claude Desktop，并在重启前将该启动器替换为下方配置。此配置需要手动修改，整合命令不会自动生成。如果 Claude Desktop 无法通过 `PATH` 找到 `1mcp`，请使用可执行文件的绝对路径；软件包启动器的替代方式见[安装指南](/zh/guide/installation)。
 
 ```json
 {

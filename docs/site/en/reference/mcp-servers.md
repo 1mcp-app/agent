@@ -285,7 +285,7 @@ Manage this field with [`mcp tools`](/commands/mcp/tools):
 1mcp mcp tools list filesystem --disabled
 ```
 
-The `mcp tools` list, enable, and disable subcommands update `mcp.json`. A running `1mcp serve` instance picks up the change through config hot reload.
+The `mcp tools list` subcommand reads the saved configuration; `enable` and `disable` update `mcp.json`. Running `1mcp serve` instances apply those changes when config hot reload is enabled.
 
 Admin uses the same `disabledTools` and `toolDescriptionOverrides` fields. The editor shows the observed upstream inventory, effective descriptions, per-tool token estimates, search/filter controls, and visible-row bulk actions. Entries retained in configuration after a tool disappears remain visible as unresolved so they can be repaired or removed. Preview reports enabled/disabled counts and the approximate token change; applying a zero-enabled result requires explicit confirmation. These metadata changes propagate to connected clients without restarting the outbound server.
 

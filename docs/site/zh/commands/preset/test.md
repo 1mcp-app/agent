@@ -125,19 +125,21 @@ description: 验证预设的服务器筛选条件是否符合当前配置。
 
 ```bash
 # 在部署配置更改前验证所有预设
-for preset in $(1mcp preset list --format=names); do
-  echo "Testing $preset..."
-  1mcp preset test $preset
-done
+# 列出预设，然后逐一测试已配置的名称
+1mcp preset list
+1mcp preset test development
+1mcp preset test production
 ```
 
 ## 与开发工作流程的集成
 
 ### 服务器更改后
 
+请将 `/absolute/path/server.js` 替换为实际服务器脚本的路径。
+
 ```bash
 # 1. 修改服务器配置（添加/删除服务器或标签）
-1mcp mcp add newserver --type=stdio --tags=web,api
+1mcp mcp add newserver --type=stdio --tags=web,api -- node /absolute/path/server.js
 
 # 2. 测试现有预设以查看影响
 1mcp preset test web-services

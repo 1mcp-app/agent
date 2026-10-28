@@ -269,7 +269,7 @@ MCP 工具通常采用 `{server}_1mcp_{tool}` 名称。如果限定名称超过 
 1mcp mcp tools list filesystem --disabled
 ```
 
-`mcp tools` 的 list、enable 和 disable 子命令会更新 `mcp.json`。正在运行的 `1mcp serve` 实例会通过配置热重载观察到变化。
+`mcp tools list` 子命令读取已保存的配置；`enable` 和 `disable` 则更新 `mcp.json`。启用配置热重载后，正在运行的 `1mcp serve` 实例会应用这些变更。
 
 Admin 使用相同的 `disabledTools` 和 `toolDescriptionOverrides` 字段。编辑器会展示观测到的上游工具清单、有效描述、逐工具 token 估算、搜索/筛选以及仅作用于可见行的批量操作。工具从上游消失后，配置中保留的条目仍会以“未解析”状态显示，便于修复或删除。预览会显示启用/禁用数量和近似 token 变化；若结果为零个启用工具，应用前必须显式确认。这些元数据变更会通知已连接客户端，无需重启出站服务器。
 

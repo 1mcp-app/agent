@@ -261,9 +261,9 @@ You can now use these tools directly in your conversations with Claude.
 
 1. **Check Disk Space**: Ensure sufficient disk space
 2. **Check Permissions**: Verify write access to backup directory
-3. **Use Force Mode**: Proceed without backup (use with caution)
+3. **Retry the backup**: After fixing disk space or permissions, create a backup without replacing the configuration. `--force` does not skip backup creation.
    ```bash
-   1mcp app consolidate claude-desktop --force --backup-only
+   1mcp app consolidate claude-desktop --backup-only
    ```
 
 #### Proxy Connection Issues

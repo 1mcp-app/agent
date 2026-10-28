@@ -5,7 +5,7 @@ description: 通过已启用的内部管理工具检查和修改后端状态。
 
 # 管理工具
 
-这些 MCP 工具在启用后操作后端状态和配置。访问要求见[内部工具](/zh/reference/internal-tools/)。调用前检查暴露的输入 Schema；MCP 工具名称与选项不是 CLI 子命令。
+这些 MCP 工具在启用后操作后端状态和配置。访问要求见[内部工具](/zh/reference/internal-tools/)。调用前请检查工具提供的输入结构；MCP 工具的名称和选项不同于命令行子命令。
 
 ## mcp_enable 和 mcp_disable
 
@@ -13,7 +13,7 @@ description: 通过已启用的内部管理工具检查和修改后端状态。
 
 ## mcp_list
 
-列出已配置服务器。输入包括 `status`、`transport`、`tags`、`format`、`detailed`、`includeCapabilities`、`includeHealth` 和 `sortBy`。返回状态是一项观测，不保证之后的工具调用成功。
+列出已配置服务器。输入包括 `status`、`transport`、`tags`、`format`、`detailed`、`includeCapabilities`、`includeHealth` 和 `sortBy`。返回状态是检查时的观测结果，不保证之后的工具调用成功。
 
 ## mcp_status
 
@@ -31,7 +31,7 @@ description: 通过已启用的内部管理工具检查和修改后端状态。
 
 编辑由 `name` 指定的一个目标。支持字段包括启动参数、环境变量、URL、请求头、标签、超时和监督设置。`env` 和 `tags` 替换现有值，而不是追加。
 
-使用 `preview: true` 在应用前检查变更。`backup` 控制备份创建；请检查返回的 `backupPath`、警告和 `reloadRecommended`。编辑成功不代表后端就绪。此 API 不提供语法高亮编辑器或批量编辑接口。
+使用 `preview: true` 在应用前检查变更。`backup` 控制备份创建；请检查返回的 `backupPath`、警告和 `reloadRecommended`。编辑成功不代表后端就绪。此接口不提供语法高亮编辑器或批量编辑功能。
 
 ## 验证变更
 

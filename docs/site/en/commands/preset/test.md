@@ -140,19 +140,21 @@ The `preset test` command validates a preset against your current server configu
 
 ```bash
 # Validate all presets before deploying configuration changes
-for preset in $(1mcp preset list --format=names); do
-  echo "Testing $preset..."
-  1mcp preset test $preset
-done
+# List presets, then test each configured name explicitly
+1mcp preset list
+1mcp preset test development
+1mcp preset test production
 ```
 
 ## Integration with Development Workflow
 
 ### After Server Changes
 
+Replace `/absolute/path/server.js` with the path to your server script.
+
 ```bash
 # 1. Modify server configuration (add/remove servers or tags)
-1mcp mcp add newserver --type=stdio --tags=web,api
+1mcp mcp add newserver --type=stdio --tags=web,api -- node /absolute/path/server.js
 
 # 2. Test existing presets to see impact
 1mcp preset test web-services

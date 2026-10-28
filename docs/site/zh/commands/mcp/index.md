@@ -15,7 +15,7 @@ description: 浏览用于添加、维护和检查 1MCP 后端服务器的命令�
 
 ### [setup](/zh/commands/mcp/setup)
 
-使用维护的示例配置 CodeGraph、Code Review Graph 或 Serena：
+使用项目维护的示例配置 CodeGraph、Code Review Graph 或 Serena：
 
 ```bash
 1mcp mcp setup --known codegraph
@@ -99,7 +99,7 @@ description: 浏览用于添加、维护和检查 1MCP 后端服务器的命令�
 
 ### [tokens](/zh/commands/mcp/tokens)
 
-通过连接到服务器并分析其工具、资源和提示来估算 MCP 令牌使用量。
+通过连接到服务器并分析其工具、资源和提示来估算 MCP 词元用量。
 
 ```bash
 1mcp mcp tokens --model=gpt-3.5-turbo --format=summary
@@ -118,7 +118,7 @@ description: 浏览用于添加、维护和检查 1MCP 后端服务器的命令�
 
 ### [restart](/zh/commands/mcp/restart)
 
-在正在运行的聚合运行时中重启静态后端，或重启模板后端的一个或多个活动实例。
+在已启动的聚合运行时中重启静态后端，或重启模板后端的一个或多个活动实例。
 
 ```bash
 1mcp mcp restart my-server

@@ -77,7 +77,7 @@ Demo: 'tag:web' # 仅公共 API
 ```bash
 # 通过 CLI 标志配置
 1mcp --config mcp.json --enable-auth \
-  --rate-limit-window 15 \     # 15 分钟窗口
+  --rate-limit-window 15 \
   --rate-limit-max 100         # 每个窗口 100 个请求
 
 # 或通过环境变量

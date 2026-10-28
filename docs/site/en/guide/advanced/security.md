@@ -86,7 +86,7 @@ Demo: 'tag:web' # Public APIs only
 ```bash
 # Configure via CLI flags
 1mcp --config mcp.json --enable-auth \
-  --rate-limit-window 15 \     # 15 minute window
+  --rate-limit-window 15 \
   --rate-limit-max 100         # 100 requests per window
 
 # Or via environment variables

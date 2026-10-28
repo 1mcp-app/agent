@@ -9,30 +9,30 @@ head:
 
 # 命令参考
 
-这个章节是 CLI 精确查询入口。适合你已经知道要找哪个命令族，只需要看语法、选项或示例的时候使用。
+本章供你按命令组查询准确的语法、选项和示例。
 
-对于 AI agent，推荐路径是 CLI 模式：把 MCP 保留在 `1mcp serve` 背后，然后通过 `instructions`、`inspect`、`run` 做渐进式披露，而不是在 agent loop 里直接暴露整个工具面。
+对于 AI 智能体，推荐使用命令行模式：由 `1mcp serve` 管理 MCP 连接，再通过 `instructions`、`inspect`、`run` 逐步发现并调用工具，避免在智能体的每轮交互中暴露全部工具。
 
-如果你还没有跑通第一次安装或上手流程，先看[快速入门](/zh/guide/quick-start)。
+如果你尚未完成首次安装或使用，请先阅读[快速入门](/zh/guide/quick-start)。
 
 客户端启动钩子通过 `bootstrap` 交付运行时指引。仅在缺少指引或需要刷新时单独运行 `instructions`。检出目录选择和调用方凭证见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。
 
-示例使用已安装的 `1mcp` 命令。请按[安装指南](/zh/guide/installation)将其加入 PATH；该指南也介绍作为替代方式的 `npx`。
+示例使用已安装的 `1mcp` 命令。请按[安装指南](/zh/guide/installation)将其加入 `PATH`；该指南也介绍作为替代方式的 `npx`。
 
 ## 快速参考
 
 ### 主要命令
 
-- **`serve`** - 启动 1MCP 服务器 (默认命令)
+- **`serve`** - 启动 1MCP 服务器（默认命令）
 - **`proxy`** - 启动 STDIO 代理连接到运行中的 1MCP HTTP 服务器
 - **`instructions`** - 显示 CLI 工作流和当前服务器清单
-- **`inspect`** - 列出已暴露的服务器或查看工具 schema
+- **`inspect`** - 列出已暴露的服务器或查看工具输入结构
 - **`run`** - 通过运行中的 1MCP 服务器调用工具
-- **`cli-setup`** - 安装 Codex 或 Claude 的引导 hooks 和启动文档
+- **`cli-setup`** - 安装 Codex 或 Claude 的引导钩子和启动文档
 - **`project`** - 准备后端，释放绑定，排空、检查或恢复检出目录准入
 - **`auth`** - 管理受保护服务器的认证配置
-- **`target`** - 管理已验证的 Runtime Target Context
-- **`admin`** - 管理 Runtime Target Context 的 CLI Admin 会话
+- **`target`** - 管理已验证的运行时目标上下文（Runtime Target Context）
+- **`admin`** - 管理运行时目标上下文的命令行管理会话
 - **`app`** - 管理桌面应用程序 MCP 配置
 - **`mcp`** - 管理 MCP 服务器配置
 - **`preset`** - 管理用于动态过滤的服务器预设
@@ -68,7 +68,7 @@ head:
 
 ### CLI 工作流命令
 
-独立终端会话可按以下命令通过运行中的 `1mcp serve` 实例发现并调用工具。使用钩子的智能体会话应复用 bootstrap 交付的指引，仅在缺少指引或需要刷新时运行 `instructions`。使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。
+独立终端会话可按以下命令通过运行中的 `1mcp serve` 实例发现并调用工具。使用钩子的智能体会话应复用 `bootstrap` 提供的指引，仅在缺少指引或需要刷新时运行 `instructions`。使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 `bootstrap` 输出中的 `--project-owner <own-file>`。每个工作智能体都使用自己的启动上下文和凭证。
 
 ```bash
 1mcp instructions
@@ -77,8 +77,8 @@ head:
 1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
-- **[instructions](/zh/commands/instructions)** - 打印 CLI playbook 和当前服务器清单
-- **[inspect](/zh/commands/inspect)** - 发现工具并查看 schema
+- **[instructions](/zh/commands/instructions)** - 打印命令行操作指引和当前服务器清单
+- **[inspect](/zh/commands/inspect)** - 发现工具并查看输入结构
 - **[run](/zh/commands/run)** - 执行工具调用
 - **[wait](/zh/commands/wait)** - 等待已配置静态服务器连接且可用
 - **[project prepare](/zh/commands/project/prepare)** - 检查就绪状态并管理检出目录的准备任务
@@ -86,15 +86,15 @@ head:
 - **[cli-setup](/zh/commands/cli-setup)** - 安装 Codex 或 Claude 的引导文件
 - **[auth](/zh/commands/auth)** - 管理受保护服务器的认证配置
 
-当 agent 或操作者已经面对一个运行中的 `1mcp serve` 实例时，这一组命令最合适。
+智能体或操作者需要访问已运行的 `1mcp serve` 实例时，可使用这组命令。
 
 ### 为什么会有这些命令
 
 - 直接 MCP 仍然是后端互操作层
-- CLI 模式是面向 agent 的推荐前端工作流
-- `instructions` 提供紧凑清单，而不是一开始就给出庞大的工具面
-- `inspect` 把发现范围缩小到单个 server 和单个 tool
-- `run` 只在确认 schema 后执行
+- 命令行模式是推荐的智能体操作方式
+- `instructions` 提供紧凑清单，而不是一开始就给出全部工具的详细信息
+- `inspect` 把发现范围缩小到单个服务器和单个工具
+- `run` 只在确认输入结构后执行
 
 ### [应用命令](/zh/commands/app/)
 
@@ -150,7 +150,7 @@ head:
 
 ### Runtime Target 和 Admin 会话
 
-当远程运行时需要保存的 bearer 或 Admin 凭据时，使用具名 target。
+需要为远程运行时保存持有者令牌（Bearer token）或管理凭据时，请使用命名目标。
 
 ```bash
 1mcp target add prod https://mcp.example.com/mcp --use
@@ -159,12 +159,12 @@ head:
 1mcp admin login --context prod --username operator
 ```
 
-- **[Runtime Target Context](/zh/commands/target)** - 添加、验证、导入和选择具名 target
+- **[Runtime Target Context](/zh/commands/target)** - 添加、验证、导入和选择命名目标
 - **[Admin 命令](/zh/commands/admin)** - 初始化、登录、检查和撤销 Admin 会话
 
 ### Agent 引导安装
 
-当你希望 Codex 或 Claude 会话自动带上 1MCP 引导文档和 hooks 时，使用 `cli-setup`：
+当你希望 Codex 或 Claude 会话自动加载 1MCP 引导文档和钩子时，使用 `cli-setup`：
 
 ```bash
 1mcp cli-setup --codex
@@ -178,7 +178,7 @@ head:
 1. **[安装指南](/zh/guide/installation)** - 安装 1MCP Agent
 2. **[快速入门](/zh/guide/quick-start)** - 基本设置和第一个服务器
 3. **[Instructions 命令](/zh/commands/instructions)** - 从当前服务器清单开始 CLI 工作流
-4. **[Inspect 命令](/zh/commands/inspect)** - 发现工具并查看 schema
+4. **[Inspect 命令](/zh/commands/inspect)** - 发现工具并查看输入结构
 5. **[Run 命令](/zh/commands/run)** - 通过运行中的服务器执行工具调用
 
 ## 示例

@@ -1,6 +1,6 @@
 ---
 title: 参考
-description: 查找配置、运行时、API 和模板的准确约定。
+description: 查找配置、运行时、接口和模板的准确约定。
 ---
 
 # 参考
@@ -11,7 +11,7 @@ description: 查找配置、运行时、API 和模板的准确约定。
 | ------------ | ------------------------------------------------------------------------------------------------------------------- |
 | 配置         | [MCP 服务器](/zh/reference/mcp-servers)、[代理信任](/zh/reference/trust-proxy)                                      |
 | 运行时与安全 | [架构](/zh/reference/architecture)、[安全模型](/zh/reference/security)                                              |
-| API          | [健康检查](/zh/reference/health-check)、[分页](/zh/reference/pagination)、[内部工具](/zh/reference/internal-tools/) |
+| 接口         | [健康检查](/zh/reference/health-check)、[分页](/zh/reference/pagination)、[内部工具](/zh/reference/internal-tools/) |
 | 后端模板     | [模板语法](/zh/reference/mcp-templates/syntax)                                                                      |
 | 指令模板     | [变量](/zh/reference/instructions-template/variables)、[示例](/zh/reference/instructions-template/examples)         |
 | 选择连接方式 | [功能比较](/zh/reference/feature-comparison)                                                                        |
