@@ -217,10 +217,10 @@ describe('worker bootstrap client contracts', () => {
         if (inputKind === 'tty' || inputKind === 'empty-open-pipe') {
           expect(context).toContain('Explicit Worker Project Assignment: ["/worker"]');
           expect(context).toContain('Verified instructions for explicit worker');
-          expect(context).not.toContain('could not be verified');
+          expect(context).not.toContain('[invalid_hook_input]');
           expect(await fs.readFile(invoked, 'utf8')).toBe('invoked');
         } else {
-          expect(context).toContain('could not be verified');
+          expect(context).toContain('[invalid_hook_input]');
           expect(context).not.toContain('Verified instructions for explicit worker');
           await expect(fs.access(invoked)).rejects.toThrow();
         }
@@ -401,7 +401,7 @@ describe('worker bootstrap client contracts', () => {
       input,
       render,
     );
-    expect(output).toContain('Bootstrap coverage gap');
+    expect(output).toContain('Bootstrap coverage gap [invalid_hook_input]');
     expect(render).not.toHaveBeenCalled();
   });
 
@@ -410,7 +410,7 @@ describe('worker bootstrap client contracts', () => {
     for (const selection of [{ project: ['relative'] }, { project: ['/worker', '/other'] }]) {
       expect(
         await renderBootstrapContext({ client: 'codex', event: 'SubagentStart', ...selection }, '', render),
-      ).toContain('coverage gap');
+      ).toContain('Bootstrap coverage gap [invalid_assignment]');
     }
     expect(render).not.toHaveBeenCalled();
   });
@@ -420,7 +420,7 @@ describe('worker bootstrap client contracts', () => {
     const failed = await renderBootstrapContext(options, '', async () => {
       throw new Error('private secret');
     });
-    expect(failed).toContain('coverage gap');
+    expect(failed).toContain('Bootstrap coverage gap [instructions_failed]');
     expect(failed).not.toContain('private secret');
   });
 
@@ -449,6 +449,26 @@ describe('worker bootstrap client contracts', () => {
 });
 
 describe('owned instructions subprocess', () => {
+  it.each([
+    ['instructions_timeout', 'setInterval(() => {}, 1000)'],
+    ['instructions_failed', 'process.stderr.write("private secret"); process.exit(2)'],
+    ['instructions_empty', ''],
+    ['instructions_unavailable', null],
+  ])('renders a safe recovery category for %s', async (reason, source) => {
+    const output = await renderBootstrapContext(
+      { client: 'codex', event: 'SubagentStart', project: ['/selected'] },
+      '',
+      () =>
+        source === null
+          ? runInstructionsProcess('/nonexistent/1mcp-bootstrap-fixture', [])
+          : runInstructionsProcess(process.execPath, ['-e', source], reason === 'instructions_timeout' ? 100 : 5000),
+    );
+    expect(output).toContain(`Bootstrap coverage gap [${reason}]`);
+    expect(output).toContain('same assignment, runtime and filters');
+    expect(output).toContain('Explicit Worker Project Assignment: ["/selected"]');
+    expect(output).not.toContain('private secret');
+  });
+
   it('keeps every forwarded flaglike value inside its option when parsed by yargs', async () => {
     const values = {
       client: 'codex' as const,

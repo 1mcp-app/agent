@@ -12,6 +12,7 @@ rm -rf build
 
 # Compile TypeScript
 echo "📦 Compiling TypeScript..."
+node scripts/generate-preparation-skill.mjs
 pnpm exec tsc --project tsconfig.build.json
 
 # Resolve path aliases
@@ -23,7 +24,7 @@ node scripts/vendor-legacy-transport.mjs
 
 # Build Admin Console SPA
 echo "🖥️ Building Admin Console SPA..."
-pnpm exec tsc --noEmit --project web/admin/tsconfig.json
+pnpm typecheck:admin
 pnpm exec tsc --noEmit --project web/admin/tsconfig.vite.json
 pnpm exec vite build --config web/admin/vite.config.ts
 

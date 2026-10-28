@@ -9,12 +9,13 @@ import {
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
 import { inspectServersResultSchema, type InspectServerSummary } from '@src/commands/shared/inspectApiSchemas.js';
+import type { ProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 
 import { z } from 'zod';
 
-export interface WaitCommandOptions extends GlobalOptions {
+export interface WaitCommandOptions extends GlobalOptions, ProjectSelectionOptions {
   server?: string;
   url?: string;
   context?: string;

@@ -93,15 +93,12 @@ jobs:
           ONE_MCP_TEST_BINARY: ${{ github.workspace }}/${{ matrix.binary }}
         run: pnpm test:e2e test/e2e/commands/cooperative-runtime.test.ts --retry=0
 
-  # Keep the original branch-protection check names. All six combinations must pass.
+  # All six OS/runtime combinations must pass.
   lifecycle:
-    name: Lifecycle / ${{ matrix.os }} / Node and SEA
+    name: Lifecycle / Node and SEA
     if: always()
     needs: [lifecycle-tests]
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Require Node and SEA lifecycle success
         env:

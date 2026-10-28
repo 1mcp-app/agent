@@ -1,6 +1,6 @@
 import type { InspectCommandOptions } from '@src/commands/inspect/inspect.js';
 import { getInspectResult } from '@src/commands/inspect/inspect.js';
-import type { InspectServerInfo } from '@src/commands/inspect/inspectUtils.js';
+import { type InspectServerInfo, parseInspectTarget } from '@src/commands/inspect/inspectUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
 import {
   attachReusableClientSurface,
@@ -9,6 +9,7 @@ import {
   formatClientSurfaceAuthRequiredMessage,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
+import type { ProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { API_INSTRUCTIONS_ENDPOINT } from '@src/constants/api.js';
 import {
   collectInstructionDetails,
@@ -19,7 +20,8 @@ import type { GlobalOptions } from '@src/globalOptions.js';
 
 import { formatInstructionsOutput } from './instructionsUtils.js';
 
-export interface InstructionsCommandOptions extends GlobalOptions {
+export interface InstructionsCommandOptions extends GlobalOptions, ProjectSelectionOptions {
+  server?: string;
   url?: string;
   context?: string;
   preset?: string;
@@ -33,6 +35,16 @@ function toInspectOptions(options: InstructionsCommandOptions, target?: string):
 }
 
 export async function instructionsCommand(options: InstructionsCommandOptions): Promise<void> {
+  if (options.server !== undefined) {
+    const target = parseInspectTarget(options.server);
+    if (target.kind !== 'server') throw new Error('instructions accepts a server name, not a tool target.');
+    const result = await getInspectResult(toInspectOptions(options, target.serverName), instructionsInspectOptions);
+    if (result.kind !== 'server') throw new Error('Unexpected inspect result for server instructions.');
+    const output = formatSelectedInstructions(result);
+    process.stdout.write(`${output}\n`);
+    return;
+  }
+
   const attachment = await attachReusableClientSurface<InstructionsCommandOptions, InstructionsAttachmentValue>({
     clientSurface: 'instructions',
     version: 'instructions',
@@ -57,6 +69,15 @@ export async function instructionsCommand(options: InstructionsCommandOptions): 
   }
 
   await renderLegacyInstructions(options);
+}
+
+function formatSelectedInstructions(result: InspectServerInfo): string {
+  if (result.instructions?.trim()) return result.instructions;
+  const unavailable = `Instructions unavailable for server ${result.server}: `;
+  if (result.error) return `${unavailable}${result.error}`;
+  if (result.authorizationUrl) return `${unavailable}authorization required at ${result.authorizationUrl}`;
+  if (result.available === false && result.status) return `${unavailable}${result.status}`;
+  return `No instructions available for server: ${result.server}.`;
 }
 
 type InstructionsAttachmentValue =

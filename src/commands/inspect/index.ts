@@ -1,4 +1,5 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
+import { withProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
@@ -8,7 +9,7 @@ export function setupInspectCommand(yargs: Argv): Argv {
     'inspect [target]',
     'Inspect connected servers and tools',
     (commandYargs) =>
-      commandYargs
+      withProjectSelectionOptions(commandYargs)
         .positional('target', {
           describe: 'Inspect target: <server>, <server>/<tool>, or omit to list all servers',
           type: 'string',

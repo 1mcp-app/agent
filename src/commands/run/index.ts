@@ -1,4 +1,6 @@
 import { runCliCommand } from '@src/commands/shared/commandRunner.js';
+import { withProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
+import { DEFAULT_TOOL_CALL_TIMEOUT_MS } from '@src/constants/cliTimeouts.js';
 import { withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
@@ -8,7 +10,7 @@ export function setupRunCommand(yargs: Argv): Argv {
     'run <tool>',
     'Run a tool on a connected server',
     (commandYargs) =>
-      commandYargs
+      withProjectSelectionOptions(commandYargs)
         .positional('tool', {
           describe: 'Tool reference in the format <server>/<tool>',
           type: 'string',
@@ -40,6 +42,11 @@ export function setupRunCommand(yargs: Argv): Argv {
         .option('args', {
           describe: 'Tool arguments as a JSON object',
           type: 'string',
+        })
+        .option('timeout-ms', {
+          describe: 'Tool execution deadline in milliseconds (1–600000; env: ONE_MCP_TIMEOUT_MS)',
+          type: 'number',
+          default: DEFAULT_TOOL_CALL_TIMEOUT_MS,
         })
         .option('format', {
           describe: 'Output format',

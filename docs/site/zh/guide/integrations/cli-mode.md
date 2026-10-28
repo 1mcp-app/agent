@@ -21,6 +21,8 @@ CLI 模式是 1MCP 面向 Codex、Claude 这类 AI agent 的推荐工作流。
 
 对于同一个 agent，CLI 模式不应该和直接 MCP 配置并存。只能二选一。切换到 CLI 模式时，先移除该 agent 现有的 MCP server 配置。
 
+工具契约未变化时，可在当前会话内复用已知的工具参数结构，包括跨项目调用。项目专属指令、就绪状态、授权和目标选择仍需保持有效。信息缺失、能力变化、准备完成或发生相关失败时，应重新检查服务器和工具。不得自动重放失败的工具调用。
+
 ## 为什么会有 CLI 模式
 
 直接把 MCP 挂到 agent 上，兼容性很好，但 agent 会为此承担额外上下文成本：
@@ -55,6 +57,7 @@ CLI 模式把 agent 的工作方式从：
 ```bash
 # 仅在缺少当前目标指引或需要刷新时执行。
 1mcp instructions
+# 清单、指令或工具参数结构缺失或需要刷新时执行检查。
 1mcp inspect <server>
 1mcp inspect <server>/<tool>
 1mcp run <server>/<tool> --args '<json>'

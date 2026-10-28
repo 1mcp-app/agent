@@ -192,6 +192,9 @@ describe('runCommand REST-first path', () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    process.exitCode = undefined;
     vi.unstubAllGlobals();
     await rm(cacheDir, { recursive: true, force: true });
   });
@@ -228,6 +231,124 @@ describe('runCommand REST-first path', () => {
   function makeConnectedServerResponse() {
     return makeRestResponse(200, { kind: 'server', server: 'runner', status: 'connected', available: true });
   }
+
+  it.each([undefined, 120_000])('lets REST tool execution use its own budget (%s)', async (timeoutMs) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let finish!: (value: ReturnType<typeof makeRestResponse>) => void;
+    let signal: AbortSignal | undefined;
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockImplementationOnce((_url: string, init: RequestInit) => {
+      signal = init.signal as AbortSignal;
+      entered();
+      return new Promise((resolve, reject) => {
+        finish = resolve;
+        signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+    const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const { runCommand } = await import('./run.js');
+    const pending = runCommand({
+      tool: 'runner/echo_args',
+      args: '{}',
+      'timeout-ms': timeoutMs,
+      'config-dir': cacheDir,
+    });
+    await started;
+    await vi.advanceTimersByTimeAsync(timeoutMs === undefined ? 10_001 : 30_001);
+    expect(signal?.aborted).toBe(false);
+    finish(makeRestResponse(200, { result: { content: [{ type: 'text', text: 'completed' }] } }));
+    await pending;
+    expect(output).toHaveBeenCalledWith(expect.stringContaining('completed'));
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(transportState.instances).toHaveLength(0);
+  });
+
+  it('reports uncertain tool completion on a REST execution timeout without fallback or replay', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockImplementationOnce((_url: string, init: RequestInit) => {
+      entered();
+      return new Promise((_resolve, reject) => {
+        init.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+    const output = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const { runCommand } = await import('./run.js');
+    const pending = runCommand({
+      tool: 'runner/echo_args',
+      args: '{}',
+      format: 'json',
+      'timeout-ms': 50,
+      'config-dir': cacheDir,
+    });
+    await started;
+    await vi.advanceTimersByTimeAsync(50);
+    await pending;
+    const response = JSON.parse(String(output.mock.calls.at(-1)?.[0]));
+    expect(response.error.data['app.1mcp/failure']).toEqual({
+      kind: 'deadline-exceeded',
+      code: 'cli_tool_execution_timeout',
+    });
+    expect(response.error.message).toContain('may still be running');
+    expect(process.exitCode).toBe(6);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(transportState.instances).toHaveLength(0);
+  });
+
+  it.each(['server discovery', 'schema discovery'] as const)('does not dispatch after a %s timeout', async (phase) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    if (phase === 'schema discovery') mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+    mockFetch.mockImplementationOnce((_url: string, init: RequestInit) => {
+      entered();
+      return new Promise((_resolve, reject) => {
+        init.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+    const output = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const { runCommand } = await import('./run.js');
+    const pending = runCommand({
+      tool: 'runner/echo_args',
+      args: '{}',
+      format: 'json',
+      'timeout-ms': 50,
+      'config-dir': cacheDir,
+    });
+    await started;
+    await vi.advanceTimersByTimeAsync(10_000);
+    await pending;
+    const response = JSON.parse(String(output.mock.calls.at(-1)?.[0]));
+    expect(response.error.data['app.1mcp/failure'].code).toBe(`cli_${phase.replaceAll(' ', '_')}_timeout`);
+    expect(response.error.message).toContain('No tool invocation was dispatched');
+    expect(process.exitCode).toBe(6);
+    expect(mockFetch.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true);
+    expect(transportState.instances).toHaveLength(0);
+  });
+
+  it.each([0, -1, 1.5, 600_001, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid execution budget %s before attachment',
+    async (timeoutMs) => {
+      const { runCommand } = await import('./run.js');
+      await expect(runCommand({ tool: 'runner/echo_args', args: '{}', 'timeout-ms': timeoutMs })).rejects.toThrow(
+        '--timeout-ms',
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(transportState.instances).toHaveLength(0);
+    },
+  );
 
   it.each(['json', 'text', 'toon'] as const)(
     'prints deferred REST preparation in %s without fallback or replay',

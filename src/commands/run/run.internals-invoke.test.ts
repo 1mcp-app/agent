@@ -40,9 +40,11 @@ const transportState = vi.hoisted(() => ({
   },
   sessionIdOnInitialize: 'fresh-session',
   throw404OnMethod: undefined as string | undefined,
+  ignoreMethod: undefined as string | undefined,
   toolName: 'runner_1mcp_echo_args',
   instances: [] as Array<{
     initialSessionId?: string;
+    closed: boolean;
     sentMessages: Array<{ method?: string; params?: Record<string, unknown> }>;
   }>,
 }));
@@ -73,7 +75,11 @@ const mockedTransport = vi.hoisted(() => {
 
     async start(): Promise<void> {}
 
-    async close(): Promise<void> {}
+    closed = false;
+
+    async close(): Promise<void> {
+      this.closed = true;
+    }
 
     setProtocolVersion(_version: string): void {}
 
@@ -83,6 +89,8 @@ const mockedTransport = vi.hoisted(() => {
       if (message.method && transportState.throw404OnMethod === message.method && this.sessionId) {
         throw new MockStreamableHTTPError(404, 'Session not found');
       }
+
+      if (message.method === transportState.ignoreMethod) return;
 
       if (message.id === undefined || !message.method) {
         return;
@@ -164,6 +172,7 @@ describe('run command internals', () => {
     };
     transportState.sessionIdOnInitialize = 'fresh-session';
     transportState.throw404OnMethod = undefined;
+    transportState.ignoreMethod = undefined;
     transportState.toolName = 'runner_1mcp_echo_args';
     transportState.instances = [];
     mockedResolveProjectContext.mockReset();
@@ -177,6 +186,30 @@ describe('run command internals', () => {
   });
 
   describe('invokeTool', () => {
+    it('reports an uncertain execution deadline without replaying the MCP call', async () => {
+      transportState.ignoreMethod = 'tools/call';
+      const response = await invokeTool({
+        serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+        displayToolName: 'runner/echo_args',
+        qualifiedToolName: 'runner_1mcp_echo_args',
+        explicitArgs: '{"message":"hello"}',
+        resolveTool: false,
+        timeoutMs: 20,
+      });
+      expect(response.retryWithFreshSession).toBe(false);
+      expect(response.rawResponse).toMatchObject({
+        error: {
+          message: expect.stringContaining('The tool may still be running'),
+          data: { 'app.1mcp/failure': { kind: 'deadline-exceeded', code: 'cli_tool_execution_timeout' } },
+        },
+      });
+      expect(transportState.instances).toHaveLength(1);
+      expect(
+        transportState.instances[0].sentMessages.filter((message) => message.method === 'tools/call'),
+      ).toHaveLength(1);
+      expect(transportState.instances[0].closed).toBe(true);
+    });
+
     it('initializes a fresh session before calling the tool', async () => {
       const initializeContext = {
         project: { name: 'agent', path: '/tmp/agent' },

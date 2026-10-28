@@ -45,7 +45,6 @@ export async function vendorLegacyTransport(root) {
   const read = (relative) => readFile(path.join(root, relative), 'utf8');
   const manifest = JSON.parse(await read('package.json'));
   if (manifest.dependencies['@modelcontextprotocol/sdk'] !== SDK_VERSION) throw new Error('Legacy SDK pin changed');
-  if (manifest.dependencies['@hono/node-server'] !== '2.0.12') throw new Error('Legacy Node adapter pin changed');
   const patchPath = `patches/@modelcontextprotocol__sdk@${SDK_VERSION}.patch`;
   if (sha256(await read(patchPath)) !== PATCH_HASH) throw new Error('Legacy SDK patch changed');
   const lock = parsePnpmDependencyLockfile(await read('pnpm-lock.yaml'));
@@ -55,16 +54,21 @@ export async function vendorLegacyTransport(root) {
   if (typeof patch === 'object' && patch.path !== patchPath) throw new Error('Legacy SDK patch lock changed');
   const dependencies = lock.importers['.'].dependencies;
   const sdk = dependencies?.['@modelcontextprotocol/sdk'];
-  // Optional terminal-color peers do not change the retained transport or its protocol dependencies.
-  const sdkResolution = sdk?.version?.replace(/\(supports-color@[^()]+\)/gu, '');
   if (sdk?.specifier !== SDK_VERSION) throw new Error('Legacy SDK installation lock changed');
-  if (sdkResolution !== `${SDK_VERSION}(patch_hash=${PATCH_HASH})(zod@4.4.3)`) {
+  if (!sdk.version.startsWith(`${SDK_VERSION}(patch_hash=${PATCH_HASH})`)) {
     throw new Error('Legacy SDK installation lock changed');
   }
-  const adapter = dependencies?.['@hono/node-server'];
-  if (adapter?.specifier !== '2.0.12') throw new Error('Legacy Node adapter installation lock changed');
-  if (adapter.version !== '2.0.12(hono@4.12.34)') {
-    throw new Error('Legacy Node adapter installation lock changed');
+  // Peer versions follow the current lockfile, not the migration's historical snapshot.
+  for (const name of ['@hono/node-server', 'zod']) {
+    const entry = dependencies?.[name];
+    if (!entry || entry.specifier !== manifest.dependencies[name]) {
+      throw new Error(`Dependency manifest/lock mismatch: ${name}`);
+    }
+    const installedPath = path.join(root, 'node_modules', name, 'package.json');
+    const installed = JSON.parse(await readFile(installedPath, 'utf8'));
+    if (installed.version !== entry.version.split('(')[0]) {
+      throw new Error(`Installed dependency/lock mismatch: ${name}`);
+    }
   }
   const workspace = parse(await read('pnpm-workspace.yaml'));
   if (workspace?.patchedDependencies?.[`@modelcontextprotocol/sdk@${SDK_VERSION}`] !== patchPath) {

@@ -263,7 +263,7 @@ describe('test-and-validate workflow', () => {
     expect(unitJob).toMatch(/pnpm test:unit[\s\S]*pnpm test:admin/);
     expect(unitJob).not.toContain('needs:');
     expect(ciJob).toContain('if: always()');
-    expect(ciJob).toContain('needs: [static, unit-admin]');
+    expect(ciJob).toContain('needs: [static, unit-admin, test-protocol]');
     expect(ciJob).toContain('test "$STATIC_RESULT" = success && test "$TEST_RESULT" = success');
     expect(packageJson.scripts['test:e2e:shardable']).toContain('**/cooperative-runtime.test.ts');
     for (const file of ['capability-catalog-eras.test.ts', 'admin-spa-package.e2e.test.ts']) {
@@ -289,7 +289,10 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['ci:static']).toContain('pnpm lint');
     expect(packageJson.scripts['ci:static']).toContain('pnpm typecheck');
     expect(packageJson.scripts['ci:static']).toContain('pnpm build');
-    expect(packageJson.scripts['ci:static']).not.toContain('pnpm test:');
+    expect(packageJson.scripts['ci:static']).toContain('pnpm test:sdk-boundary');
+    for (const command of ['pnpm test:unit', 'pnpm test:admin', 'pnpm test:e2e']) {
+      expect(packageJson.scripts['ci:static']).not.toContain(command);
+    }
     expect(nonBrowserJob).toBeDefined();
     expect(nonBrowserJob).toContain('timeout-minutes: 15');
     expect(nonBrowserJob).not.toContain('needs: ci');
@@ -304,6 +307,10 @@ describe('test-and-validate workflow', () => {
       browserJob!.indexOf('Test browser E2E'),
     );
     expect(browserJob).toContain('timeout-minutes: 15');
+    expect(browserJob).toContain('pnpm test:e2e test/e2e/commands/mcp/mcp-tokens.test.ts --maxWorkers=1 --retry=0');
+    expect(browserJob!.indexOf('Test browser E2E')).toBeLessThan(
+      browserJob!.indexOf('Test token CLI without competing workers'),
+    );
     expect(checkoutCount).toBeGreaterThan(0);
     expect(workflow.match(/persist-credentials: false/g)).toHaveLength(checkoutCount);
   });
@@ -323,12 +330,42 @@ describe('test-and-validate workflow', () => {
     expect(packageJson.scripts['test:e2e:browser']).toContain('browser.e2e.test.ts');
     expect(packageJson.scripts['test:e2e:non-browser']).toContain('--exclude "**/*.browser.e2e.test.ts"');
     expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/serve-background.test.ts"');
+    expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/project-lifecycle.test.ts"');
+    expect(packageJson.scripts['test:e2e:shardable']).toContain('--exclude "**/mcp-tokens.test.ts"');
     expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/commands/serve-background.test.ts');
+    expect(packageJson.scripts['test:e2e:system']).toContain('test/e2e/project-lifecycle.test.ts');
+    expect(packageJson.scripts['test:e2e:system']).toContain('--maxWorkers=1');
+  });
+
+  it('requires protocol regressions without migration evidence machinery', () => {
+    const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
+      jobs: Record<string, { needs?: string[]; steps?: { run?: string }[] }>;
+    };
+    const packageJson = JSON.parse(readRepoFile('package.json')) as { scripts: Record<string, string> };
+    const staticJob = workflow.jobs.static;
+    const productJob = workflow.jobs['test-protocol'];
+    expect(staticJob.needs).toBeUndefined();
+    expect(productJob.needs).toBeUndefined();
+    expect(staticJob.steps?.some((step) => step.run?.includes('conformance'))).toBe(false);
+    expect(packageJson.scripts['test:protocol']).toBe('node scripts/run-protocol.mjs');
+    expect(productJob.steps?.some((step) => step.run?.includes('pnpm test:protocol'))).toBe(true);
+    expect(workflow.jobs.ci.needs).toContain('static');
+    expect(workflow.jobs['release-result'].needs).toEqual(expect.arrayContaining(['static', 'test-protocol']));
+  });
+
+  it('runs every aggregate dependency even for manually dispatched tag refs', () => {
+    const workflow = YAML.parse(readRepoFile('.github/workflows/test-and-validate.yml')) as {
+      jobs: Record<string, { needs?: string[]; if?: string }>;
+    };
+    expect(workflow.jobs.ci.needs).toEqual(['static', 'unit-admin', 'test-protocol']);
+    for (const name of workflow.jobs.ci.needs!) {
+      expect(workflow.jobs[name].if, name).toBeUndefined();
+    }
   });
 
   it('fails aggregate gates when any required job fails, is cancelled, or is skipped', () => {
     for (const [file, job, inputs] of [
-      ['.github/workflows/test-and-validate.yml', 'ci', ['STATIC_RESULT', 'TEST_RESULT']],
+      ['.github/workflows/test-and-validate.yml', 'ci', ['STATIC_RESULT', 'TEST_RESULT', 'PROTOCOL_RESULT']],
       ['.github/workflows/cooperative-runtime.yml', 'lifecycle', ['LIFECYCLE_RESULT']],
     ] as const) {
       const workflow = YAML.parse(readRepoFile(file)) as {

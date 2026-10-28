@@ -123,10 +123,13 @@ description: 验证预设的服务器筛选条件是否符合当前配置。
 
 ### 部署前验证
 
+部署配置变更前，先运行 `1mcp preset list`，再对每个已配置的预设执行 `1mcp preset test <name>`。以下名称仅为示例，请替换为实际的预设名称。
+
 ```bash
-# 在部署配置更改前验证所有预设
-# 列出预设，然后逐一测试已配置的名称
+# 列出已配置的预设
 1mcp preset list
+
+# 测试示例；请对每个已配置的预设重复执行
 1mcp preset test development
 1mcp preset test production
 ```

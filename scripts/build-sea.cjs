@@ -66,6 +66,7 @@ function buildSEA() {
 
     // 2. Build TypeScript
     console.log('📦 Building TypeScript...');
+    execSync('node scripts/generate-preparation-skill.mjs', { stdio: 'inherit' });
     execSync('tsc --project tsconfig.build.json', { stdio: 'inherit' });
     execSync('tsc-alias -p tsconfig.build.json', { stdio: 'inherit' });
     execSync('node scripts/vendor-legacy-transport.mjs', { stdio: 'inherit' });

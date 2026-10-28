@@ -11,6 +11,8 @@ description: 为 Codex 或 Claude 安装 1MCP CLI 模式的引导文档和 hooks
 
 为 Codex 或 Claude 安装 1MCP CLI 的引导文档和钩子配置。
 
+工具契约未变化时，可在当前会话内复用已知的工具参数结构，包括跨项目调用。项目专属指令、就绪状态、授权和目标选择仍需保持有效。信息缺失、能力变化、准备完成或发生相关失败时，应重新检查服务器和工具。不得自动重放失败的工具调用。
+
 ## 概要
 
 ```bash
@@ -24,6 +26,7 @@ description: 为 Codex 或 Claude 安装 1MCP CLI 模式的引导文档和 hooks
 - 受管理的 `1MCP.md` 引导文档
 - 受管理的 `SessionStart`、`SubagentStart` 引导命令钩子及 `SessionEnd` 调用方清理
 - 从 `AGENTS.md` 或 `CLAUDE.md` 指向启动文档的引用
+- `1mcp-preparation-setup` 技能及其后端参考说明
 
 `cli-setup` 不会替代 [`instructions`](/zh/commands/instructions)。它的作用是确保会话准备好按正确顺序使用 `instructions`、`inspect` 和 `run`。
 
@@ -69,6 +72,25 @@ description: 为 Codex 或 Claude 安装 1MCP CLI 模式的引导文档和 hooks
 - Repo hooks：`<repo>/.claude/settings.json`
 - Repo 启动引用：`<repo>/CLAUDE.md`
 
+## 准备配置技能
+
+每次运行 `cli-setup` 都会为选定客户端和范围安装准备配置技能：
+
+| 客户端 | 全局                                       | 仓库                                            |
+| ------ | ------------------------------------------ | ----------------------------------------------- |
+| Codex  | `~/.agents/skills/1mcp-preparation-setup/` | `<repo>/.agents/skills/1mcp-preparation-setup/` |
+| Claude | `~/.claude/skills/1mcp-preparation-setup/` | `<repo>/.claude/skills/1mcp-preparation-setup/` |
+
+Codex 在两种作用域下均使用共享的 `.agents/skills` 目录，其他从该目录发现技能的智能体也可读取同一份安装。Claude 继续使用原生的 `.claude/skills` 目录。现有 `.codex/skills` 中的副本会保留；如果安装过早期预览版本，请确认共享技能已被发现后，检查并手动移除重复副本。
+
+可以对智能体说：“使用 1mcp-preparation-setup 技能，为我的 CodeGraph worktree 配置准备流程。”请求配置后端准备时，智能体也可自动选择此技能。技能支持复用已有配方，也可帮助编写并验证缺失的配方。CodeGraph、Code Review Graph 和 Serena 的参考说明依赖具体版本，并非内置的生产配方。
+
+已安装的 npm 包或独立二进制均可离线安装该技能。安装不会启用准备、安装后端依赖或修改 `mcp.json`。启用与验证流程见[后端准备](/zh/guide/backend-preparation)。
+
+再次运行 `cli-setup` 可更新技能。输出区分 `installed`、`updated`、`unchanged` 和 `conflict`。技能目录内的 `.1mcp-managed.json` 记录受管理文件的哈希。未被修改的受管理文件可更新；本地修改、已删除的受管理文件、来源未知的同名安装和符号链接目标会被保留并报告冲突，其他设置文件仍会完成。解决冲突前请单独保存自定义技能，将冲突技能目录移出安装位置后重新运行设置。无关文件会被保留。
+
+安装锁防止多个安装进程同时写入。更新中断后，日志支持续传，不会将安装程序已经写入的内容误判为本地修改。若日志中的新增文件缺失，安装器无法区分写入中断和用户删除，因此会保留文件缺失状态并报告冲突。如果终止的进程在技能旁留下 `.install-lock` 目录，请先确认没有安装程序运行，再移走该锁并重新执行设置。不要移除仍在运行的安装程序的锁。
+
 ## 示例
 
 ### 安装全局 Codex 配置
@@ -98,9 +120,9 @@ description: 为 Codex 或 Claude 安装 1MCP CLI 模式的引导文档和 hooks
 受管理的启动文档会告诉客户端：
 
 1. 如果当前会话尚未通过 hooks 注入最新内容，就先执行 `1mcp instructions`
-2. 不知道提供方或工具时，可先执行 `1mcp inspect --search <query>`（也可指定服务器）；已知目标时直接检查
-3. 在选择工具前执行 `1mcp inspect <server>` 并阅读适用的服务器指令
-4. 在调用工具前先执行 `1mcp inspect <server>/<tool>`
+2. 不知道提供方或工具时，可先执行 `1mcp inspect --search <query>`（也可指定服务器）；已知目标时跳过发现步骤
+3. 缺少服务器指令时执行 `1mcp instructions <server>`，并阅读适用的服务器指令
+4. 工具参数结构未知时执行 `1mcp inspect <server>/<tool>`
 5. 只有在确认 schema 之后才执行 `1mcp run <server>/<tool> --args '<json>'`
 
 搜索默认使用不区分大小写的字面子串匹配。使用带引号的 `--search 'filesystem/*read?' --glob` 可按 `*`/`?` 对整个引用匹配。`--include-descriptions` 将有效描述纳入匹配；`--show-descriptions` 独立控制描述显示。
@@ -130,6 +152,8 @@ Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选�
 不使用项目集合时，只分配一个绝对 checkout 路径。使用 `--project-set` 时，可重复传入 `--project` 选择有序成员标签，并覆盖定义中可选的 `selection`。受支持的 Codex 宿主在手动重试时通过已有私有线程定位记录解析所有者，无需所有者参数。Bootstrap 将工作代理分配记录为默认目标，后续 `instructions`、`inspect` 和 `run` 调用可省略项目参数。单次覆盖不会改变默认目标。多个项目的分配要求对 checkout 专属工具明确选择 checkout；单项目工具由 agent 协调分别调用。获取指令时参数通过 argv 传递，不经过 shell。定义格式和后端目标契约参见 [项目 Checkout 与集合](/zh/guide/project-checkouts)。
 
 ## 验证钩子交付
+
+引导覆盖缺口包含稳定的原因分类。`invalid_hook_input` 表示钩子输入不完整、无效或事件不匹配；`invalid_assignment` 表示客户端、事件或项目选择无效；`assignment_unresolved` 表示工作代理仍缺少明确分配的目标。修正后再运行 bootstrap。`instructions_timeout`、`instructions_unavailable`、`instructions_failed` 和 `instructions_empty` 分别标识指令子进程超时、不可用、执行失败和输出为空。检查运行时可用性，再使用相同分配、运行时和筛选条件运行 `1mcp instructions`。诊断不会回显钩子输入、子进程标准错误或任意异常文本。这些分类仅描述指令交付，不证明所有权清理或后端就绪。
 
 生成钩子配置不证明客户端已经启用或信任它、钩子实际执行、运行时可用或目标 checkout 索引就绪。应检查客户端在两个事件中实际收到 `additionalContext`。禁用或未信任的钩子、因包含注释而保留未修改的配置、运行时失败和未解决的 worker 分配都属于引导覆盖缺口。项目工具调用前先解决缺口；setup 不会自动开启钩子或修改信任设置。
 

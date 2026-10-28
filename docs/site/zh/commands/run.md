@@ -7,6 +7,8 @@ description: 使用 run 命令针对运行中的 1MCP serve 实例调用 MCP 工
 
 通过运行中的 1MCP `serve` 实例调用 MCP 工具。
 
+工具契约未变化时，可在当前会话内复用已知的工具参数结构，包括跨项目调用。项目专属指令、就绪状态、授权和目标选择仍需保持有效。信息缺失、能力变化、准备完成或发生相关失败时，应重新检查服务器和工具。不得自动重放失败的工具调用。
+
 ## 概要
 
 ```bash
@@ -18,12 +20,12 @@ description: 使用 run 命令针对运行中的 1MCP serve 实例调用 MCP 工
 `run` 是 CLI 工作流中的执行步骤：
 
 1. 阅读 bootstrap 已交付的指引；仅在缺少指引或需要刷新时运行 [`instructions`](/zh/commands/instructions)
-2. 再运行 [`inspect`](/zh/commands/inspect) 查看工具和工具 schema
-3. 最后运行 `run` 调用目标工具
+2. 缺少服务器指令时运行 `1mcp instructions <server>`；服务器清单、能力或工具参数结构缺失或需要刷新时运行 [`inspect`](/zh/commands/inspect)
+3. 根据适用的服务器指令和已知工具参数结构，运行 `run` 调用目标工具
 
 `run` 会连接到运行中的 `1mcp serve` 实例，透传 preset 和标签过滤，并把工具输出写入 stdout。错误只写入 stderr，因此适合脚本和管道。
 
-独立终端会话先用 `instructions` 发现可用服务器。使用钩子的智能体会话应复用 bootstrap 指引，仅在缺少指引或需要刷新时运行 `instructions`。两种流程都应先检查服务器和具体工具 schema，再调用工具。
+独立终端会话先用 `instructions` 发现可用服务器。使用钩子的智能体会话应复用 bootstrap 指引，仅在缺少指引或需要刷新时运行 `instructions`。两种流程都应先阅读适用的服务器指令，并使用已知的工具参数结构调用工具。
 
 在 REST-to-MCP 回退前，`run` 会检查面向客户端的 inspect 状态。仍在加载的后端会返回 `server_loading` 和 `1mcp wait <server>`，而不会收到提前 MCP 调用。失败或取消的后端返回 `server_unavailable`；OAuth 门控后端会返回授权指引。
 
@@ -47,6 +49,18 @@ description: 使用 run 命令针对运行中的 1MCP serve 实例调用 MCP 工
 - 如果 stdin 是 JSON 对象，就直接作为工具参数使用
 - 否则会先查看工具 schema，再将 stdin 映射到第一个必填字符串参数
 
+### 执行超时
+
+- **`--timeout-ms <毫秒>`** - 等待工具执行的最长时间（默认：`30000`；整数范围：`1`–`600000`）。可通过 `ONE_MCP_TIMEOUT_MS` 设置环境默认值；显式命令行参数优先。
+
+REST 和 MCP 调用使用相同的执行时限。服务器发现和模式发现保留各自的时限。此选项限制调用方的等待时间，不会延长后端自身的执行时限。
+
+超时错误会注明发生在服务器发现、模式发现还是工具执行阶段，并以退出码 `6` 结束。执行超时意味着结果尚不确定：工具可能仍在运行。重试前请先核实执行结果。执行超时后，CLI 不会切换传输方式或重复调用工具。
+
+```bash
+1mcp run analyzer/analyze --args '{"path":"./src"}' --timeout-ms 120000
+```
+
 ### 输出选项
 
 - **`--format <toon|json|text|compact>`** - 输出格式
@@ -66,7 +80,7 @@ description: 使用 run 命令针对运行中的 1MCP serve 实例调用 MCP 工
 
 共用规则见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。受支持的 Codex 会话自动使用已验证所有者和分配项目。Claude 和不支持自动查找所有者的宿主需提供自己的 bootstrap `--project-owner <own-file>`。相关调用应保持显式目标覆盖一致。
 
-对于已配置的 CodeGraph 后端，先针对所选检出目录检查服务器和工具 schema，再使用相同目标执行查询。将目录路径替换为实际检出目录；如果它已是分配的默认目标，可省略 `--project`：
+对于已配置的 CodeGraph 后端，信息缺失或需要刷新时，针对所选检出目录检查服务器和工具参数结构，再使用相同目标执行查询。将目录路径替换为实际检出目录；如果它已是分配的默认目标，可省略 `--project`：
 
 ```bash
 1mcp run codegraph/codegraph_explore --project /work/backend-feature --args '{"query":"Where are the API routes defined?"}'

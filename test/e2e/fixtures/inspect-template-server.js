@@ -1,10 +1,15 @@
 #!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, PingRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 class InspectTemplateServer {
   constructor() {
+    if (process.env.INSPECT_START_MARKER) {
+      appendFileSync(process.env.INSPECT_START_MARKER, `${process.pid}\n`, { mode: 0o600 });
+    }
     this.runtimeValue = process.argv[2] ?? null;
     this.server = new Server(
       {
@@ -23,28 +28,33 @@ class InspectTemplateServer {
   }
 
   setupHandlers() {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
-        {
-          name: 'find_symbol',
-          description: 'Find code symbols by name path pattern.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              name_path_pattern: {
-                type: 'string',
-                description: 'The symbol pattern to search for.',
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+      if (process.env.INSPECT_LIST_MARKER) {
+        appendFileSync(process.env.INSPECT_LIST_MARKER, 'list\n', { mode: 0o600 });
+      }
+      return {
+        tools: [
+          {
+            name: 'find_symbol',
+            description: 'Find code symbols by name path pattern.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                name_path_pattern: {
+                  type: 'string',
+                  description: 'The symbol pattern to search for.',
+                },
+                relative_path: {
+                  type: 'string',
+                  description: 'Optional file or directory restriction.',
+                },
               },
-              relative_path: {
-                type: 'string',
-                description: 'Optional file or directory restriction.',
-              },
+              required: ['name_path_pattern'],
             },
-            required: ['name_path_pattern'],
           },
-        },
-      ],
-    }));
+        ],
+      };
+    });
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;

@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+
+import { startConformanceMock } from '../fixtures/typescript/test/mock-peer.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -86,68 +88,45 @@ await writeFile(${JSON.stringify(pidsPath)},JSON.stringify([process.pid,child.pi
   }
 }, 15_000);
 
-it('runs pinned request-state checks through the real owned grant while retaining the final SDK rejection', async () => {
+it('preserves request state and isolates interleaved operations through the authenticated gateway', async () => {
   const root = process.cwd();
-  const scratch = await mkdtemp(join(tmpdir(), 'official-client-request-state-'));
-  const wrapper = join(scratch, 'wire-wrapper.mjs');
-  const capturePath = join(scratch, 'wire.json');
-  const statuses = join(scratch, 'statuses');
-  const output = join(scratch, 'official');
-  // This owned tap observes the selected mock peer. Both directions retain
-  // their original streaming bytes, response status and headers.
-  await writeFile(
-    wrapper,
-    ownedWireWrapper(
+  const scratch = await mkdtemp(join(tmpdir(), 'gateway-request-state-'));
+  const names = ['test_mrtr_echo_state', 'test_mrtr_no_state', 'test_mrtr_unrelated', 'test_mrtr_no_result_type'];
+  const mock = await startConformanceMock('2026-07-28', {
+    tools: names.map((name) => ({ name, inputSchema: { type: 'object' } })),
+    requestState: true,
+  });
+  try {
+    await execFileAsync(
+      process.execPath,
       [
         join(root, 'test/conformance/foundation/officialClientBridge.mjs'),
         join(root, 'test/conformance/fixtures/typescript/src/fixture.mjs'),
         join(root, 'build/index.js'),
-        statuses,
+        join(scratch, 'statuses'),
+        mock.endpoint,
       ],
-      capturePath,
-    ),
-  );
-  try {
-    await expect(
-      execFileAsync(
-        process.execPath,
-        [
-          join(root, 'node_modules/@modelcontextprotocol/conformance/dist/index.js'),
-          'client',
-          '--scenario',
-          'sep-2322-client-request-state',
-          '--spec-version',
-          '2026-07-28',
-          '--command',
-          `${process.execPath} ${wrapper}`,
-          '--output-dir',
-          output,
-        ],
-        { cwd: root, timeout: 40_000 },
-      ),
-    ).rejects.toMatchObject({ code: 1 });
-    const reports = await readdir(output);
-    expect(reports).toHaveLength(1);
-    const checks = JSON.parse(await readFile(join(output, reports[0], 'checks.json'), 'utf8'));
-    expect(checks.map((check: { id: string; status: string }) => ({ id: check.id, status: check.status }))).toEqual(
-      expect.arrayContaining([
-        { id: 'sep-2322-client-request-state-echoed', status: 'SUCCESS' },
-        { id: 'sep-2322-client-jsonrpc-id-different', status: 'SUCCESS' },
-        { id: 'sep-2322-client-no-state-omitted', status: 'SUCCESS' },
-        { id: 'sep-2322-client-parallel-isolation', status: 'SUCCESS' },
-        { id: 'sep-2322-default-result-type-complete', status: 'SUCCESS' },
-      ]),
-    );
-    expect(checks).toHaveLength(5);
-    expect(await readdir(statuses)).toEqual(['sep-2322-client-request-state.json']);
-    expect(JSON.parse(await readFile(join(statuses, 'sep-2322-client-request-state.json'), 'utf8'))).toEqual({
-      scenario: 'sep-2322-client-request-state',
-      status: 'gateway-rejected',
+      {
+        cwd: root,
+        timeout: 40_000,
+        env: {
+          ...process.env,
+          CODEX_SESSION_ID: '',
+          CODEX_THREAD_ID: '',
+          MCP_CONFORMANCE_SCENARIO: 'sep-2322-client-request-state',
+          MCP_CONFORMANCE_PROTOCOL_VERSION: '2026-07-28',
+        },
+      },
+    ).catch(async (error: Error) => {
+      const status = await readFile(join(scratch, 'statuses', 'sep-2322-client-request-state.json'), 'utf8').catch(
+        () => 'no status',
+      );
+      throw new Error(`${error.message}; status=${status}`);
     });
-    const frames = JSON.parse(await readFile(capturePath, 'utf8'));
-    expect(frames.every((frame: { authorizationPresent: boolean }) => !frame.authorizationPresent)).toBe(true);
-    const calls = frames.filter((frame: { method?: string }) => frame.method === 'tools/call');
-    expect(calls.map((frame: { name: string }) => frame.name)).toEqual([
+    const calls = mock.requests.filter(
+      ({ message }: { message: { method: string } }) => message.method === 'tools/call',
+    );
+    expect(calls.map(({ message }: { message: { params: { name: string } } }) => message.params.name)).toEqual([
       'test_mrtr_echo_state',
       'test_mrtr_unrelated',
       'test_mrtr_echo_state',
@@ -155,11 +134,20 @@ it('runs pinned request-state checks through the real owned grant while retainin
       'test_mrtr_no_state',
       'test_mrtr_no_result_type',
     ]);
-    expect(calls[2]).toMatchObject({ requestStatePresent: true, inputResponsesPresent: true });
-    expect(calls[2].id).not.toBe(calls[0].id);
-    expect(calls[4]).toMatchObject({ requestStatePresent: false, inputResponsesPresent: true });
-    expect(calls[5]).toMatchObject({ resultType: 'absent', requestStatePresent: false, inputResponsesPresent: false });
+    expect(calls[2].message.params).toMatchObject({
+      requestState: 'opaque-state',
+      inputResponses: { confirmation: { action: 'accept' } },
+    });
+    expect(calls[2].message.id).not.toBe(calls[0].message.id);
+    expect(calls[1].message.params).not.toHaveProperty('requestState');
+    expect(calls[4].message.params).toHaveProperty('inputResponses');
+    expect(calls[4].message.params).not.toHaveProperty('requestState');
+    expect(calls[5].message.params).not.toHaveProperty('requestState');
+    expect(
+      mock.requests.every(({ headers }: { headers: Record<string, unknown> }) => headers.authorization === undefined),
+    ).toBe(true);
   } finally {
+    await mock.close();
     await rm(scratch, { recursive: true, force: true });
   }
 }, 45_000);

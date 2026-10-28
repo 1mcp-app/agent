@@ -3,6 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { formatInstructionsOutput } from './instructionsUtils.js';
 
 describe('instructionsUtils', () => {
+  it('shows an unqueried inventory as unknown instead of an empty tool list', () => {
+    const server = { server: 'cold', type: 'template', toolCount: 0, toolCountKnown: false, hasInstructions: false };
+    const output = formatInstructionsOutput({ servers: [server], details: [server] });
+
+    expect(output).toContain('tools: unknown');
+    expect(output).not.toContain('tools: 0');
+  });
+
   it('formats the CLI playbook, summary blocks, and tagged server instruction payloads', () => {
     const output = formatInstructionsOutput({
       servers: [
@@ -57,7 +65,7 @@ describe('instructionsUtils', () => {
 
     expect(output).toContain('1MCP CLI Instructions');
     expect(output).toContain('=== PLAYBOOK ===');
-    expect(output).toContain('Run `1mcp inspect <server>`');
+    expect(output).toContain('Run `1mcp instructions <server>`');
     expect(output).toContain('1mcp auth login --context <name> --token <token>');
     expect(output).not.toContain('1mcp auth login --url');
     expect(output).toContain('=== SERVER SUMMARY ===');

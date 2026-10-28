@@ -45,6 +45,28 @@ describe('ApiClient', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('keeps the request deadline active while reading a slow response body', async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    mockFetch.mockImplementationOnce(async (_url: string, init: RequestInit) => {
+      signal = init.signal as AbortSignal;
+      return {
+        ...makeResponse(200, {}),
+        json: () =>
+          new Promise((_resolve, reject) => {
+            signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+          }),
+      };
+    });
+    const pending = new ApiClient({ baseUrl: 'http://localhost:3050', timeout: 50 }).get('/api/inspect');
+
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(signal?.aborted).toBe(true);
+    expect(await pending).toMatchObject({ ok: false, status: 0, timedOut: true });
   });
 
   it('makes a GET request with query params', async () => {

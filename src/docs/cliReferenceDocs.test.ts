@@ -30,7 +30,7 @@ describe('CLI reference documentation', () => {
 
       for (const page of readMarkdownFiles(`docs/site/${locale}`)) {
         if (page === installation) continue;
-        expect(page).not.toMatch(/npx(?:\s+-y)?\s+@1mcp\/agent|["']@1mcp\/agent["']/);
+        expect(page).not.toMatch(/npx(?:\s+(?:-y|--yes))?\s+@1mcp\/agent|["']@1mcp\/agent["']/);
       }
     }
   });

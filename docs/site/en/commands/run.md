@@ -17,6 +17,8 @@ head:
 
 Call an MCP tool against a running 1MCP `serve` instance.
 
+Reuse known tool schemas within the session, including across projects, when the tool contract is unchanged. Keep project-specific instructions, readiness, authorization, and target selection current. Refresh server and tool inspection when information is missing, capabilities change, preparation completes, or relevant failures occur. Never automatically replay failed tool calls.
+
 ## Synopsis
 
 ```bash
@@ -28,12 +30,12 @@ Call an MCP tool against a running 1MCP `serve` instance.
 The `run` command is the execution step in the CLI workflow:
 
 1. Read the guidance delivered by bootstrap, or run [`instructions`](/commands/instructions) if it is missing or needs refreshing
-2. Run [`inspect`](/commands/inspect) to list tools and inspect tool schemas
-3. Run `run` to invoke the selected tool
+2. Read missing server instructions with `1mcp instructions <server>`; use [`inspect`](/commands/inspect) when server inventory, capabilities, or tool schemas are missing or need refreshing
+3. Run `run` using applicable server instructions and the known tool schema
 
 `run` talks to a running `1mcp serve` instance, forwards preset and tag filters, and prints tool output to stdout. Errors are written to stderr only so the command stays pipe-friendly.
 
-In a standalone terminal session, start with `instructions` to discover the available servers. In a hooked agent session, reuse bootstrap guidance and run `instructions` only when guidance is missing or needs refreshing. In both cases, inspect the server and exact tool schema before invoking the tool.
+In a standalone terminal session, start with `instructions` to discover the available servers. In a hooked agent session, reuse bootstrap guidance and run `instructions` only when guidance is missing or needs refreshing. In both cases, read applicable server instructions and use a known tool schema before invoking the tool.
 
 Before a REST-to-MCP fallback, `run` checks the client-facing inspect status. A loading backend returns `server_loading` and `1mcp wait <server>` rather than receiving an early MCP invocation. Failed or cancelled backends return `server_unavailable`; an OAuth-gated backend returns authorization guidance.
 
@@ -57,6 +59,18 @@ If `--args` is omitted and stdin is provided, `run` tries to map stdin automatic
 - If stdin is a JSON object, it is used as the tool arguments
 - Otherwise, stdin is mapped into the first required string argument after schema inspection
 
+### Execution Deadline
+
+- **`--timeout-ms <milliseconds>`** - Maximum time to wait for tool execution (default: `30000`; integer range: `1`–`600000`). Set `ONE_MCP_TIMEOUT_MS` for the environment default; an explicit flag takes precedence.
+
+The same execution budget applies to REST and MCP calls. Server and schema discovery keep their separate budgets. This option bounds the caller's wait; it does not extend a backend's own deadline.
+
+A timeout reports whether it occurred during server discovery, schema discovery, or tool execution and exits with code `6`. An execution timeout leaves the outcome uncertain: the tool may still be running. Check its outcome before retrying. The CLI does not switch transports or replay a tool after an execution timeout.
+
+```bash
+1mcp run analyzer/analyze --args '{"path":"./src"}' --timeout-ms 120000
+```
+
 ### Output Options
 
 - **`--format <toon|json|text|compact>`** - Output format
@@ -76,7 +90,7 @@ If `--args` is omitted and stdin is provided, `run` tries to map stdin automatic
 
 See [Project and owner options](/guide/project-checkouts#project-and-owner-options) for shared rules. Supported Codex sessions use their verified owner and assigned project automatically. Claude and hosts without automatic owner lookup must supply their own bootstrap `--project-owner <own-file>`. Keep explicit target overrides consistent across related calls.
 
-For a configured CodeGraph backend, first inspect the server and tool schema for the selected checkout. Then run a query with the same selection. Replace the checkout path with your actual checkout; omit `--project` when it is already your assigned default:
+For a configured CodeGraph backend, inspect the server and tool schema for the selected checkout when that information is missing or needs refreshing. Then run a query with the same selection. Replace the checkout path with your actual checkout; omit `--project` when it is already your assigned default:
 
 ```bash
 1mcp run codegraph/codegraph_explore --project /work/backend-feature --args '{"query":"Where are the API routes defined?"}'

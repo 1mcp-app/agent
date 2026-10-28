@@ -38,6 +38,72 @@ describe('cli setup file writers', () => {
     expect(() => resolveCliSetupScope('workspace')).toThrow('Invalid cli-setup scope: workspace');
   });
 
+  it.each(['global', 'repo', 'all'] as const)(
+    'installs the complete skill for both clients in %s scope',
+    async (scope) => {
+      const root = path.join(process.cwd(), '.tmp-test', `cli-skill-${scope}-${Date.now()}`);
+      tempRoots.push(root);
+      const home = path.join(root, 'home');
+      const repo = path.join(root, 'repo');
+      vi.spyOn(os, 'homedir').mockReturnValue(home);
+      const results = await writeCliSetupFiles({ repoRoot: repo, scope, targets: ['codex', 'claude'] });
+      for (const location of scope === 'all' ? ['global', 'repo'] : [scope]) {
+        for (const client of ['codex', 'claude']) {
+          const base = location === 'global' ? home : repo;
+          const directory = client === 'codex' ? '.agents' : '.claude';
+          const skill = path.join(base, directory, 'skills/1mcp-preparation-setup');
+          expect(results).toContainEqual(expect.objectContaining({ path: skill, kind: 'skill', status: 'installed' }));
+          for (const file of [
+            'SKILL.md',
+            'references/codegraph.md',
+            'references/code-review-graph.md',
+            'references/serena.md',
+          ]) {
+            expect(await readFile(path.join(skill, file), 'utf8')).toBe(
+              await readFile(path.join(process.cwd(), 'skills/1mcp-preparation-setup', file), 'utf8'),
+            );
+          }
+        }
+      }
+      const repeated = await writeCliSetupFiles({ repoRoot: repo, scope, targets: ['codex', 'claude'] });
+      expect(
+        repeated.filter((result) => result.kind === 'skill').every((result) => result.status === 'unchanged'),
+      ).toBe(true);
+    },
+  );
+
+  it('preserves legacy Codex skills while installing in the shared global directory', async () => {
+    const home = path.join(process.cwd(), '.tmp-test', `cli-skill-legacy-${Date.now()}`);
+    tempRoots.push(home);
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+    const legacy = path.join(home, '.codex/skills/1mcp-preparation-setup');
+    await mkdir(legacy, { recursive: true });
+    await writeFile(path.join(legacy, 'SKILL.md'), 'custom legacy skill');
+
+    const results = await writeCliSetupFiles({ repoRoot: home, scope: 'global', targets: ['codex'] });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        path: path.join(home, '.agents/skills/1mcp-preparation-setup'),
+        status: 'installed',
+      }),
+    );
+    expect(await readFile(path.join(legacy, 'SKILL.md'), 'utf8')).toBe('custom legacy skill');
+  });
+
+  it.each(['global', 'repo'] as const)('preserves shared skill conflicts in %s scope', async (scope) => {
+    const root = path.join(process.cwd(), '.tmp-test', `cli-skill-conflict-${Date.now()}`);
+    tempRoots.push(root);
+    vi.spyOn(os, 'homedir').mockReturnValue(root);
+    const skill = path.join(root, '.agents/skills/1mcp-preparation-setup');
+    await mkdir(skill, { recursive: true });
+    await writeFile(path.join(skill, 'SKILL.md'), 'custom');
+    const results = await writeCliSetupFiles({ repoRoot: root, scope, targets: ['codex'] });
+    expect(formatCliSetupOutput(results)).toContain('(conflict: Existing skill');
+    expect(await readFile(path.join(skill, 'SKILL.md'), 'utf8')).toBe('custom');
+    expect(await readFile(path.join(root, '.codex/1MCP.md'), 'utf8')).toContain('1MCP');
+  });
+
   it.each(['codex', 'claude'] as const)(
     'installs bounded %s SessionEnd cleanup without treating Stop as termination',
     (target) => {
@@ -92,7 +158,7 @@ describe('cli setup file writers', () => {
 
     expect(content).toContain('If this session already received the current 1MCP instructions content from hooks');
     expect(content).toContain('Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.');
-    expect(content).toContain('Run `1mcp inspect <server>` before selecting a tool');
+    expect(content).toContain('Run `1mcp instructions <server>` when its instructions are missing');
   });
 
   it.each(['global', 'repo', 'all'] as const)(
@@ -148,7 +214,7 @@ describe('cli setup file writers', () => {
         expect(content).toContain('--search "filesystem/*read?" --glob');
         expect(content).toContain('`--include-descriptions` also matches effective descriptions');
         expect(content).toContain('`--show-descriptions` independently displays descriptions');
-        expect(content).toContain('When the target is known, inspect it directly');
+        expect(content).toContain('When the target is known, skip discovery');
         expect(content.indexOf('read its applicable instructions')).toBeLessThan(
           content.indexOf('1mcp inspect <server>/<tool>'),
         );

@@ -1,3 +1,4 @@
+import importlib.metadata
 import asyncio
 import json
 import shutil
@@ -153,7 +154,7 @@ def test_self_check_uses_imported_sdk_version() -> None:
         "roles": ["client", "server"],
         "transports": ["stdio", "streamable-http"],
         "unsupportedProfiles": ["retained-http-sse", "protocol-2024-10-07"],
-        "version": "2.2.0",
+        "version": importlib.metadata.version("mcp"),
     }
 
 

@@ -138,10 +138,13 @@ The `preset test` command validates a preset against your current server configu
 
 ### Pre-deployment Validation
 
+Run `1mcp preset list`, then repeat `1mcp preset test <name>` for every configured preset before deploying configuration changes. The names below are examples; replace them with your actual preset names.
+
 ```bash
-# Validate all presets before deploying configuration changes
-# List presets, then test each configured name explicitly
+# List configured presets
 1mcp preset list
+
+# Example tests; repeat for every configured preset
 1mcp preset test development
 1mcp preset test production
 ```

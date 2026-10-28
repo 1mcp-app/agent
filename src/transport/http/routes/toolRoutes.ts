@@ -4,6 +4,7 @@ import {
 } from '@src/application/backendPreparationAdmission.js';
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
+import { CapabilityCursorCapacityError } from '@src/core/capabilities/capabilityPagination.js';
 import {
   type CapabilityVisibility,
   createCapabilityVisibility,
@@ -324,17 +325,21 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         return;
       }
       const { tool: toolRef, args: toolArgs = {} } = parsed.data;
-      const requestSessionId = await initializeRequestContextForApi(serverManager, req, res);
-
       const target = parseTarget(toolRef);
       if (!target || target.kind !== 'tool') {
         res.status(400).json({ error: 'Invalid tool reference. Use "server/tool" format.' });
         return;
       }
 
+      const requestSessionId = await initializeRequestContextForApi(serverManager, req, res, target.serverName);
       const projectContext = requestSessionId
         ? serverManager.getTemplateServerManager?.().getBindingContext?.(requestSessionId)
         : undefined;
+      let bindingCurrent: (() => boolean) | undefined;
+      if (projectContext && requestSessionId) {
+        const bindingId = requestSessionId;
+        bindingCurrent = () => Boolean(serverManager.getTemplateServerManager?.().getBindingContext?.(bindingId));
+      }
       const targetConfig = getServerConfigs()[target.serverName];
       if (projectContext) {
         try {
@@ -475,6 +480,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           validateOutput.assertCurrent();
           if (resolved.connection.adapter !== adapter || !snapshot.isCurrent() || controller.signal.aborted)
             throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+          if (bindingCurrent && !bindingCurrent()) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
           const upstreamResult = await requestLegacyAdapter(
             adapter,
             'tools/call',
@@ -520,19 +526,71 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       }
 
       if (hasCatalogAccess(lazyOrchestrator)) {
+        const connections = serverManager.getClients();
+        const candidates =
+          visibility?.serverCandidates ??
+          new Map(
+            Array.from(
+              createConnectionResolver(connections, getTemplateHashProvider(serverManager)).filterForSession(
+                requestSessionId,
+              ),
+              ([key, connection]) => [key, connection.name],
+            ),
+          );
+        const selectedVisibility = {
+          ...visibility,
+          ...createCapabilityVisibility(
+            Array.from(candidates).filter(([, name]) => name === target.serverName),
+            requestSessionId,
+            visibility?.filterSelection,
+          ),
+        };
+        let snapshot: Awaited<ReturnType<typeof acquireRuntimeCapabilityCatalog>>;
+        try {
+          snapshot = await acquireRuntimeCapabilityCatalog(connections, selectedVisibility, {
+            serverConfigs: getServerConfigs(),
+            signal: controller.signal,
+          });
+        } catch (error) {
+          if (error instanceof CapabilityCursorCapacityError) {
+            res.status(503).json({ error: error.message, code: 'gateway_overloaded' });
+            return;
+          }
+          throw error;
+        }
+        if (snapshot.hasFailedSources('tools')) {
+          res.status(503).json({ error: `Tool inventory not available: ${target.serverName}` });
+          return;
+        }
+        if (selectedVisibility.serverCandidates.size > 0) {
+          const connected = Array.from(selectedVisibility.serverCandidates.keys()).some(
+            (key) => connections.get(key)?.status === ClientStatus.Connected,
+          );
+          if (!connected) {
+            res.status(503).json({ error: `Server not connected: ${target.serverName}` });
+            return;
+          }
+        }
+        const toolRegistry = ToolRegistry.fromCapabilitySnapshot(snapshot);
         const catalog = new CapabilityCatalog({
-          getToolRegistry: () => lazyOrchestrator.getToolRegistry(),
+          getToolRegistry: () => toolRegistry,
           schemaCache: lazyOrchestrator.getSchemaCache(),
           outboundConnections: serverManager.getClients(),
           getServerConfigs,
           templateHashProvider: getTemplateHashProvider(serverManager),
         });
+        let beforeDispatch = preparation.kind === 'ready' ? preparation.beforeDispatch : undefined;
+        if (!beforeDispatch && bindingCurrent) {
+          const assertCurrent = bindingCurrent;
+          beforeDispatch = async () => ({ assertCurrent });
+        }
         const catalogResult = await catalog.invokeVisibleTool(
           { server: target.serverName, toolName: target.toolName, args: toolArgs },
-          visibility,
+          selectedVisibility,
           {
+            toolRegistry,
             signal: controller.signal,
-            beforeDispatch: preparation.kind === 'ready' ? preparation.beforeDispatch : undefined,
+            beforeDispatch,
           },
         );
         if (!catalogResult.error) {
@@ -618,9 +676,10 @@ async function initializeRequestContextForApi(
   serverManager: ServerManager,
   req: Request,
   res: Response,
+  serverName?: string,
 ): Promise<string | undefined> {
   const filterConfig = buildFilterConfig(res);
-  const result = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+  const result = await ensureRequestContextInitialized(serverManager, req, res, filterConfig, serverName);
   if (result) {
     return result;
   }

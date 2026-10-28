@@ -42,9 +42,9 @@ describe('globalOptions', () => {
     },
   );
 
-  it('parses repeated project selectors as labels', () => {
-    const args = yargs(['--project', 'frontend', '--project', 'backend']).options(globalOptions).parseSync();
-    expect(args.project).toEqual(['frontend', 'backend']);
+  it('does not expose project selectors globally', () => {
+    expect(globalOptions).not.toHaveProperty('project');
+    expect(globalOptions).not.toHaveProperty('project-set');
   });
 
   it('does not expose registry command options globally', () => {

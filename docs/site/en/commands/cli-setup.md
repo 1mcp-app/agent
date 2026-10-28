@@ -21,6 +21,8 @@ For a complete setup-to-cleanup walkthrough, see [Working Across Projects and Wo
 
 Install 1MCP CLI hooks and reference files for Codex or Claude.
 
+Reuse known tool schemas within the session, including across projects, when the tool contract is unchanged. Keep project-specific instructions, readiness, authorization, and target selection current. Refresh server and tool inspection when information is missing, capabilities change, preparation completes, or relevant failures occur. Never automatically replay failed tool calls.
+
 ## Synopsis
 
 ```bash
@@ -34,6 +36,7 @@ The `cli-setup` command installs lightweight bootstrap files that point Codex or
 - A managed `1MCP.md` bootstrap document
 - Managed `SessionStart` and `SubagentStart` bootstrap command hooks, plus `SessionEnd` caller cleanup
 - A startup file reference from `AGENTS.md` or `CLAUDE.md`
+- The `1mcp-preparation-setup` skill and its backend references
 
 `cli-setup` does not replace [`instructions`](/commands/instructions). It makes sure the session is prepared to use `instructions`, `inspect`, and `run` in the right order.
 
@@ -79,6 +82,25 @@ Passing neither or both returns an error.
 - Repo hooks: `<repo>/.claude/settings.json`
 - Repo startup reference: `<repo>/CLAUDE.md`
 
+## Preparation setup skill
+
+Every `cli-setup` invocation installs the preparation skill in the selected client and scope:
+
+| Client | Global                                     | Repository                                      |
+| ------ | ------------------------------------------ | ----------------------------------------------- |
+| Codex  | `~/.agents/skills/1mcp-preparation-setup/` | `<repo>/.agents/skills/1mcp-preparation-setup/` |
+| Claude | `~/.claude/skills/1mcp-preparation-setup/` | `<repo>/.claude/skills/1mcp-preparation-setup/` |
+
+Codex uses the shared `.agents/skills` directory in both scopes, so other agents that discover skills there can read the same installation. Claude keeps its native `.claude/skills` directory. Existing copies under `.codex/skills` are left untouched; if you installed an earlier preview, review and remove that duplicate manually after confirming the shared skill is discovered.
+
+Ask your agent to “Use the 1mcp-preparation-setup skill to configure preparation for my CodeGraph worktree.” The skill is also available for automatic selection when you ask to configure backend preparation. It can reuse supplied recipes or help author and verify a missing recipe. It includes version-sensitive guidance for CodeGraph, Code Review Graph, and Serena; these are not bundled production recipes.
+
+Installation works offline from an installed npm package or standalone binary. It does not enable preparation, install backend dependencies, or change `mcp.json`. See [Backend preparation](/guide/backend-preparation) for activation and verification.
+
+Rerun `cli-setup` to refresh the skill. Output reports `installed`, `updated`, `unchanged`, or `conflict`. A skill-local `.1mcp-managed.json` records managed file hashes. Unchanged managed files can be updated; local edits, removed managed files, unknown same-name installations, and symlink destinations are preserved and reported as conflicts. Other setup files still complete. To resolve a conflict, retain your custom skill separately and move the conflicting skill directory out of the install location before rerunning setup. Unrelated files are preserved.
+
+An installation lock prevents concurrent writers. Interrupted upgrades retain a journal and can resume without treating installer-written bytes as local edits. A missing newly added file in that journal is reported as a conflict: setup cannot tell an interrupted write from a user deletion, so it preserves the missing file. If a terminated process leaves an `.install-lock` directory beside the skill, confirm that no installer is running before moving that lock aside and rerunning setup. Never remove an active installer’s lock.
+
 ## Examples
 
 ### Install Global Codex Setup
@@ -108,10 +130,10 @@ When `--codex` is used, the command also prints a required `config.toml` snippet
 The managed startup docs tell the client to:
 
 1. Run `1mcp instructions` unless the current session already received those instructions from hooks
-2. If the provider or tool is unknown, optionally use `1mcp inspect --search <query>` (or add a server target); otherwise inspect the known target directly
-3. Run `1mcp inspect <server>` and read the applicable server instructions before picking a tool
-4. Run `1mcp inspect <server>/<tool>` before invocation
-5. Run `1mcp run <server>/<tool> --args '<json>'` only after inspecting the schema
+2. If the provider or tool is unknown, optionally use `1mcp inspect --search <query>` (or add a server target); skip discovery when the target is already known
+3. Run `1mcp instructions <server>` when its instructions are missing; read the applicable server instructions
+4. Run `1mcp inspect <server>/<tool>` when the schema is not already known
+5. Run `1mcp run <server>/<tool> --args '<json>'` using the known schema
 
 Search defaults to case-insensitive literal substring matching. Use a quoted `--search 'filesystem/*read?' --glob` pattern for whole-reference `*`/`?` matching. `--include-descriptions` adds effective descriptions to matching; `--show-descriptions` independently displays them.
 
@@ -140,6 +162,8 @@ For the Claude example, replace `/private/your-worker-owner.json` with that work
 Without a project set, assign exactly one absolute checkout path. With `--project-set`, repeated `--project` values select ordered member labels and override the definition's optional saved `selection`. On supported Codex hosts the manual retry resolves the existing private thread locator without an owner flag. Bootstrap records the worker assignment as its default. Subsequent `instructions`, `inspect`, and `run` calls can omit project selectors. A per-call override does not change the default. A multi-project assignment requires explicit checkout selection for checkout-specific tools; coordinate separate calls for tools that accept one project. Arguments are passed to the runtime-facing instructions command without a shell. See [Project Checkouts and Sets](/guide/project-checkouts) for the definition format and backend target contracts.
 
 ## Verify Hook Delivery
+
+Bootstrap coverage gaps include a stable category. `invalid_hook_input` means the hook input was incomplete, invalid, or for a different event; `invalid_assignment` means the client/event or project selection is invalid; `assignment_unresolved` means a worker still needs its dispatch target. Correct these before rerunning bootstrap. `instructions_timeout`, `instructions_unavailable`, `instructions_failed`, and `instructions_empty` identify instruction-subprocess failures. Check runtime availability and rerun `1mcp instructions` with the same assignment, runtime, and filters. Diagnostics do not echo hook input, subprocess stderr, or arbitrary exception text. These categories describe instruction delivery, not proof of ownership cleanup or backend readiness.
 
 Writing hook configuration does not establish that the client enabled or trusted it, that a hook executed, or that the selected runtime and checkout index are ready. Verify the client actually receives `additionalContext` for both events. Disabled, untrusted, commented configuration files that setup leaves untouched, runtime failures, and unresolved worker assignments are bootstrap coverage gaps. Resolve the reported gap before project-specific tool use. Setup does not enable hooks or change trust automatically.
 

@@ -9,6 +9,7 @@ import {
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
 import { inspectSearchResultSchema, inspectToolsPageSchema } from '@src/commands/shared/inspectApiSchemas.js';
+import type { ProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import {
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
@@ -39,7 +40,7 @@ import {
 type InspectMcpValue = Awaited<ReturnType<typeof inspectTools>>;
 type InspectAttachmentValue = InspectMcpValue | { result: InspectResult };
 
-export interface InspectCommandOptions extends GlobalOptions {
+export interface InspectCommandOptions extends GlobalOptions, ProjectSelectionOptions {
   url?: string;
   context?: string;
   preset?: string;
@@ -194,6 +195,11 @@ export async function getInspectResult(
     options,
     rest: (context) => tryInspectRest(context, includeServerInstructions),
     mcp: async (context) => {
+      const target = parseInspectTarget(context.options.target);
+      // Legacy MCP manuals arrive only during initialization, not on tools/list.
+      if (includeServerInstructions && context.options.search === undefined && target.kind === 'server') {
+        if (!context.sendInitialize) return { status: 'stale_session' as const };
+      }
       const response = await inspectTools({
         serverUrl: context.serverUrl,
         sessionId: context.sessionId,
@@ -205,7 +211,6 @@ export async function getInspectResult(
       if ('error' in response.rawResponse && !response.retryWithFreshSession) {
         throw new InspectCommandError(response.rawResponse.error.message);
       }
-      const target = parseInspectTarget(context.options.target);
       const shouldRetryWithFreshSession =
         response.retryWithFreshSession ||
         (!!context.cachedSession?.sessionId &&
@@ -271,6 +276,9 @@ export async function getInspectResult(
           available: data.available === true && (status === 'connected' || status === 'unknown'),
         };
       }
+    }
+    if (refreshedApiResponse.status === 503) {
+      throw new InspectCommandError(refreshedApiResponse.error || 'Server returned HTTP 503');
     }
     if (refreshedApiResponse.status === 401 || refreshedApiResponse.status === 403) {
       throw new InspectCommandError('Authorization failed while inspecting tools.');
@@ -427,11 +435,7 @@ async function tryInspectRest(
 
   const isMissingInspectEndpoint =
     apiResponse.status === 404 && (!apiResponse.error || apiResponse.error === 'HTTP 404');
-  const canFallbackToMcp =
-    isMissingInspectEndpoint ||
-    apiResponse.status === 405 ||
-    apiResponse.status === 0 ||
-    ((target.kind === 'server' || target.kind === 'tool') && apiResponse.status === 503);
+  const canFallbackToMcp = isMissingInspectEndpoint || apiResponse.status === 405 || apiResponse.status === 0;
 
   if (!canFallbackToMcp) {
     return { status: 'error', message: apiResponse.error || `Server returned HTTP ${apiResponse.status}` };

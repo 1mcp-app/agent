@@ -11,7 +11,7 @@ import {
   validateToolArgs,
 } from '@src/commands/run/runUtils.js';
 import { formatUpstreamEofGuidance } from '@src/commands/run/upstreamEofGuidance.js';
-import { ApiClient } from '@src/commands/shared/apiClient.js';
+import { ApiClient, DEFAULT_API_TIMEOUT_MS } from '@src/commands/shared/apiClient.js';
 import {
   attachReusableClientSurface,
   type ClientSurfaceAttachmentContext,
@@ -24,18 +24,25 @@ import {
   inspectServerResultSchema,
   inspectToolResultSchema,
 } from '@src/commands/shared/inspectApiSchemas.js';
+import type { ProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import {
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
+  ServeRequestTimeoutError,
   StreamableServeClient,
 } from '@src/commands/shared/serveClient.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
+import { DEFAULT_TOOL_CALL_TIMEOUT_MS, MAX_TOOL_CALL_TIMEOUT_MS } from '@src/constants/cliTimeouts.js';
 import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
 import {
   createGatewayFailure,
+  gatewayFailure,
+  type GatewayFailure,
   gatewayFailureExitCode,
   gatewayFailureFromMcpError,
   gatewayFailureToMcp,
+  type GatewayResult,
+  gatewaySuccess,
 } from '@src/gateway/contracts/gatewayFailure.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
@@ -79,7 +86,7 @@ function schemaPreflightError(code: string) {
   );
 }
 
-export interface RunCommandOptions extends GlobalOptions {
+export interface RunCommandOptions extends GlobalOptions, ProjectSelectionOptions {
   url?: string;
   context?: string;
   preset?: string;
@@ -89,6 +96,7 @@ export interface RunCommandOptions extends GlobalOptions {
   format?: RunOutputFormat;
   raw?: boolean;
   'max-chars'?: number;
+  'timeout-ms'?: number;
   args?: string;
   tool: string;
 }
@@ -107,7 +115,34 @@ interface RunAttachmentValue {
   response: Awaited<ReturnType<typeof invokeTool>>;
 }
 
+type RunTimeoutPhase = 'server discovery' | 'schema discovery' | 'tool execution';
+
+function requestTimeoutFailure(phase: RunTimeoutPhase, timeoutMs: number): GatewayFailure {
+  const outcome =
+    phase === 'tool execution'
+      ? 'The tool may still be running. Inspect its outcome before retrying.'
+      : 'No tool invocation was dispatched.';
+  return createGatewayFailure({
+    kind: 'deadline-exceeded',
+    code: `cli_${phase.replaceAll(' ', '_')}_timeout`,
+    message: `Timed out during ${phase} after ${timeoutMs}ms. ${outcome}`,
+  });
+}
+
+function failureResponse(failure: GatewayFailure): Awaited<ReturnType<typeof invokeTool>> {
+  return {
+    rawResponse: { jsonrpc: '2.0', id: 0, error: gatewayFailureToMcp(failure) },
+    retryWithFreshSession: false,
+  };
+}
+
+const toolTimeoutSchema = z.number().int().min(1).max(MAX_TOOL_CALL_TIMEOUT_MS).default(DEFAULT_TOOL_CALL_TIMEOUT_MS);
+
 export async function runCommand(options: RunCommandOptions): Promise<void> {
+  const timeout = toolTimeoutSchema.safeParse(options['timeout-ms']);
+  if (!timeout.success)
+    throw new RunCommandInputError(`--timeout-ms must be an integer from 1 to ${MAX_TOOL_CALL_TIMEOUT_MS}.`);
+  const timeoutMs = timeout.data;
   const toolReference = parseToolReference(options.tool);
   const format = options.raw ? 'json' : options.format || 'toon';
   const maxChars = options['max-chars'] ?? 2000;
@@ -117,7 +152,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
     version: 'run',
     options,
     alwaysTryRest: true,
-    rest: async (context) => tryRunRest(context, options, toolReference, await stdinPromise),
+    rest: async (context) => tryRunRest(context, options, toolReference, timeoutMs, await stdinPromise),
     mcp: async (context) => {
       const stdinText = await stdinPromise;
       const response = await invokeTool({
@@ -132,6 +167,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
         initializeContext: context.context,
         initializeContextProof: context.contextProof,
         sendInitialize: context.sendInitialize,
+        timeoutMs,
       });
       return response.retryWithFreshSession
         ? { status: 'stale_session' as const, observed: response }
@@ -173,6 +209,7 @@ async function tryRunRest(
   context: ClientSurfaceAttachmentContext<RunCommandOptions>,
   options: RunCommandOptions,
   toolReference: ReturnType<typeof parseToolReference>,
+  timeoutMs: number,
   stdinText?: string,
 ): Promise<ClientSurfaceRestResponse<RunAttachmentValue>> {
   const apiClient = new ApiClient({
@@ -198,10 +235,12 @@ async function tryRunRest(
     return statusResponse;
   }
 
-  const toolInfo =
+  const lookup =
     (needsSchemaForStdin && restArgs === null) || needsSchemaForValidation
       ? await fetchToolInfoFromApi(apiClient, toolReference, options.tool, context.options)
-      : null;
+      : gatewaySuccess<InspectToolInfo | null>(null);
+  if (!lookup.ok) return { status: 'success', value: { response: failureResponse(lookup.failure) } };
+  const toolInfo = lookup.value;
 
   if (restArgs === null && !toolInfo) {
     return { status: 'fallback', reason: 'mcp_required' };
@@ -249,15 +288,25 @@ async function tryRunRest(
     server: string;
     tool: string;
     error?: { type: string; message: string };
-  }>(restEndpoint, {
-    tool: options.tool,
-    args: resolvedArguments,
-    _meta: {
-      context: context.context,
-      ...(context.contextProof ? { contextProof: context.contextProof } : {}),
+  }>(
+    restEndpoint,
+    {
+      tool: options.tool,
+      args: resolvedArguments,
+      _meta: {
+        context: context.context,
+        ...(context.contextProof ? { contextProof: context.contextProof } : {}),
+      },
     },
-  });
+    { timeout: timeoutMs },
+  );
 
+  if (apiResponse.timedOut) {
+    return {
+      status: 'success',
+      value: { response: failureResponse(requestTimeoutFailure('tool execution', timeoutMs)) },
+    };
+  }
   if (apiResponse.status === 401 || apiResponse.status === 403) {
     return {
       status: 'auth_required',
@@ -309,6 +358,13 @@ async function checkServerStatus(
     ...buildFilterSelectionQuery(options),
     target: serverName,
   });
+
+  if (apiResponse.timedOut) {
+    return {
+      status: 'success',
+      value: { response: failureResponse(requestTimeoutFailure('server discovery', DEFAULT_API_TIMEOUT_MS)) },
+    };
+  }
 
   if (apiResponse.ok) {
     const parsed = inspectServerResultSchema.safeParse(apiResponse.data);
@@ -415,32 +471,36 @@ async function fetchToolInfoFromApi(
   toolReference: ReturnType<typeof parseToolReference>,
   displayToolName: string,
   options: RunCommandOptions,
-): Promise<InspectToolInfo | null> {
+): Promise<GatewayResult<InspectToolInfo | null>> {
   const apiResponse = await apiClient.get<unknown>(API_INSPECT_ENDPOINT, {
     ...buildFilterSelectionQuery(options),
     target: displayToolName,
   });
 
+  if (apiResponse.timedOut) return gatewayFailure(requestTimeoutFailure('schema discovery', DEFAULT_API_TIMEOUT_MS));
+
   if (!apiResponse.ok) {
     if (!apiResponse.ok && apiResponse.status !== 404) {
       logger.debug('run.fetchtoolinfofromapi.unexpected.response.status.4118cbd7', { status: apiResponse.status });
     }
-    return null;
+    return gatewaySuccess(null);
   }
   const parsed = inspectToolResultSchema.safeParse(apiResponse.data);
   if (!parsed.success) {
     logger.debug('run.fetchtoolinfofromapi.invalid.inspect.response.a4a8e463');
-    return null;
+    return gatewaySuccess(null);
   }
 
-  return extractInspectToolInfo(
-    {
-      name: parsed.data.qualifiedName,
-      description: parsed.data.description,
-      inputSchema: parsed.data.inputSchema,
-      outputSchema: parsed.data.outputSchema,
-    } as Tool,
-    toolReference,
+  return gatewaySuccess(
+    extractInspectToolInfo(
+      {
+        name: parsed.data.qualifiedName,
+        description: parsed.data.description,
+        inputSchema: parsed.data.inputSchema,
+        outputSchema: parsed.data.outputSchema,
+      } as Tool,
+      toolReference,
+    ),
   );
 }
 
@@ -465,6 +525,7 @@ export async function invokeTool(options: {
   initializeContext?: ContextData;
   initializeContextProof?: import('@src/core/context/templateContextTrust.js').TemplateContextProof;
   sendInitialize?: boolean;
+  timeoutMs?: number;
 }): Promise<{
   rawResponse: JsonRpcResponse<CallToolResult>;
   sessionId?: string;
@@ -572,13 +633,18 @@ export async function invokeTool(options: {
     }
 
     toolDispatchStarted = true;
-    const response = await client.callTool(options.qualifiedToolName, resolvedArguments.arguments);
+    const response = await client.callTool(options.qualifiedToolName, resolvedArguments.arguments, options.timeoutMs);
     return {
       rawResponse: toJsonValue(response) as unknown as JsonRpcResponse<CallToolResult>,
       sessionId: client.sessionId,
       retryWithFreshSession: false,
     };
   } catch (error) {
+    if (error instanceof ServeRequestTimeoutError) {
+      if (toolDispatchStarted) return failureResponse(requestTimeoutFailure('tool execution', error.timeoutMs));
+      const phase = error.method === 'initialize' ? 'server discovery' : 'schema discovery';
+      return failureResponse(requestTimeoutFailure(phase, error.timeoutMs));
+    }
     if (!toolDispatchStarted && hasHttpErrorCode(error, 404) && options.sessionId) {
       return {
         rawResponse: {
