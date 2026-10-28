@@ -16,8 +16,9 @@ export function configureProductTelemetryBootstrap(options: GlobalOptions): void
     testSuppressed,
     ci: parseEnvironmentBoolean(environment.CI),
     doNotTrack: parseEnvironmentBoolean(environment.DO_NOT_TRACK),
-    processEnabled: options['product-telemetry'],
-    ciEnabled: options['product-telemetry-ci'],
+    // Hook parsers intentionally disable general environment option parsing.
+    processEnabled: options['product-telemetry'] ?? optionalEnvironmentBoolean(environment.ONE_MCP_PRODUCT_TELEMETRY),
+    ciEnabled: options['product-telemetry-ci'] ?? optionalEnvironmentBoolean(environment.ONE_MCP_PRODUCT_TELEMETRY_CI),
   };
 }
 
@@ -37,4 +38,9 @@ export function getProductCollectionPolicy(): Readonly<CollectionPolicy> {
 
 export function productCollectionEnabled(): boolean {
   return collectionEnabled(policy);
+}
+
+function optionalEnvironmentBoolean(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  return parseEnvironmentBoolean(value);
 }

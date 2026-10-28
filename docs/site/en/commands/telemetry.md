@@ -17,6 +17,8 @@ head:
 
 Use `telemetry` to inspect or change this OS user's Product Usage Telemetry.
 
+For a plain-language explanation of collected data, identity, retention and opt-out, read [Privacy and Product Usage Telemetry](/guide/privacy).
+
 ```bash
 1mcp telemetry status
 1mcp telemetry status --json
