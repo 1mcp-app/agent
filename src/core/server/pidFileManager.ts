@@ -5,7 +5,13 @@ import logger from '@src/logger/logger.js';
 
 import { z } from 'zod';
 
-import { type ProcessIdentity, processIdentitySchema, readProcessIdentity } from './processIdentity.js';
+import {
+  type ProcessIdentity,
+  processIdentitySchema,
+  readProcessIdentity,
+  type UnavailableIdentityEvidence,
+  unavailableIdentityEvidenceSchema,
+} from './processIdentity.js';
 
 /**
  * Server information stored in PID file
@@ -13,6 +19,8 @@ import { type ProcessIdentity, processIdentitySchema, readProcessIdentity } from
 export interface ServerPidInfo {
   pid: number;
   processIdentity?: ProcessIdentity;
+  /** Explicitly degraded evidence; never treated as proof of ownership. */
+  identityEvidence?: UnavailableIdentityEvidence;
   ownerClaimId?: string;
   url: string;
   port: number;
@@ -39,6 +47,7 @@ export interface ServerPidInfo {
 export const serverPidInfoSchema = z.object({
   pid: z.number().int().positive(),
   processIdentity: processIdentitySchema.optional(),
+  identityEvidence: unavailableIdentityEvidenceSchema.optional(),
   url: z.string().min(1),
   port: z.number().int().min(1).max(65535),
   host: z.string().min(1),
@@ -105,12 +114,17 @@ export function writePidFile(configDir: string, serverInfo: ServerPidInfo): void
     // Write PID file atomically: write to a sibling temp file then rename into
     // place (rename is atomic on POSIX). Concurrent readers — racing `serve
     // --status` / discovery — never observe a half-written, unparseable file.
+    // `serve` passes the claim's single evidence read (available or explicitly
+    // unavailable) so startup never pays for a second OS probe.
+    const inheritedEvidence = serverInfo.identityEvidence;
+    const processIdentity = serverInfo.ownerClaimId
+      ? undefined
+      : (serverInfo.processIdentity ?? (inheritedEvidence ? undefined : readProcessIdentity(serverInfo.pid)));
     const content = JSON.stringify(
       {
         ...serverInfo,
-        processIdentity: serverInfo.ownerClaimId
-          ? undefined
-          : (serverInfo.processIdentity ?? readProcessIdentity(serverInfo.pid)),
+        processIdentity,
+        identityEvidence: processIdentity ? undefined : inheritedEvidence,
       },
       null,
       2,
@@ -200,19 +214,33 @@ export function cleanupPidFile(configDir: string): boolean {
 }
 
 /**
- * Delete the PID file only if it still matches the expected PID or full record.
- * Lifecycle callers pass the full record to also match birth evidence and startup time.
+ * Whether `current` still describes the runtime generation captured by
+ * `expected`. A generation is pinned by PID, claim ID, and start time; identity
+ * is late-binding evidence, so it is compared only when the captured record
+ * already carries it and repair may have filled it in since.
+ */
+export function pidRecordMatchesGeneration(current: ServerPidInfo | null, expected: ServerPidInfo): boolean {
+  if (!current) return false;
+  if (current.pid !== expected.pid) return false;
+  if (current.ownerClaimId !== expected.ownerClaimId) return false;
+  if (current.startedAt !== expected.startedAt) return false;
+  if (expected.processIdentity === undefined) return true;
+  return JSON.stringify(current.processIdentity) === JSON.stringify(expected.processIdentity);
+}
+
+/**
+ * Delete the PID file only if it still describes the expected runtime record.
  * Guards against a
  * time-of-check/time-of-use race: between reading a stale/dead PID and deleting
  * the file, a new runtime may have written a fresh PID file in the same scope.
  * Deleting unconditionally would strand that live runtime (undiscoverable to
- * later `--status`/`--stop`). Re-reading and matching the PID prevents that.
+ * later `--status`/`--stop`). Re-reading and matching the generation prevents
+ * that; a numeric-PID match alone never authorizes removal.
  *
  * @returns true if the file was removed or is already gone/replaced; false if a
  *   matching file existed but could not be deleted.
  */
-export function cleanupPidFileIfMatches(configDir: string, expected: number | ServerPidInfo): boolean {
-  const expectedPid = typeof expected === 'number' ? expected : expected.pid;
+export function cleanupPidFileIfMatches(configDir: string, expected: ServerPidInfo): boolean {
   let current: ServerPidInfo | null;
   try {
     current = readPidFile(configDir);
@@ -222,15 +250,8 @@ export function cleanupPidFileIfMatches(configDir: string, expected: number | Se
     }
     throw error;
   }
-  if (
-    !current ||
-    current.pid !== expectedPid ||
-    (typeof expected !== 'number' &&
-      (current.ownerClaimId !== expected.ownerClaimId ||
-        current.startedAt !== expected.startedAt ||
-        JSON.stringify(current.processIdentity) !== JSON.stringify(expected.processIdentity)))
-  ) {
-    // Already gone, or replaced by a newer runtime — leave it untouched.
+  if (!pidRecordMatchesGeneration(current, expected)) {
+    // Already gone, or a different generation — leave it untouched.
     return true;
   }
   return cleanupPidFile(configDir);

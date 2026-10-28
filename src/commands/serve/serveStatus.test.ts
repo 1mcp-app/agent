@@ -127,7 +127,26 @@ describe('serveStatus', () => {
       expect(text).toContain('URL: http://localhost:3050/mcp');
       expect(text).toContain('Started: 2026-06-26T00:00:00.000Z');
       expect(text).toContain('Log file: /tmp/server.log');
+      expect(text).toContain('Identity evidence:');
       expect(text).toContain('Readiness (/health/ready): ready');
+    });
+
+    it('reports degraded identity evidence in status output', () => {
+      const text = formatRuntimeStatusReport({
+        status: 'running',
+        configDir: testConfigDir,
+        info: baseInfo({
+          processIdentity: undefined,
+          identityEvidence: {
+            status: 'unavailable',
+            code: 'ETIMEDOUT',
+            elapsedMs: 3000,
+            at: '2026-06-26T00:00:00.000Z',
+          },
+        }),
+      });
+
+      expect(text).toContain('Identity evidence: unavailable (ETIMEDOUT, 3000ms)');
     });
 
     it('distinguishes alive-but-not-ready from running', async () => {
