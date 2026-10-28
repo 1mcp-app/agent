@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { INSPECTION_GUIDANCE } from '@src/core/instructions/inspectionGuidance.js';
 
+import { fromMarkdown } from 'mdast-util-from-markdown';
 import { z } from 'zod';
 
 import { PREPARATION_GUIDANCE } from './preparationGuidance.js';
@@ -240,15 +241,59 @@ export function upsertStartupDocManagedBlock(existingContent: string, managedBlo
   }
 
   const withoutLegacyBlocks = normalizedExisting.replace(LEGACY_MANAGED_BLOCK_PATTERN, '');
-  const remainingLines = withoutLegacyBlocks
-    .split('\n')
-    .filter((line) => !managedReferenceAliases.has(line.trim()))
-    .join('\n')
-    .trimEnd();
+  const { codeLines, unclosedFenceLine } = findStartupDocCode(withoutLegacyBlocks);
+  let foundReference = false;
+  const updatedLines = withoutLegacyBlocks.split('\n').flatMap((line, index) => {
+    if (codeLines.has(index)) return [line];
+    if (!managedReferenceAliases.has(line.trim())) return [line];
+    if (foundReference) return [];
+
+    foundReference = true;
+    return [line.trim() === referenceLine ? line : referenceLine];
+  });
+
+  if (foundReference) return updatedLines.join('\n');
+
+  if (unclosedFenceLine !== undefined) {
+    updatedLines.splice(unclosedFenceLine, 0, referenceLine);
+    return updatedLines.join('\n');
+  }
+
+  const remainingLines = updatedLines.join('\n').trimEnd();
 
   if (remainingLines.length === 0) {
     return `${referenceLine}\n`;
   }
 
   return `${remainingLines}\n${referenceLine}\n`;
+}
+
+function findStartupDocCode(content: string): { codeLines: Set<number>; unclosedFenceLine?: number } {
+  const tree = fromMarkdown(content);
+  const codeLines = new Set<number>();
+  let unclosedFenceLine: number | undefined;
+
+  function visit(node: (typeof tree.children)[number], blockStart: number): void {
+    if (node.type === 'code' || node.type === 'inlineCode') {
+      const position = node.position!;
+      for (let line = position.start.line - 1; line < position.end.line; line++) codeLines.add(line);
+
+      if (node.type !== 'code') return;
+      if (position.end.offset! < content.trimEnd().length) return;
+      const sourceLines = content.slice(position.start.offset, position.end.offset).split('\n');
+      const marker = /^(`{3,}|~{3,})/.exec(sourceLines[0])?.[0];
+      if (!marker) return;
+      const closingFence = new RegExp(`^\\s*${marker[0]}{${marker.length},}[ \\t]*$`);
+      if (sourceLines.length > 1 && closingFence.test(sourceLines.at(-1)!)) return;
+      unclosedFenceLine = blockStart;
+      return;
+    }
+
+    if ('children' in node) {
+      for (const child of node.children) visit(child, blockStart);
+    }
+  }
+
+  for (const node of tree.children) visit(node, node.position!.start.line - 1);
+  return { codeLines, unclosedFenceLine };
 }
