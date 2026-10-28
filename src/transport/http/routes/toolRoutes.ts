@@ -562,6 +562,15 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           res.status(503).json({ error: `Tool inventory not available: ${target.serverName}` });
           return;
         }
+        if (selectedVisibility.serverCandidates.size > 0) {
+          const connected = Array.from(selectedVisibility.serverCandidates.keys()).some(
+            (key) => connections.get(key)?.status === ClientStatus.Connected,
+          );
+          if (!connected) {
+            res.status(503).json({ error: `Server not connected: ${target.serverName}` });
+            return;
+          }
+        }
         const toolRegistry = ToolRegistry.fromCapabilitySnapshot(snapshot);
         const catalog = new CapabilityCatalog({
           getToolRegistry: () => toolRegistry,

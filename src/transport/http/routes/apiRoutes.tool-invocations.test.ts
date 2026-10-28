@@ -243,6 +243,39 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(res.statusCode).toBe(503);
   });
 
+  it.each([
+    ['disconnected', 503],
+    ['hidden', 404],
+    ['missing-tool', 404],
+  ] as const)('distinguishes unavailable lazy servers from missing targets: %s', async (mode, status) => {
+    const upstream = vi.fn(async () => ({ tools: [] }));
+    const connection = createMockOutboundConnection({
+      name: 'server',
+      capabilities: { tools: {} },
+      status: mode === 'missing-tool' ? ClientStatus.Connected : ClientStatus.Disconnected,
+      adapter: { request: upstream },
+    });
+    const connections = new Map([[mode === 'hidden' ? 'server:foreign' : 'server', connection]]);
+    const handler = createToolInvocationsHandler({
+      getClients: () => connections,
+      getLazyLoadingOrchestrator: () => ({
+        getToolRegistry: vi.fn(),
+        getSchemaCache: () => new SchemaCache({ maxEntries: 10 }),
+        callMetaTool: vi.fn(),
+      }),
+    } as never);
+    const res = createMockResponse();
+    res.locals.tagFilterMode = 'none';
+    res.locals.validatedTags = [];
+    await invokeInspectRoute(
+      handler,
+      { headers: { 'mcp-session-id': 'own' }, body: { tool: 'server/tool', args: {} } },
+      res,
+    );
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(status);
+    if (mode !== 'missing-tool') expect(upstream).not.toHaveBeenCalled();
+  });
+
   it('returns a safe upstream error message for direct invocation failures', async () => {
     const callTool = vi.fn().mockRejectedValue({ detail: 'SECRET480-DIRECT' });
     const connection = createMockOutboundConnection({
