@@ -40,9 +40,7 @@ export async function instructionsCommand(options: InstructionsCommandOptions): 
     if (target.kind !== 'server') throw new Error('instructions accepts a server name, not a tool target.');
     const result = await getInspectResult(toInspectOptions(options, target.serverName), instructionsInspectOptions);
     if (result.kind !== 'server') throw new Error('Unexpected inspect result for server instructions.');
-    const output = result.instructions?.trim()
-      ? result.instructions
-      : `No instructions available for server: ${result.server}.`;
+    const output = formatSelectedInstructions(result);
     process.stdout.write(`${output}\n`);
     return;
   }
@@ -71,6 +69,15 @@ export async function instructionsCommand(options: InstructionsCommandOptions): 
   }
 
   await renderLegacyInstructions(options);
+}
+
+function formatSelectedInstructions(result: InspectServerInfo): string {
+  if (result.instructions?.trim()) return result.instructions;
+  const unavailable = `Instructions unavailable for server ${result.server}: `;
+  if (result.error) return `${unavailable}${result.error}`;
+  if (result.authorizationUrl) return `${unavailable}authorization required at ${result.authorizationUrl}`;
+  if (result.available === false && result.status) return `${unavailable}${result.status}`;
+  return `No instructions available for server: ${result.server}.`;
 }
 
 type InstructionsAttachmentValue =

@@ -4,6 +4,7 @@ import {
 } from '@src/application/backendPreparationAdmission.js';
 import { getConfiguredServerTargets } from '@src/config/configuredServerTargets.js';
 import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
+import { CapabilityCursorCapacityError } from '@src/core/capabilities/capabilityPagination.js';
 import {
   type CapabilityVisibility,
   createCapabilityVisibility,
@@ -538,10 +539,19 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
             visibility?.filterSelection,
           ),
         };
-        const snapshot = await acquireRuntimeCapabilityCatalog(connections, selectedVisibility, {
-          serverConfigs: getServerConfigs(),
-          signal: controller.signal,
-        });
+        let snapshot: Awaited<ReturnType<typeof acquireRuntimeCapabilityCatalog>>;
+        try {
+          snapshot = await acquireRuntimeCapabilityCatalog(connections, selectedVisibility, {
+            serverConfigs: getServerConfigs(),
+            signal: controller.signal,
+          });
+        } catch (error) {
+          if (error instanceof CapabilityCursorCapacityError) {
+            res.status(503).json({ error: error.message, code: 'gateway_overloaded' });
+            return;
+          }
+          throw error;
+        }
         if (snapshot.hasFailedSources('tools')) {
           res.status(503).json({ error: `Tool inventory not available: ${target.serverName}` });
           return;

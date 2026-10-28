@@ -70,6 +70,27 @@ describe('instructions command', () => {
     expect(mockedAttachReusableClientSurface).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [{ error: 'Connection failed' }, 'Connection failed'],
+    [
+      { authorizationUrl: 'https://example.test/authorize' },
+      'authorization required at https://example.test/authorize',
+    ],
+    [{ available: false, status: 'loading' }, 'loading'],
+  ])('reports unavailable instruction diagnostics %j', async (diagnostics, message) => {
+    mockedGetInspectResult.mockResolvedValueOnce({
+      kind: 'server',
+      server: 'serena',
+      instructions: '  ',
+      tools: [],
+      ...diagnostics,
+    });
+    await instructionsCommand({ server: 'serena' });
+    expect(mockedStdoutWrite).toHaveBeenCalledExactlyOnceWith(
+      `Instructions unavailable for server serena: ${message}\n`,
+    );
+  });
+
   it.each(['', 'serena/find_symbol'])('rejects a non-server target %j before connecting', async (server) => {
     await expect(instructionsCommand({ server })).rejects.toThrow('instructions accepts a server name');
     expect(mockedGetInspectResult).not.toHaveBeenCalled();
