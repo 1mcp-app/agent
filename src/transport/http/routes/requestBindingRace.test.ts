@@ -37,7 +37,11 @@ describe('HTTP project binding lifetime and inspect admission', () => {
   let manager: ServerManager;
   let load: ReturnType<typeof vi.spyOn>;
   const clients = new Map();
-  const instructions = { hasInstructions: () => false, getServerInstructions: () => undefined };
+  const instructions = {
+    hasInstructions: () => false,
+    getServerInstructions: () => undefined,
+    getEffectiveServerInstructions: () => undefined,
+  };
   const registry = { getServerNames: () => [], get: () => undefined, has: () => true };
 
   beforeEach(async () => {

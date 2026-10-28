@@ -368,13 +368,22 @@ describeInspectE2E('inspect command E2E', () => {
   });
 
   it.each([false, true])('delivers cold and warm instructions without unrelated startup (owned: %s)', async (owned) => {
+    const warmListMarker = join(environment.getTempDir(), 'warm-lists');
     const selectedMarker = join(environment.getTempDir(), 'selected-started');
     const unrelatedMarker = join(environment.getTempDir(), 'unrelated-started');
     const listMarker = join(environment.getTempDir(), 'selected-lists');
     await writeFile(
       environment.getConfigPath(),
       JSON.stringify({
-        mcpServers: {},
+        mcpServers: {
+          warm: {
+            transport: 'stdio',
+            command: process.execPath,
+            args: [join(process.cwd(), 'test/e2e/fixtures/inspect-template-server.js')],
+            env: { INSPECT_LIST_MARKER: warmListMarker },
+            instructionOverride: 'Warm backend manual',
+          },
+        },
         mcpTemplates: {
           selected: {
             transport: 'stdio',
@@ -408,7 +417,13 @@ describeInspectE2E('inspect command E2E', () => {
       );
       ownerArgs.push('--project-owner', owner);
     }
-    await startServeProcess();
+    await startServeProcess(owned ? ['--enable-lazy-loading'] : []);
+    const warmBackend = await runner.runInspectCommand('warm', {
+      cwd: environment.getTempDir(),
+      args: [...getCliSessionCacheArgs(), ...ownerArgs],
+    });
+    runner.assertSuccess(warmBackend, serveOutput);
+    const warmListsBefore = await readFile(warmListMarker, 'utf8');
 
     const cold = await runner.runCommand('instructions', '', {
       cwd: environment.getTempDir(),
@@ -420,13 +435,6 @@ describeInspectE2E('inspect command E2E', () => {
     await expect(readFile(selectedMarker)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readFile(unrelatedMarker)).rejects.toMatchObject({ code: 'ENOENT' });
 
-    const selected = await runner.runInspectCommand('selected', {
-      cwd: environment.getTempDir(),
-      args: [...getCliSessionCacheArgs(), ...ownerArgs],
-    });
-    runner.assertSuccess(selected, serveOutput);
-    expect(selected.stdout).toContain('# Serena Instructions');
-    expect(selected.stdout).toContain('find_symbol');
     const invoked = await runner.runRunCommand('selected/find_symbol', {
       cwd: environment.getTempDir(),
       args: [
@@ -441,6 +449,14 @@ describeInspectE2E('inspect command E2E', () => {
     runner.assertSuccess(invoked, serveOutput);
     const content = runner.parseJsonOutput<Array<{ text: string }>>(invoked);
     expect(JSON.parse(content[0].text).matched).toBe('Fixture');
+    const selected = await runner.runInspectCommand('selected', {
+      cwd: environment.getTempDir(),
+      args: [...getCliSessionCacheArgs(), ...ownerArgs],
+    });
+    runner.assertSuccess(selected, serveOutput);
+    expect(await readFile(warmListMarker, 'utf8')).toBe(warmListsBefore);
+    expect(selected.stdout).toContain('# Serena Instructions');
+    expect(selected.stdout).toContain('find_symbol');
     const listsBefore = await readFile(listMarker, 'utf8');
 
     const warm = await runner.runCommand('instructions', '', {
@@ -634,7 +650,7 @@ describeInspectE2E('inspect command E2E', () => {
     expect(JSON.parse(ordinary.stdout).description).toEqual(expect.any(String));
   });
 
-  async function startServeProcess(): Promise<void> {
+  async function startServeProcess(extraArgs: string[] = []): Promise<void> {
     if (serveProcess) {
       return;
     }
@@ -655,6 +671,7 @@ describeInspectE2E('inspect command E2E', () => {
         '--no-enable-config-reload',
         '--log-level',
         'error',
+        ...extraArgs,
       ],
       {
         cwd: process.cwd(),

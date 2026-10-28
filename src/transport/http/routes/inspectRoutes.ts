@@ -482,12 +482,19 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           },
         );
 
-        const serverInstructions = Object.fromEntries(
-          servers.flatMap((server) => {
-            const instructions = instructionAggregator?.getServerInstructions(server.server);
-            return instructions ? [[server.server, instructions]] : [];
-          }),
-        );
+        const serverInstructions: Record<string, string> = {};
+        for (const server of servers) {
+          const connection = resolveConnectionByServerName(filteredConnections, server.server);
+          const outboundKey = [...filteredConnections].find(([, candidate]) => candidate === connection)?.[0];
+          let instructions: string | undefined;
+          if (outboundKey) {
+            instructions = instructionAggregator?.getEffectiveServerInstructions(outboundKey, server.server);
+          } else if (server.type !== 'template') {
+            instructions = instructionAggregator?.getEffectiveServerInstructions(server.server, server.server);
+          }
+          server.hasInstructions = Boolean(instructions);
+          if (instructions) serverInstructions[server.server] = instructions;
+        }
 
         const payload: InspectServersPayload = {
           kind: 'servers',

@@ -322,46 +322,60 @@ describe('apiRoutes inspect', () => {
     });
   });
 
-  it.each([undefined, 'CONFIGURED_MANUAL'])(
-    'returns only the selected instance manual with override %s',
-    async (override) => {
-      const aggregator = new InstructionAggregator();
-      aggregator.setInstructions({ source: 'mcpTemplates', name: 'serena' }, 'OWN_MANUAL', 'serena:own');
-      aggregator.setInstructions({ source: 'mcpTemplates', name: 'serena' }, 'FOREIGN_MANUAL', 'serena:foreign');
-      if (override)
-        aggregator.setRuntimeInstructionConfiguration({
-          configuredTargets: { mcpServers: {}, mcpTemplates: { serena: { instructionOverride: override } } },
-        });
-      const ownConnection = connection('serena', ['serena']);
-      const connections = new Map([
-        ['serena:own', ownConnection],
-        ['serena:foreign', connection('serena', ['serena'])],
-      ]);
-      const template = { type: 'stdio', command: 'node', args: [] };
-      mockedLoadDeclaredServerConfigs.mockReturnValue({
-        staticServers: {},
-        templateServers: { serena: template },
-        errors: [],
+  it.each([
+    { target: 'serena', ownManual: 'OWN_MANUAL', override: undefined },
+    { target: 'serena', ownManual: 'OWN_MANUAL', override: 'CONFIGURED_MANUAL' },
+    { target: undefined, ownManual: 'OWN_MANUAL', override: undefined },
+    { target: undefined, ownManual: undefined, override: undefined },
+    { target: undefined, ownManual: undefined, override: 'CONFIGURED_MANUAL' },
+  ])('keeps inspect manuals scoped: %j', async ({ target, ownManual, override }) => {
+    const aggregator = new InstructionAggregator();
+    if (ownManual) aggregator.setInstructions({ source: 'mcpTemplates', name: 'serena' }, ownManual, 'serena:own');
+    aggregator.setInstructions({ source: 'mcpTemplates', name: 'serena' }, 'FOREIGN_MANUAL', 'serena:foreign');
+    if (override)
+      aggregator.setRuntimeInstructionConfiguration({
+        configuredTargets: { mcpServers: {}, mcpTemplates: { serena: { instructionOverride: override } } },
       });
-      const handler = createInspectHandler({
-        getClients: () => connections,
-        getInstructionAggregator: () => aggregator,
-        getLazyLoadingOrchestrator: () => undefined,
-        getServerRegistry: () => ({
-          getServerNames: () => ['serena'],
-          get: () => ({ ...makeAdapter('serena', ['serena']), type: ServerType.Template }),
-          resolveConnection: () => ownConnection,
-        }),
-      } as never);
-      const req = { query: { target: 'serena' }, headers: { 'mcp-session-id': 'own' } };
-      const res = createMockResponse();
-      await invokeInspectRoute(scopeAuthMiddleware, req, res);
-      await invokeInspectRoute(handler, req, res);
-      expect(res.statusCode).toBe(200);
-      expect(res.body).toMatchObject({ instructions: override ?? 'OWN_MANUAL' });
-      expect(JSON.stringify(res.body)).not.toContain('FOREIGN_MANUAL');
-    },
-  );
+    const ownConnection = connection('serena', ['serena']);
+    const connections = new Map([
+      ['serena:own', ownConnection],
+      ['serena:foreign', connection('serena', ['serena'])],
+    ]);
+    const template = { type: 'stdio', command: 'node', args: [] };
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: {},
+      templateServers: { serena: template },
+      errors: [],
+    });
+    const handler = createInspectHandler({
+      getClients: () => connections,
+      getInstructionAggregator: () => aggregator,
+      getLazyLoadingOrchestrator: () => undefined,
+      getServerRegistry: () => ({
+        getServerNames: () => ['serena'],
+        get: () => ({ ...makeAdapter('serena', ['serena']), type: ServerType.Template }),
+        resolveConnection: () => ownConnection,
+      }),
+    } as never);
+    const req = { query: { target }, headers: { 'mcp-session-id': 'own' } };
+    const res = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(handler, req, res);
+    expect(res.statusCode).toBe(200);
+    const expectedManual = override ?? ownManual;
+    if (target) {
+      expect(res.body).toMatchObject({ instructions: expectedManual });
+    } else {
+      expect(res.body).toMatchObject({
+        kind: 'servers',
+        servers: [expect.objectContaining({ server: 'serena', hasInstructions: Boolean(expectedManual) })],
+      });
+      expect((res.body as { serverInstructions?: Record<string, string> }).serverInstructions?.serena).toBe(
+        expectedManual,
+      );
+    }
+    expect(JSON.stringify(res.body)).not.toContain('FOREIGN_MANUAL');
+  });
 
   it('returns 404 for disabled template tool inspect targets', async () => {
     mockedLoadDeclaredServerConfigs.mockReturnValue({

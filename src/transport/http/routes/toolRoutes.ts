@@ -519,8 +519,36 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       }
 
       if (hasCatalogAccess(lazyOrchestrator)) {
+        const connections = serverManager.getClients();
+        const candidates =
+          visibility?.serverCandidates ??
+          new Map(
+            Array.from(
+              createConnectionResolver(connections, getTemplateHashProvider(serverManager)).filterForSession(
+                requestSessionId,
+              ),
+              ([key, connection]) => [key, connection.name],
+            ),
+          );
+        const selectedVisibility = {
+          ...visibility,
+          ...createCapabilityVisibility(
+            Array.from(candidates).filter(([, name]) => name === target.serverName),
+            requestSessionId,
+            visibility?.filterSelection,
+          ),
+        };
+        const snapshot = await acquireRuntimeCapabilityCatalog(connections, selectedVisibility, {
+          serverConfigs: getServerConfigs(),
+          signal: controller.signal,
+        });
+        if (snapshot.hasFailedSources('tools')) {
+          res.status(503).json({ error: `Tool inventory not available: ${target.serverName}` });
+          return;
+        }
+        const toolRegistry = ToolRegistry.fromCapabilitySnapshot(snapshot);
         const catalog = new CapabilityCatalog({
-          getToolRegistry: () => lazyOrchestrator.getToolRegistry(),
+          getToolRegistry: () => toolRegistry,
           schemaCache: lazyOrchestrator.getSchemaCache(),
           outboundConnections: serverManager.getClients(),
           getServerConfigs,
@@ -528,8 +556,9 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         });
         const catalogResult = await catalog.invokeVisibleTool(
           { server: target.serverName, toolName: target.toolName, args: toolArgs },
-          visibility,
+          selectedVisibility,
           {
+            toolRegistry,
             signal: controller.signal,
             beforeDispatch: preparation.kind === 'ready' ? preparation.beforeDispatch : undefined,
           },

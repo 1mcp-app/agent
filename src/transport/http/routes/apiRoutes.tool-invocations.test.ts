@@ -590,6 +590,56 @@ describe('apiRoutes /api/tool-invocations', () => {
     });
   });
 
+  it.each([false, true])(
+    'uses only the selected lazy inventory and fails closed on inventory errors (failure=%s)',
+    async (failure) => {
+      const callTool = vi.fn(async () => ({ content: [{ type: 'text', text: 'selected' }] }));
+      const selected = createMockOutboundConnection({
+        name: 'selected',
+        capabilities: { tools: {} },
+        adapter: createToolCallAdapter(callTool),
+      });
+      if (failure) selected.adapter.request = vi.fn().mockRejectedValue(new Error('inventory unavailable'));
+      const unrelatedRequest = vi.fn();
+      const unrelated = createMockOutboundConnection({
+        name: 'unrelated',
+        capabilities: { tools: {} },
+        adapter: { request: unrelatedRequest },
+      });
+      const connections = new Map([
+        ['selected', selected],
+        ['unrelated', unrelated],
+      ]);
+      const getToolRegistry = vi.fn(() => ToolRegistry.fromToolsWithServer([]));
+      const orchestrator = {
+        getToolRegistry,
+        getSchemaCache: () => new SchemaCache({ maxEntries: 10 }),
+        callMetaTool: vi.fn(),
+      };
+      const handler = createToolInvocationsHandler({
+        getLazyLoadingOrchestrator: () => orchestrator,
+        getClients: () => connections,
+        getClient: (name: string) => connections.get(name),
+      } as never);
+      const res = createMockResponse();
+      res.locals.tagFilterMode = 'none';
+      res.locals.validatedTags = [];
+      await invokeInspectRoute(handler, { body: { tool: 'selected/tool', args: {} } }, res);
+      if (failure) {
+        expect(res.statusCode).toBe(503);
+        expect(callTool).not.toHaveBeenCalled();
+        expect(getToolRegistry).not.toHaveBeenCalled();
+        expect(unrelatedRequest).not.toHaveBeenCalled();
+        return;
+      }
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toMatchObject({ server: 'selected', tool: 'tool', result: { content: [{ text: 'selected' }] } });
+      expect(callTool).toHaveBeenCalledOnce();
+      expect(getToolRegistry).not.toHaveBeenCalled();
+      expect(unrelatedRequest).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([false, true])('returns a Tool error for invalid arguments without side effects (lazy=%s)', async (lazy) => {
     const definition = { name: 'tool', inputSchema: { type: 'object' as const, required: ['value'] } };
     const callTool = vi.fn(async () => ({ content: [] }));
@@ -637,7 +687,10 @@ describe('apiRoutes /api/tool-invocations', () => {
     const callTool = vi.fn(async () => ({ content: [], structuredContent: {} }));
     const connection = createMockOutboundConnection({
       name: 'server',
-      adapter: { request: vi.fn(async () => callTool()) },
+      capabilities: { tools: {} },
+      adapter: {
+        request: vi.fn(async ({ method }) => (method === 'tools/list' ? { tools: [definition] } : callTool())),
+      },
     });
     const connections = new Map([['server', connection]]);
     const registry = ToolRegistry.fromToolsWithServer([

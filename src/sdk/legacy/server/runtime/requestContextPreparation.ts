@@ -167,7 +167,8 @@ export async function prepareRequestContext(
     'ephemeral',
     ...(authority ? [authority] : []),
   );
-  await deps.refreshCapabilities();
+  // Targeted REST handlers acquire their own scoped inventory after preparation.
+  if (!serverName) await deps.refreshCapabilities();
 
   return {
     status: 'prepared',

@@ -220,6 +220,7 @@ describe('requestContextPreparation', () => {
     const result = await prepareRequestContext({ deps, context, filterConfig: {}, serverName: 'selected' });
 
     expect(result).toMatchObject({ templateNames: ['selected'], createdTemplateNames: ['selected'] });
+    expect(deps.refreshCapabilities).not.toHaveBeenCalled();
     expect(deps.registerTemplateAdapter).toHaveBeenCalledExactlyOnceWith('selected', templateConfig);
     expect(deps.createTemplateBasedServers).toHaveBeenCalledWith(
       createProjectBindingId('derived-session', context),
