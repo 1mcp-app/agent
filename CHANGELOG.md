@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- Recover Runtime Scopes whose ownership record lacks process birth evidence: a provably absent owner PID no longer bricks startup, unavailable evidence is recorded explicitly, the claim's single identity probe is reused for the PID file, and a bounded background repair upgrades the record once the probe succeeds. Startup failures now expose bounded structured diagnostics and a last-resort log line.
+- Harden ownership identity repair: temporary repair files stay outside the canonical ownership directory, fallback cleanup never masks startup diagnostics or blocks shutdown, and PID repair distinguishes retryable failures from changed generations and unsafe metadata.
+- Keep exit-time PID cleanup and stop-time generation checks consistent with identity repair: captured records are matched by PID, claim ID, and start time rather than treating newly filled-in identity as a replaced runtime; PID metadata cleanup always requires a full record, so a numeric-PID match alone never authorizes removal.
+
 ## [0.39.5] - 2026-10-25
 
 ### 🐛 Bug Fixes

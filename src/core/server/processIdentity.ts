@@ -24,14 +24,22 @@ export const processIdentitySchema = z.discriminatedUnion('platform', [
 export type ProcessIdentity = z.infer<typeof processIdentitySchema>;
 export type ProcessIdentityStatus = 'alive' | 'dead' | 'unknown';
 
-interface IdentityAcquisitionFailure {
+export const unavailableIdentityEvidenceSchema = z.object({
+  status: z.literal('unavailable'),
+  code: z.string().min(1),
+  elapsedMs: z.number().int().nonnegative(),
+  at: z.string().datetime(),
+});
+export type UnavailableIdentityEvidence = z.infer<typeof unavailableIdentityEvidenceSchema>;
+
+export interface IdentityAcquisitionFailure {
   platform: typeof process.platform;
   pid: number;
   elapsedMs: number;
   code: string;
 }
 
-interface IdentityAcquisition {
+export interface IdentityAcquisition {
   identity?: ProcessIdentity;
   failure?: IdentityAcquisitionFailure;
 }
@@ -63,7 +71,7 @@ export function readProcessIdentity(pid: number): ProcessIdentity | undefined {
   return acquireProcessIdentity(pid).identity;
 }
 
-function acquireProcessIdentity(pid: number): IdentityAcquisition {
+export function acquireProcessIdentity(pid: number): IdentityAcquisition {
   if (!Number.isSafeInteger(pid) || pid <= 0) return {};
   const startedAt = performance.now();
   try {
@@ -178,7 +186,12 @@ function inspectIdentity(
   identity: ProcessIdentity | undefined,
   dependencies: IdentityDependencies,
 ): IdentityInspection {
-  if (!identity) return { status: 'unknown', reason: 'the record has no process birth evidence (legacy format)' };
+  if (!identity) {
+    // Missing birth evidence is not a death certificate; only a provably absent
+    // PID lets the record lose its protected object. A live PID stays held.
+    if (!(dependencies.processAlive ?? processExists)(pid)) return { status: 'dead' };
+    return { status: 'unknown', reason: 'the record has no process birth evidence (legacy format)' };
+  }
   const readIdentity = (pid: number): IdentityAcquisition =>
     dependencies.readIdentity ? { identity: dependencies.readIdentity(pid) } : acquireProcessIdentity(pid);
   const contextResult = readIdentity(process.pid);

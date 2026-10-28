@@ -2555,6 +2555,56 @@ export const EVENT_REGISTRY = {
       error: 'error',
     },
   },
+  'runtimeScopeOwnership.empty.ownership.directory.reclaim.failed': {
+    message: 'Empty runtime ownership directory could not be reclaimed',
+    fields: {
+      error: 'error',
+    },
+  },
+  'runtimeScopeOwnership.release.failed': {
+    message: 'Runtime ownership cleanup failed',
+    fields: {
+      error: 'error',
+      stage: 'releaseStage',
+    },
+  },
+  'runtimeScopeOwnership.identity.repair.attempt': {
+    message: 'Runtime ownership identity evidence repair attempt',
+    fields: {
+      attempts: 'number',
+      elapsedMs: 'number',
+    },
+  },
+  'runtimeScopeOwnership.identity.repair.unsafe': {
+    message: 'Runtime ownership identity evidence repair stopped on unsafe PID metadata',
+    fields: {
+      attempts: 'number',
+      elapsedMs: 'number',
+      pid_outcome: 'pidRepairOutcome',
+    },
+  },
+  'runtimeScopeOwnership.identity.repaired': {
+    message: 'Runtime ownership identity evidence repaired',
+    fields: {
+      attempts: 'number',
+      elapsedMs: 'number',
+      pid_outcome: 'pidRepairOutcome',
+    },
+  },
+  'runtimeScopeOwnership.identity.repair.exhausted': {
+    message: 'Runtime ownership identity evidence repair exhausted',
+    fields: {
+      attempts: 'number',
+      elapsedMs: 'number',
+      pid_outcome: 'pidRepairOutcome',
+    },
+  },
+  'runtimeScopeOwnership.identity.repair.failed': {
+    message: 'Runtime ownership identity evidence repair attempt failed',
+    fields: {
+      error: 'error',
+    },
+  },
   'templateConfigurationManager.template.processing.temporarily.disabled.due.to.repeated.failures.b2ad37a7': {
     message: 'Template processing temporarily disabled due to repeated failures',
     fields: {},
@@ -4149,6 +4199,16 @@ export const EVENT_REGISTRY = {
     message: 'Server error: <private>',
     fields: {
       error: 'error',
+    },
+  },
+  'serve.runtime-claim.failed': {
+    message: 'Runtime scope claim failed',
+    fields: {
+      error: 'error',
+      ownership_reason: 'ownershipFailureReason',
+      evidence_status: 'ownershipEvidenceStatus',
+      acquisition_code: 'processEvidenceCode',
+      elapsed_ms: 'number',
     },
   },
   'notificationHandlers.received.notification.in.client.689f962c': {
