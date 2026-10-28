@@ -62,11 +62,23 @@ export interface PrepareRequestContextInput {
   context?: TrustedTemplateContext | null;
   transportSessionId?: string;
   authority?: ProjectPreparationAuthority;
+  serverName?: string;
 }
 
-export async function prepareRequestContext(
+export type RequestContextRegistrationResult =
+  | { status: 'no_context' }
+  | { status: 'routing_only'; sessionId: string }
+  | {
+      status: 'registered';
+      sessionId: string;
+      bindingId: string;
+      context: ContextData;
+      authority?: ProjectPreparationAuthority;
+    };
+
+export async function registerRequestContext(
   input: PrepareRequestContextInput,
-): Promise<RequestContextPreparationResult> {
+): Promise<RequestContextRegistrationResult> {
   const { deps, context, filterConfig, transportSessionId } = input;
 
   if (!context) {
@@ -91,9 +103,20 @@ export async function prepareRequestContext(
       filterConfig,
       ...(authority ? [authority] : []),
     )) ?? initialBindingId;
+  return { status: 'registered', sessionId, bindingId, context: canonicalContext, authority };
+}
+
+export async function prepareRequestContext(
+  input: PrepareRequestContextInput,
+): Promise<RequestContextPreparationResult> {
+  const registration = await registerRequestContext(input);
+  if (registration.status !== 'registered') return registration;
+  const { deps, filterConfig, serverName } = input;
+  const { sessionId, bindingId, context: canonicalContext, authority } = registration;
   const selection = resolveProjectSelection(canonicalContext);
   const renderedTemplates = await deps.loadRenderedTemplates(canonicalContext);
-  const templateEntries = Object.entries(renderedTemplates).filter(([_templateName, config]) => {
+  const templateEntries = Object.entries(renderedTemplates).filter(([templateName, config]) => {
+    if (serverName && templateName !== serverName) return false;
     if (isOperatorDisabledTemplateDefinition(config)) return false;
     const mode = config.projectTarget?.mode ?? 'single';
     if (mode === 'independent') return true;
@@ -144,7 +167,8 @@ export async function prepareRequestContext(
     'ephemeral',
     ...(authority ? [authority] : []),
   );
-  await deps.refreshCapabilities();
+  // Targeted REST handlers acquire their own scoped inventory after preparation.
+  if (!serverName) await deps.refreshCapabilities();
 
   return {
     status: 'prepared',

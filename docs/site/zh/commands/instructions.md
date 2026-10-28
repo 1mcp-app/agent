@@ -14,21 +14,35 @@ description: 获取 CLI 模式 agent 工作流和当前服务器发现信息。
 ## 概要
 
 ```bash
-npx -y @1mcp/agent instructions [选项]
+npx -y @1mcp/agent instructions [server] [选项]
 ```
 
 ## 描述
 
-`instructions` 是 CLI 模式 agent 工作流的入口命令。它会输出：
+不指定服务器时，`instructions` 是 CLI 模式 agent 工作流的入口命令。它会输出：
 
 - 固定的 CLI playbook，要求 agent 在 `run` 前先执行 `inspect`
 - 服务器摘要区域
 - 服务器详情区域
-- 每个服务器提供的指令块（如果有）
+- 已有的服务器指令块和配置覆盖
 
 当 agent 或终端会话需要从运行中的 1MCP 实例获取当前指导信息时，应先执行这个命令。
 
 在实际工作流里，`instructions` 的作用就是用一个更紧凑的入口替代“把完整 MCP 工具面直接挂进 agent”。它先给 agent 一个 playbook 和当前清单，再让 agent 通过 `inspect` 逐步缩小范围。
+
+不指定服务器时，指令输出会检查当前项目选择、权限和过滤条件，但不会启动模板后端或查询工具清单。尚未查询的工具数量显示为 `unknown`。未启动模板的上游指令可能不可用；此时运行 `1mcp instructions <server>`，仅启动所选后端并在调用工具前阅读其指令。已有指令仍限定于选定会话。这些元数据不能证明后端准备就绪。
+
+不支持指令端点的旧运行时保留原有发现流程，可能在获取指引时初始化后端。
+
+## 单个服务器的指令
+
+```bash
+1mcp instructions filesystem
+```
+
+指定服务器后，仅输出该服务器的适用指令，包括配置覆盖。该形式复用定向检查流程，可能启动所选模板并查询其工具清单；保留当前项目、所有者、权限和过滤条件，不准备无关后端。服务器没有指令时会明确提示。不接受 `filesystem/read_file` 等工具目标；工具清单和参数结构仍通过 `inspect` 查看。
+
+定向形式复用检查命令的 REST/MCP 兼容路径。不带参数的 `instructions` 保持下述引导输出。
 
 ## 输出结构
 
@@ -44,7 +58,7 @@ npx -y @1mcp/agent instructions [选项]
 - 服务器类型
 - 连接状态
 - 是否可用
-- 工具数量
+- 工具数量；尚未查询时显示 `unknown`
 - 是否提供指令
 
 ## 选项
@@ -94,7 +108,9 @@ npx -y @1mcp/agent instructions --preset development
 阅读适用指令后，仅在信息缺失或需要刷新、能力变化、准备完成或发生相关失败时执行检查，再使用已知参数结构调用工具。以下示例假设已配置 `filesystem` 服务器，且其 `read_file` 工具可以读取 `README.md`：
 
 ```bash
-# 仅在服务器清单或指令缺失或需要刷新时执行：
+# 服务器指令缺失或需要刷新时：
+1mcp instructions filesystem
+# 需要服务器工具清单时：
 1mcp inspect filesystem
 # 仅在工具参数结构缺失或需要刷新时执行：
 1mcp inspect filesystem/read_file

@@ -44,7 +44,7 @@ const llmCommandContracts = [
   {
     form: '1mcp instructions',
     builder: 'src/commands/instructions/index.ts',
-    fragments: ["'instructions'"],
+    fragments: ["'instructions [server]'"],
   },
   {
     form: '1mcp inspect <server>',
