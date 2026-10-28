@@ -241,34 +241,38 @@ export function upsertStartupDocManagedBlock(existingContent: string, managedBlo
 
   const withoutLegacyBlocks = normalizedExisting.replace(LEGACY_MANAGED_BLOCK_PATTERN, '');
   let closingFence: RegExp | undefined;
+  let openingFenceIndex = 0;
   let foundReference = false;
-  const updatedContent = withoutLegacyBlocks
-    .split('\n')
-    .flatMap((line) => {
-      if (closingFence) {
-        if (closingFence.test(line)) closingFence = undefined;
-        return [line];
-      }
+  const updatedLines = withoutLegacyBlocks.split('\n').flatMap((line, index) => {
+    if (closingFence) {
+      if (closingFence.test(line)) closingFence = undefined;
+      return [line];
+    }
 
-      const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-      if (openingFence) {
-        const [, marker, info] = openingFence;
-        if (marker.startsWith('`') && info.includes('`')) return [line];
-        closingFence = new RegExp(`^ {0,3}${marker[0]}{${marker.length},}[ \\t]*$`);
-        return [line];
-      }
+    const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (openingFence) {
+      const [, marker, info] = openingFence;
+      if (marker.startsWith('`') && info.includes('`')) return [line];
+      openingFenceIndex = index;
+      closingFence = new RegExp(`^ {0,3}${marker[0]}{${marker.length},}[ \\t]*$`);
+      return [line];
+    }
 
-      if (!managedReferenceAliases.has(line.trim())) return [line];
-      if (foundReference) return [];
+    if (!managedReferenceAliases.has(line.trim())) return [line];
+    if (foundReference) return [];
 
-      foundReference = true;
-      return [line.trim() === referenceLine ? line : referenceLine];
-    })
-    .join('\n');
+    foundReference = true;
+    return [line.trim() === referenceLine ? line : referenceLine];
+  });
 
-  if (foundReference) return updatedContent;
+  if (foundReference) return updatedLines.join('\n');
 
-  const remainingLines = updatedContent.trimEnd();
+  if (closingFence) {
+    updatedLines.splice(openingFenceIndex, 0, referenceLine);
+    return updatedLines.join('\n');
+  }
+
+  const remainingLines = updatedLines.join('\n').trimEnd();
 
   if (remainingLines.length === 0) {
     return `${referenceLine}\n`;

@@ -380,4 +380,17 @@ describe('instructionsDistribution', () => {
     expect(upsertStartupDocManagedBlock(content, block)).toBe(content);
     expect(upsertStartupDocManagedBlock(example, block)).toBe(`${example}${block}`);
   });
+
+  it.each(['```markdown', '~~~markdown'])('inserts a missing reference before an unclosed %s fence', (opening) => {
+    const block = '@.claude/1MCP.md\n';
+    const prefix = '# Instructions\n\n```text\nclosed example\n```\n\n';
+    const example = `${opening}\n${block}unfinished example\n`;
+    const expected = `${prefix}${block}${example}`;
+
+    const updated = upsertStartupDocManagedBlock(`${prefix}${example}`, block);
+
+    expect(updated).toBe(expected);
+    expect(upsertStartupDocManagedBlock(updated, block)).toBe(expected);
+    expect(upsertStartupDocManagedBlock(`${block}${example}`, block)).toBe(`${block}${example}`);
+  });
 });
