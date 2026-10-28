@@ -21,6 +21,20 @@ function readMarkdownFiles(path: string): string[] {
 }
 
 describe('CLI reference documentation', () => {
+  it('uses the installed CLI by default and keeps package-runner examples in installation alternatives', () => {
+    for (const locale of ['en', 'zh']) {
+      const installation = readRepoFile(`docs/site/${locale}/guide/installation.md`);
+      expect(installation).toContain('npm install -g @1mcp/agent');
+      expect(installation).toContain('npx -y @1mcp/agent --version');
+      expect(installation).toContain(locale === 'en' ? 'Alternative:' : '替代方式：');
+
+      for (const page of readMarkdownFiles(`docs/site/${locale}`)) {
+        if (page === installation) continue;
+        expect(page).not.toMatch(/npx(?:\s+(?:-y|--yes))?\s+@1mcp\/agent|["']@1mcp\/agent["']/);
+      }
+    }
+  });
+
   it('documents only the registry subcommands and options implemented by yargs', () => {
     const registryBuilder = readRepoFile('src/commands/registry/index.ts');
     const searchBuilder = readRepoFile('src/commands/registry/search.ts');
@@ -133,7 +147,8 @@ describe('CLI reference documentation', () => {
 
       for (const page of ['index', 'url']) {
         const presetDocs = readRepoFile(`docs/site/${locale}/commands/preset/${page}.md`);
-        expect(presetDocs).toContain('"args": ["-y", "@1mcp/agent", "proxy", "--preset", "development"]');
+        expect(presetDocs).toContain('"command": "1mcp"');
+        expect(presetDocs).toContain('"args": ["proxy", "--preset", "development"]');
       }
     }
     expect(readRepoFile('docs/site/en/commands/preset/url.md')).toContain('HTTP `400`');

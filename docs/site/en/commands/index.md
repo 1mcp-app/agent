@@ -23,6 +23,8 @@ If you are still trying to get a first setup working, use [Quick Start](/guide/q
 
 Client startup hooks deliver runtime guidance through `bootstrap`. Fetch `instructions` separately only when guidance is missing or needs refreshing. For checkout selection and caller credentials, see [Project and owner options](/guide/project-checkouts#project-and-owner-options).
 
+Examples use the installed `1mcp` command. Follow [Installation](/guide/installation) to add it to PATH; the installation guide also documents `npx` as an alternative.
+
 ## Quick Reference
 
 ### Main Commands
@@ -62,10 +64,10 @@ All 1MCP commands support the following global options:
 In addition to global options, each command may have specific options. Use `--help` with any command to see all available options:
 
 ```bash
-npx -y @1mcp/agent mcp add --help
-npx -y @1mcp/agent preset create --help
-npx -y @1mcp/agent serve --help
-npx -y @1mcp/agent inspect --help
+1mcp mcp add --help
+1mcp preset create --help
+1mcp serve --help
+1mcp inspect --help
 ```
 
 ## Command Groups
@@ -75,10 +77,10 @@ npx -y @1mcp/agent inspect --help
 For a standalone terminal session, use these commands to discover and call tools through a running `1mcp serve` instance. In a hooked agent session, use the guidance delivered by bootstrap and run `instructions` only when guidance is missing or needs refreshing. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential.
 
 ```bash
-npx -y @1mcp/agent instructions
-npx -y @1mcp/agent inspect context7
-npx -y @1mcp/agent inspect context7/query-docs
-npx -y @1mcp/agent run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 - **[instructions](/commands/instructions)** - Print the CLI playbook and current servers
@@ -105,9 +107,9 @@ Use this group when an agent or operator is already working against a running `1
 Manage desktop application MCP configurations. Consolidate MCP servers from various desktop applications into 1MCP.
 
 ```bash
-npx -y @1mcp/agent app consolidate claude-desktop    # Consolidate Claude Desktop servers
-npx -y @1mcp/agent app restore claude-desktop        # Restore original configuration
-npx -y @1mcp/agent app list                          # List supported applications
+1mcp app consolidate claude-desktop    # Consolidate Claude Desktop servers
+1mcp app restore claude-desktop        # Restore original configuration
+1mcp app list                          # List supported applications
 ```
 
 ### [MCP Commands](/commands/mcp/)
@@ -115,10 +117,10 @@ npx -y @1mcp/agent app list                          # List supported applicatio
 Manage MCP server configurations within your 1MCP instance.
 
 ```bash
-npx -y @1mcp/agent mcp add myserver --type=stdio --command=node --args=server.js
-npx -y @1mcp/agent mcp list                       # List configured servers
-npx -y @1mcp/agent mcp status                     # Check server status
-npx -y @1mcp/agent mcp tools list filesystem --disabled
+1mcp mcp add myserver --type=stdio --command=node --args=server.js
+1mcp mcp list                       # List configured servers
+1mcp mcp status                     # Check server status
+1mcp mcp tools list filesystem --disabled
 ```
 
 ### [Preset Commands](/commands/preset/)
@@ -126,10 +128,10 @@ npx -y @1mcp/agent mcp tools list filesystem --disabled
 Manage server presets for dynamic filtering and context switching.
 
 ```bash
-npx -y @1mcp/agent preset create dev --filter "web,api,database"
-npx -y @1mcp/agent preset list                    # List all presets
-npx -y @1mcp/agent preset show development        # Show preset details
-npx -y @1mcp/agent preset edit staging           # Edit preset configuration
+1mcp preset create dev --filter "web,api,database"
+1mcp preset list                    # List all presets
+1mcp preset show development        # Show preset details
+1mcp preset edit staging           # Edit preset configuration
 ```
 
 ### [Serve Command](/commands/serve)
@@ -137,9 +139,9 @@ npx -y @1mcp/agent preset edit staging           # Edit preset configuration
 Start the 1MCP server with various configuration options.
 
 ```bash
-npx -y @1mcp/agent serve                            # Start with default settings
-npx -y @1mcp/agent serve --port=3052                # Start on custom port
-npx -y @1mcp/agent serve --transport=stdio          # Use stdio transport
+1mcp serve                            # Start with default settings
+1mcp serve --port=3052                # Start on custom port
+1mcp serve --transport=stdio          # Use stdio transport
 ```
 
 ### [Proxy Command](/commands/proxy)
@@ -147,9 +149,9 @@ npx -y @1mcp/agent serve --transport=stdio          # Use stdio transport
 Start STDIO proxy to connect MCP clients that only support STDIO transport to a running 1MCP HTTP server.
 
 ```bash
-npx -y @1mcp/agent proxy                            # Auto-discover and connect
-npx -y @1mcp/agent proxy --url http://localhost:3051/mcp  # Connect to specific URL
-npx -y @1mcp/agent proxy --filter "web,api"         # Connect with tag filtering
+1mcp proxy                            # Auto-discover and connect
+1mcp proxy --url http://localhost:3051/mcp  # Connect to specific URL
+1mcp proxy --filter "web,api"         # Connect with tag filtering
 ```
 
 ### Runtime Targets and Admin Sessions
@@ -171,8 +173,8 @@ Use a named target when a remote runtime needs saved bearer or Admin credentials
 Use `cli-setup` when you want Codex or Claude sessions to start with the 1MCP bootstrap docs and hooks already configured.
 
 ```bash
-npx -y @1mcp/agent cli-setup --codex
-npx -y @1mcp/agent cli-setup --claude --scope repo --repo-root .
+1mcp cli-setup --codex
+1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
 ## When to Leave This Section
@@ -191,37 +193,37 @@ If you need learning or setup guidance instead of exact command behavior, go to:
 
 ```bash
 # Start 1MCP server
-npx -y @1mcp/agent serve
+1mcp serve
 
 # Print the current CLI playbook and server inventory
-npx -y @1mcp/agent instructions
+1mcp instructions
 
 # Inspect one server, then one tool
-npx -y @1mcp/agent inspect filesystem
-npx -y @1mcp/agent inspect filesystem/read_file
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
 
 # Run the inspected tool
-npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+1mcp run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ### Advanced Usage
 
 ```bash
 # Start with custom configuration
-npx -y @1mcp/agent serve --config=/custom/path/config.json --port=3052
+1mcp serve --config=/custom/path/config.json --port=3052
 
 # Add HTTP-based MCP server
-npx -y @1mcp/agent mcp add remote-api --type=http --url=https://api.example.com/mcp
+1mcp mcp add remote-api --type=http --url=https://api.example.com/mcp
 
 # Install Codex bootstrap docs and hooks
-npx -y @1mcp/agent cli-setup --codex
+1mcp cli-setup --codex
 
 # Inspect through a preset with JSON output
-npx -y @1mcp/agent inspect filesystem --preset development --format json
+1mcp inspect filesystem --preset development --format json
 
 # Run a tool while overriding the session cache path
 ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid} \
-  npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+  1mcp run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ## Environment Variables

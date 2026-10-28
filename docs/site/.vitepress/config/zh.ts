@@ -79,7 +79,7 @@ function nav(version: string): DefaultTheme.NavItem[] {
   return [
     { text: '指南', link: '/zh/guide/getting-started' },
     { text: '命令', link: '/zh/commands/' },
-    { text: '参考', link: '/zh/reference/architecture' },
+    { text: '参考', link: '/zh/reference/' },
     {
       text: version,
       items: [
@@ -94,65 +94,79 @@ function sidebar(): DefaultTheme.Sidebar {
   return {
     '/zh/guide/': [
       {
-        text: '快速开始',
+        text: '从这里开始',
         items: [
           { text: '简介', link: '/zh/guide/getting-started' },
           { text: '快速上手', link: '/zh/guide/quick-start' },
           { text: '安装', link: '/zh/guide/installation' },
-        ],
-      },
-      {
-        text: '核心概念',
-        items: [
           { text: '核心功能', link: '/zh/guide/essentials/core-features' },
-          { text: '配置', link: '/zh/guide/essentials/configuration' },
-          { text: '项目 Checkout 与集合', link: '/zh/guide/project-checkouts' },
-          { text: '跨项目与 Git Worktree 工作指南', link: '/zh/guide/worktrees-and-cross-project-sessions' },
-          { text: '后端准备', link: '/zh/guide/backend-preparation' },
-          { text: '服务器管理', link: '/zh/guide/essentials/server-management' },
+          { text: '所有功能', link: '/zh/guide/features' },
         ],
       },
       {
-        text: '集成',
+        text: '连接客户端',
+        collapsed: true,
         items: [
-          { text: 'Claude Desktop 集成', link: '/zh/guide/integrations/claude-desktop' },
           { text: 'CLI 模式', link: '/zh/guide/integrations/cli-mode' },
           { text: 'Codex 集成', link: '/zh/guide/integrations/codex' },
+          { text: 'Claude Desktop 集成', link: '/zh/guide/integrations/claude-desktop' },
           { text: '应用程序整合', link: '/zh/guide/integrations/app-consolidation' },
           { text: '开发者工具', link: '/zh/guide/integrations/developer-tools' },
-          { text: 'Serena 集成', link: '/zh/guide/integrations/serena' },
         ],
       },
       {
-        text: '高级功能',
+        text: '配置后端',
+        collapsed: true,
         items: [
-          { text: '身份验证', link: '/zh/guide/advanced/authentication' },
-          { text: '安全', link: '/zh/guide/advanced/security' },
-          { text: '性能', link: '/zh/guide/advanced/performance' },
-          { text: '企业', link: '/zh/guide/advanced/enterprise' },
-          { text: '快速启动', link: '/zh/guide/advanced/fast-startup' },
-          { text: '反向代理', link: '/zh/guide/advanced/reverse-proxy' },
-          { text: '云端部署', link: '/zh/guide/advanced/cloud-deployment' },
-          { text: 'Windows：任务计划程序', link: '/zh/guide/advanced/windows-task-scheduler' },
-          { text: '后端日志', link: '/zh/guide/advanced/backend-logs' },
-          { text: '日志与追踪上下文', link: '/zh/guide/advanced/observability' },
+          { text: '配置', link: '/zh/guide/essentials/configuration' },
+          { text: '服务器管理', link: '/zh/guide/essentials/server-management' },
+          { text: 'Serena 集成', link: '/zh/guide/integrations/serena' },
           { text: '服务器过滤', link: '/zh/guide/advanced/server-filtering' },
         ],
       },
       {
-        text: '自定义',
+        text: '项目与后端准备',
+        collapsed: true,
         items: [
-          { text: '指令模板', link: '/zh/guide/custom-instructions-template' },
-          { text: '服务器指令覆盖', link: '/zh/guide/server-instructions-overrides' },
+          { text: '项目 Checkout 与集合', link: '/zh/guide/project-checkouts' },
+          { text: '工作树与跨项目会话', link: '/zh/guide/worktrees-and-cross-project-sessions' },
           { text: 'MCP 服务器模板', link: '/zh/guide/mcp-server-templates' },
+          { text: '后端准备', link: '/zh/guide/backend-preparation' },
         ],
       },
       {
-        text: '功能概览',
-        items: [{ text: '所有功能', link: '/zh/guide/features' }],
+        text: '部署与安全',
+        collapsed: true,
+        items: [
+          { text: '身份验证', link: '/zh/guide/advanced/authentication' },
+          { text: '安全', link: '/zh/guide/advanced/security' },
+          { text: '反向代理', link: '/zh/guide/advanced/reverse-proxy' },
+          { text: '云端部署', link: '/zh/guide/advanced/cloud-deployment' },
+          { text: 'Windows：任务计划程序', link: '/zh/guide/advanced/windows-task-scheduler' },
+          { text: '生产运维', link: '/zh/guide/advanced/enterprise' },
+        ],
       },
       {
-        text: '开发',
+        text: '监控与恢复',
+        collapsed: true,
+        items: [
+          { text: '快速启动', link: '/zh/guide/advanced/fast-startup' },
+          { text: '性能与恢复', link: '/zh/guide/advanced/performance' },
+          { text: '后端日志', link: '/zh/guide/advanced/backend-logs' },
+          { text: '日志与追踪上下文', link: '/zh/guide/advanced/observability' },
+        ],
+      },
+      {
+        text: '自定义指令',
+        collapsed: true,
+        items: [
+          { text: '指令模板', link: '/zh/guide/custom-instructions-template' },
+          { text: '服务器指令覆盖', link: '/zh/guide/server-instructions-overrides' },
+        ],
+      },
+      {
+        text: '参与开发',
+        collapsed: true,
         items: [{ text: '开发指南', link: '/zh/guide/development' }],
       },
     ],
@@ -162,7 +176,7 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [{ text: '命令参考', link: '/zh/commands/' }],
       },
       {
-        text: '服务器管理',
+        text: '运行时与后端',
         items: [
           { text: 'serve', link: '/zh/commands/serve' },
           { text: 'proxy', link: '/zh/commands/proxy' },
@@ -185,6 +199,12 @@ function sidebar(): DefaultTheme.Sidebar {
               { text: 'tools', link: '/zh/commands/mcp/tools' },
             ],
           },
+        ],
+      },
+      {
+        text: '发现服务器',
+        collapsed: true,
+        items: [
           {
             text: 'registry',
             link: '/zh/commands/registry/',
@@ -195,6 +215,12 @@ function sidebar(): DefaultTheme.Sidebar {
               { text: 'versions', link: '/zh/commands/registry/versions' },
             ],
           },
+        ],
+      },
+      {
+        text: '使用预设过滤',
+        collapsed: true,
+        items: [
           {
             text: 'preset',
             link: '/zh/commands/preset/',
@@ -217,6 +243,12 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'inspect', link: '/zh/commands/inspect' },
           { text: 'run', link: '/zh/commands/run' },
           { text: 'wait', link: '/zh/commands/wait' },
+        ],
+      },
+      {
+        text: '项目生命周期',
+        collapsed: true,
+        items: [
           {
             text: 'project',
             link: '/zh/commands/project/',
@@ -228,9 +260,14 @@ function sidebar(): DefaultTheme.Sidebar {
               { text: 'resume', link: '/zh/commands/project/resume' },
             ],
           },
+        ],
+      },
+      {
+        text: '设置与访问',
+        items: [
           { text: 'cli-setup', link: '/zh/commands/cli-setup' },
           { text: 'auth', link: '/zh/commands/auth' },
-          { text: 'Runtime Target Context', link: '/zh/commands/target' },
+          { text: '运行时目标上下文', link: '/zh/commands/target' },
           { text: 'admin', link: '/zh/commands/admin' },
         ],
       },
@@ -253,6 +290,10 @@ function sidebar(): DefaultTheme.Sidebar {
       },
     ],
     '/zh/reference/': [
+      {
+        text: '概览',
+        items: [{ text: '参考索引', link: '/zh/reference/' }],
+      },
       {
         text: '架构',
         items: [

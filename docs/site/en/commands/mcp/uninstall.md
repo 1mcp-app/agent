@@ -1,195 +1,54 @@
 ---
-title: MCP Uninstall Command - Safe Server Removal
-description: Safely uninstall MCP servers with automatic backup creation and dependency checking. Remove servers and clean up configurations.
-head:
-  - ['meta', { name: 'keywords', content: 'MCP uninstall,server removal,backup creation,safe deletion' }]
-  - ['meta', { property: 'og:title', content: '1MCP Uninstall Command - Safe Server Removal' }]
-  - [
-      'meta',
-      {
-        property: 'og:description',
-        content: 'Safely uninstall MCP servers with backup creation and dependency checking.',
-      },
-    ]
+title: mcp uninstall
+description: Remove a configured backend with an optional configuration backup.
 ---
 
 # mcp uninstall
 
-Safely remove MCP servers from your configuration with automatic backup creation and dependency validation. The uninstall command ensures safe removal with rollback capabilities.
+Remove a static server or template definition from the selected configuration. This command changes configuration; it does not delete backend packages, repositories, or data.
 
-## Synopsis
-
-Remove a server with confirmation and backup:
+## Syntax
 
 ```bash
-npx -y @1mcp/agent mcp uninstall <server-name>
+1mcp mcp uninstall <server-name> [--force] [--no-backup]
 ```
 
-Skip confirmation prompts:
+`<server-name>` is an existing configured target name, not a registry ID.
+
+## Options
+
+| Option                    | Default                         | Behavior                                                              |
+| ------------------------- | ------------------------------- | --------------------------------------------------------------------- |
+| `--config, -c <path>`     | Selected configuration          | Select a configuration file                                           |
+| `--config-dir, -d <path>` | Default configuration directory | Select a configuration directory                                      |
+| `--backup`                | `true`                          | Require a configuration backup before removal; `--no-backup` skips it |
+| `--remove-config`         | `true`                          | Remove the definition; `--no-remove-config` leaves it unchanged       |
+| `--force`                 | `false`                         | Override the in-process in-use check                                  |
+| `--verbose, -v`           | `false`                         | Enable detailed logging                                               |
+
+The handler does not ask for interactive confirmation. Check the target and selected configuration before invoking it. The in-use check is not a dependency graph or a complete check of activity in another runtime.
+
+## Remove and verify
 
 ```bash
-npx -y @1mcp/agent mcp uninstall <server-name> --force
+1mcp mcp list
+1mcp mcp uninstall filesystem
+1mcp mcp list
 ```
 
-Remove without creating backup:
+On success, the command reports the backup path when created, reload status, and any warnings. A configuration write alone does not prove that the running runtime has applied the removal. Review the reload result and verify the backend is absent from the intended runtime's `1mcp inspect` output.
 
-```bash
-npx -y @1mcp/agent mcp uninstall <server-name> --no-backup
-```
+If removal reports that the target is in use, review active work before using `--force`. Independently hosted remote services remain running; this command removes their 1MCP configuration.
 
-Remove only configuration (keep server data):
+## Restore a backup
 
-```bash
-npx -y @1mcp/agent mcp uninstall <server-name> --no-remove-config
-```
+Use the exact backup path reported by the command. Review it before restoring the selected configuration file: a full-file restore also reverts other changes made since that backup. Then verify configuration reload and discovery again.
 
-## Arguments
+`--no-remove-config` does not uninstall a package or preserve data while removing configuration. It skips removal and prints a warning.
 
-`<server-name>` (required)
-: The name of the server to uninstall. Must be an existing server in your configuration.
+## Related commands
 
-## Global Options
-
-- **`--config, -c <path>`** - Specify configuration file path
-- **`--config-dir, -d <path>`** - Path to the config directory
-
-## Command-Specific Options
-
-- **`--force, -y`**
-  - Skip confirmation prompts and proceed with uninstallation
-  - **Default**: `false`
-
-- **`--backup`**
-  - Create backup before removal
-  - **Default**: `true`
-
-- **`--remove-config`**
-  - Remove server configuration from mcp.json
-  - **Default**: `true`
-
-- **`--verbose, -v`**
-  - Display detailed uninstallation information
-  - **Default**: `false`
-
-## Examples
-
-### Basic Server Removal
-
-Remove a server with confirmation and backup:
-
-```bash
-npx -y @1mcp/agent mcp uninstall filesystem
-
-# Output:
-# 🔄 Preparing to uninstall 'filesystem'...
-# ℹ️  Server 'filesystem' is currently running
-# ℹ️  Server has the following capabilities: file_read, file_write, list_directory
-# ℹ️  No other servers depend on 'filesystem'
-#
-# ⚠️  This will:
-#   • Stop the 'filesystem' server
-#   • Remove server configuration from mcp.json
-#   • Create backup at: ~/.config/1mcp/backups/mcp-20240115-103000.json
-#
-# Continue? (y/N): y
-#
-# ✓ Server 'filesystem' stopped successfully
-# ✓ Configuration removed from mcp.json
-# ✓ Backup created: ~/.config/1mcp/backups/mcp-20240115-103000.json
-# ✅ Uninstall completed successfully
-```
-
-### Force Uninstall
-
-Skip confirmation prompts:
-
-```bash
-npx -y @1mcp/agent mcp uninstall filesystem --force
-
-# Output:
-# 🔄 Uninstalling 'filesystem'...
-# ✓ Server stopped
-# ✓ Configuration removed
-# ✓ Backup created
-# ✅ Uninstall completed
-```
-
-### Uninstall Without Backup
-
-Remove server without creating backup (not recommended):
-
-```bash
-npx -y @1mcp/agent mcp uninstall test-server --no-backup
-
-# Output:
-# ⚠️  Skipping backup creation
-# 🔄 Uninstalling 'test-server'...
-# ✓ Server removed
-# ✅ Uninstall completed without backup
-```
-
-### Verbose Uninstall
-
-See detailed uninstallation process:
-
-```bash
-npx -y @1mcp/agent mcp uninstall database --verbose
-
-# Output:
-# 🔍 Analyzing server 'database'...
-#   • Configuration found in mcp.json
-#   • Server is currently running (PID: 12345)
-#   • Dependencies: 0 servers depend on this
-#   • Backup location: ~/.config/1mcp/backups/mcp-20240115-103500.json
-#
-# 🛡️  Safety checks passed
-# 🔄 Proceeding with uninstallation...
-#   • Gracefully stopping server process
-#   • Removing from active server list
-#   • Updating mcp.json configuration
-#   • Creating configuration backup
-#
-# ✅ Uninstall completed successfully
-```
-
-## Safety Features
-
-The uninstall command includes built-in safety measures:
-
-- **Dependency Checking**: Warns if other servers depend on the one being removed
-- **Automatic Backups**: Creates timestamped backups before removal (`~/.config/1mcp/backups/`)
-- **Graceful Shutdown**: Properly stops servers before removal with SIGTERM/SIGKILL handling
-
-## Error Handling
-
-Common error scenarios:
-
-```bash
-# Server not found
-npx -y @1mcp/agent mcp uninstall nonexistent-server
-# Error: Server 'nonexistent-server' not found in configuration
-
-# Permission issues
-npx -y @1mcp/agent mcp uninstall system-server
-# Error: Permission denied when stopping server process
-```
-
-## Backup Restoration
-
-Restore from backup if needed:
-
-```bash
-# List available backups
-ls ~/.config/1mcp/backups/
-
-# Restore from backup
-cp ~/.config/1mcp/backups/mcp-20240115-103000.json ~/.config/1mcp/mcp.json
-```
-
-## See Also
-
-- **[mcp install](install.md)** - Install servers from registry
-- **[mcp disable](enable-disable.md)** - Temporarily disable servers
-- **[mcp list](list.md)** - List installed servers
-- **[Server Management Guide](../../guide/essentials/server-management.md)** - Complete server management overview
-- **[Configuration Reference](../../reference/mcp-servers.md)** - Configuration file structure
+- [mcp install](/commands/mcp/install) — Configure a registry server
+- [mcp enable / disable](/commands/mcp/enable-disable) — Keep the definition while disabling it
+- [mcp remove](/commands/mcp/remove) — Remove a configured target
+- [Server management](/guide/essentials/server-management)

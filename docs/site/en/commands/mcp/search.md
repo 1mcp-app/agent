@@ -12,20 +12,20 @@ head:
 
 # mcp search
 
-Search the MCP registry for available servers. This command is a **convenience alias** for the `registry search` command with limited options. For advanced filtering and options, use [registry search](../registry/search.md) directly.
+Search the MCP registry for available servers. This command is a **convenience alias** for the `registry search` command with limited options. For advanced filtering and options, use [registry search](/commands/registry/search) directly.
 
 ## Synopsis
 
 Search for servers by query:
 
 ```bash
-npx -y @1mcp/agent mcp search <query>
+1mcp mcp search <query>
 ```
 
 Browse all available servers:
 
 ```bash
-npx -y @1mcp/agent mcp search
+1mcp mcp search
 ```
 
 ## Arguments
@@ -35,7 +35,7 @@ npx -y @1mcp/agent mcp search
 
 ## Limitations
 
-Since this is an alias to `registry search`, it only supports basic search functionality. Advanced filtering options like `--status`, `--type`, `--transport`, and `--format` are only available in the full [registry search](../registry/search.md) command.
+Since this is an alias to `registry search`, it only supports basic search functionality. Advanced filtering options like `--status`, `--type`, `--transport`, and `--format` are only available in the full [registry search](/commands/registry/search) command.
 
 ## Examples
 
@@ -44,7 +44,7 @@ Since this is an alias to `registry search`, it only supports basic search funct
 Search for database-related servers:
 
 ```bash
-npx -y @1mcp/agent mcp search database
+1mcp mcp search database
 ```
 
 ### Browse All Servers
@@ -52,11 +52,11 @@ npx -y @1mcp/agent mcp search database
 List all available servers:
 
 ```bash
-npx -y @1mcp/agent mcp search
+1mcp mcp search
 ```
 
 ## See Also
 
-- **[registry search](../registry/search.md)** - Full registry search command with advanced options
-- **[registry commands](../registry/)** - Complete registry command documentation
-- **[mcp install](install.md)** - Install servers found through search
+- **[registry search](/commands/registry/search)** - Full registry search command with advanced options
+- **[registry commands](/commands/registry/)** - Complete registry command documentation
+- **[mcp install](/commands/mcp/install)** - Install servers found through search

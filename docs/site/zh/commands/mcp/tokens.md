@@ -7,12 +7,12 @@ description: 连接 MCP 服务器后估算其工具、资源和提示的令牌�
 
 通过连接到服务器并分析其工具、资源和提示来估算 MCP 令牌使用量。
 
-有关服务器管理的完整概述，请参阅 **[服务器管理指南](../../guide/essentials/server-management)**。
+有关服务器管理的完整概述，请参阅 **[服务器管理指南](/zh/guide/essentials/server-management)**。
 
 ## 摘要
 
 ```bash
-npx -y @1mcp/agent mcp tokens [options]
+1mcp mcp tokens [options]
 ```
 
 ## 选项
@@ -55,28 +55,28 @@ npx -y @1mcp/agent mcp tokens [options]
 
 ```bash
 # 使用默认模型（gpt-4o）估算所有 MCP 服务器的令牌
-npx -y @1mcp/agent mcp tokens
+1mcp mcp tokens
 
 # 使用不同模型进行令牌估算
-npx -y @1mcp/agent mcp tokens --model gpt-3.5-turbo
+1mcp mcp tokens --model gpt-3.5-turbo
 
 # 使用预设进行服务器过滤
-npx -y @1mcp/agent mcp tokens --preset development
+1mcp mcp tokens --preset development
 
 # 按标签过滤服务器并显示摘要格式
-npx -y @1mcp/agent mcp tokens --tag-filter="network or filesystem" --format=summary
+1mcp mcp tokens --tag-filter="network or filesystem" --format=summary
 
 # 导出详细分析为 JSON 格式用于程序化使用
-npx -y @1mcp/agent mcp tokens --format=json > token-analysis.json
+1mcp mcp tokens --format=json > token-analysis.json
 
 # 使用特定模型进行复杂标签过滤
-npx -y @1mcp/agent mcp tokens --model=o1 --tag-filter="(web+api)-test" --format=table
+1mcp mcp tokens --model=o1 --tag-filter="(web+api)-test" --format=table
 
 # 显示服务器日志和连接详情用于调试
-npx -y @1mcp/agent mcp tokens --verbose
+1mcp mcp tokens --verbose
 
 # 使用自定义配置文件
-npx -y @1mcp/agent mcp tokens --config ~/my-mcp-config.json
+1mcp mcp tokens --config ~/my-mcp-config.json
 ```
 
 ## 输出格式
@@ -143,6 +143,6 @@ npx -y @1mcp/agent mcp tokens --config ~/my-mcp-config.json
 
 ## 另请参阅
 
-- **[服务器管理指南](../../guide/essentials/server-management)**
-- **[mcp status](./status)** - 检查服务器连接性
-- **[mcp list](./list)** - 列出已配置的服务器
+- **[服务器管理指南](/zh/guide/essentials/server-management)**
+- **[mcp status](/zh/commands/mcp/status)** - 检查服务器连接性
+- **[mcp list](/zh/commands/mcp/list)** - 列出已配置的服务器

@@ -22,7 +22,7 @@ Reuse known tool schemas within the session, including across projects, when the
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent run <server>/<tool> [options]
+1mcp run <server>/<tool> [options]
 ```
 
 ## Description
@@ -101,19 +101,19 @@ For a configured CodeGraph backend, inspect the server and tool schema for the s
 ### Explicit JSON Arguments
 
 ```bash
-npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+1mcp run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ### Pipe Raw Stdin into a Required String Argument
 
 ```bash
-npx -y @1mcp/agent run summarizer/summarize < README.md
+1mcp run summarizer/summarize < README.md
 ```
 
 ### Use a Preset
 
 ```bash
-npx -y @1mcp/agent run --preset development validator/validate --args '{"path":"./schema.json"}'
+1mcp run --preset development validator/validate --args '{"path":"./schema.json"}'
 ```
 
 ### Call Through a Runtime Target Context
@@ -125,14 +125,14 @@ npx -y @1mcp/agent run --preset development validator/validate --args '{"path":"
 ### Use Script-Friendly JSON Output
 
 ```bash
-npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}' --format json
+1mcp run filesystem/read_file --args '{"path":"./README.md"}' --format json
 ```
 
 ### Use a Custom Session Cache Path
 
 ```bash
 ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid}.{scope} \
-  npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+  1mcp run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ## Output Behavior

@@ -17,12 +17,12 @@ head:
 
 Lists all configured MCP servers.
 
-For a complete overview of server management, see the **[Server Management Guide](../../guide/essentials/server-management)**.
+For a complete overview of server management, see the **[Server Management Guide](/guide/essentials/server-management)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent mcp list [options]
+1mcp mcp list [options]
 ```
 
 ## Global Options
@@ -53,24 +53,24 @@ This command supports all global options:
 
 ```bash
 # List all enabled servers
-npx -y @1mcp/agent mcp list
+1mcp mcp list
 
 # List all servers, including disabled ones
-npx -y @1mcp/agent mcp list --show-disabled
+1mcp mcp list --show-disabled
 
 # List all servers with the "prod" tag
-npx -y @1mcp/agent mcp list --tags=prod
+1mcp mcp list --tags=prod
 
 # List only servers with available updates
-npx -y @1mcp/agent mcp list --outdated
+1mcp mcp list --outdated
 
 # Show detailed information for all servers (verbose mode)
-npx -y @1mcp/agent mcp list --verbose
+1mcp mcp list --verbose
 
 # Show detailed information including sensitive data
-npx -y @1mcp/agent mcp list --verbose --show-secrets
+1mcp mcp list --verbose --show-secrets
 ```
 
 ## See Also
 
-- **[Server Management Guide](../../guide/essentials/server-management)**
+- **[Server Management Guide](/guide/essentials/server-management)**

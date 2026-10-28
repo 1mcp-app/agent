@@ -51,12 +51,12 @@ description: 参考 mcp.json 中 MCP 服务器、传输和共享默认值的配�
 1. **命令行标志：**
 
    ```bash
-   npx -y @1mcp/agent --config-dir /custom/config/path
+   1mcp --config-dir /custom/config/path
    ```
 
 2. **环境变量：**
    ```bash
-   ONE_MCP_CONFIG_DIR=/custom/config/path npx -y @1mcp/agent
+   ONE_MCP_CONFIG_DIR=/custom/config/path 1mcp
    ```
 
 当您覆盖配置目录时，代理将：
@@ -69,7 +69,7 @@ description: 参考 mcp.json 中 MCP 服务器、传输和共享默认值的配�
 
 ```bash
 # 使用项目特定的配置目录
-npx -y @1mcp/agent --config-dir ./project-config
+1mcp --config-dir ./project-config
 ```
 
 这为需要隔离配置的项目创建了一个自包含的配置设置。
@@ -264,12 +264,12 @@ MCP 工具通常采用 `{server}_1mcp_{tool}` 名称。如果限定名称超过 
 可以使用 [`mcp tools`](/zh/commands/mcp/tools) 管理此字段：
 
 ```bash
-npx -y @1mcp/agent mcp tools disable filesystem write_file
-npx -y @1mcp/agent mcp tools enable filesystem write_file
-npx -y @1mcp/agent mcp tools list filesystem --disabled
+1mcp mcp tools disable filesystem write_file
+1mcp mcp tools enable filesystem write_file
+1mcp mcp tools list filesystem --disabled
 ```
 
-`mcp tools` 的 list、enable 和 disable 子命令会更新 `mcp.json`。正在运行的 `1mcp serve` 实例会通过配置热重载观察到变化。
+`mcp tools list` 子命令读取已保存的配置；`enable` 和 `disable` 则更新 `mcp.json`。启用配置热重载后，正在运行的 `1mcp serve` 实例会应用这些变更。
 
 Admin 使用相同的 `disabledTools` 和 `toolDescriptionOverrides` 字段。编辑器会展示观测到的上游工具清单、有效描述、逐工具 token 估算、搜索/筛选以及仅作用于可见行的批量操作。工具从上游消失后，配置中保留的条目仍会以“未解析”状态显示，便于修复或删除。预览会显示启用/禁用数量和近似 token 变化；若结果为零个启用工具，应用前必须显式确认。这些元数据变更会通知已连接客户端，无需重启出站服务器。
 
@@ -670,6 +670,6 @@ MCP 服务器模板支持动态、上下文感知的服务器配置。您可以�
 
 ## 另请参阅
 
-- **[配置深入指南](../guide/essentials/configuration.md)** - CLI 标志和环境变量
-- **[Serve 命令参考](../commands/serve.md)** - 命令行使用示例
-- **[安全指南](security.md)** - MCP 服务器的安全最佳实践
+- **[配置深入指南](/zh/guide/essentials/configuration)** - CLI 标志和环境变量
+- **[Serve 命令参考](/zh/commands/serve)** - 命令行使用示例
+- **[安全指南](/zh/reference/security)** - MCP 服务器的安全最佳实践

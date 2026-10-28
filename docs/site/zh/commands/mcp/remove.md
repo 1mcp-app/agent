@@ -7,12 +7,12 @@ description: 从 1MCP 配置中删除指定的 MCP 服务器。
 
 从 1MCP 配置中删除 MCP 服务器。
 
-有关服务器管理的完整概述，请参阅 **[服务器管理指南](../../guide/essentials/server-management)**。
+有关服务器管理的完整概述，请参阅 **[服务器管理指南](/zh/guide/essentials/server-management)**。
 
 ## 摘要
 
 ```bash
-npx -y @1mcp/agent mcp remove <name> [options]
+1mcp mcp remove <name> [options]
 ```
 
 ## 参数
@@ -37,12 +37,12 @@ npx -y @1mcp/agent mcp remove <name> [options]
 
 ```bash
 # 删除服务器
-npx -y @1mcp/agent mcp remove my-server
+1mcp mcp remove my-server
 
 # 删除服务器而不提示确认
-npx -y @1mcp/agent mcp remove old-server --yes
+1mcp mcp remove old-server --yes
 ```
 
 ## 另请参阅
 
-- **[服务器管理指南](../../guide/essentials/server-management)**
+- **[服务器管理指南](/zh/guide/essentials/server-management)**

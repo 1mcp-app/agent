@@ -76,14 +76,14 @@ Demo: 'tag:web' # 仅公共 API
 
 ```bash
 # 通过 CLI 标志配置
-npx -y @1mcp/agent --config mcp.json --enable-auth \
-  --rate-limit-window 15 \     # 15 分钟窗口
+1mcp --config mcp.json --enable-auth \
+  --rate-limit-window 15 \
   --rate-limit-max 100         # 每个窗口 100 个请求
 
 # 或通过环境变量
 export ONE_MCP_RATE_LIMIT_WINDOW=15
 export ONE_MCP_RATE_LIMIT_MAX=100
-npx -y @1mcp/agent --config mcp.json --enable-auth
+1mcp --config mcp.json --enable-auth
 ```
 
 **⏱️ 设置时间**：具有合理默认值的内置功能

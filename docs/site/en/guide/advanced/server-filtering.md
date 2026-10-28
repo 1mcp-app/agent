@@ -34,11 +34,13 @@ To enable server filtering, you need to assign tags to your backend servers in y
 {
   "mcpServers": {
     "file_server": {
-      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
       "tags": ["filesystem", "read-only"]
     },
     "search_server": {
-      "command": ["uvx", "mcp-server-fetch"],
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
       "tags": ["search", "web"]
     }
   }
@@ -58,14 +60,14 @@ Use `--filter` on `serve` or the default command when you want the runtime itsel
 
 ```bash
 # Only expose servers with the "filesystem" tag
-npx -y @1mcp/agent --filter "filesystem"
+1mcp --filter "filesystem"
 
 # Expose servers with either "filesystem" or "web" tags (OR logic)
-npx -y @1mcp/agent --filter "filesystem,web"
+1mcp --filter "filesystem,web"
 
 # Expose servers that match a complex expression
-npx -y @1mcp/agent --filter "(filesystem,web)+prod-test"
-npx -y @1mcp/agent --filter "api and not test"
+1mcp --filter "(filesystem,web)+prod-test"
+1mcp --filter "api and not test"
 ```
 
 #### Symbol Reference

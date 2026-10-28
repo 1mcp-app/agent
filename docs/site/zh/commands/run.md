@@ -12,7 +12,7 @@ description: 使用 run 命令针对运行中的 1MCP serve 实例调用 MCP 工
 ## 概要
 
 ```bash
-npx -y @1mcp/agent run <server>/<tool> [选项]
+1mcp run <server>/<tool> [选项]
 ```
 
 ## 描述
@@ -91,19 +91,19 @@ REST 和 MCP 调用使用相同的执行时限。服务器发现和模式发现�
 ### 显式传入 JSON 参数
 
 ```bash
-npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+1mcp run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ### 将原始 stdin 映射到必填字符串参数
 
 ```bash
-npx -y @1mcp/agent run summarizer/summarize < README.md
+1mcp run summarizer/summarize < README.md
 ```
 
 ### 使用预设
 
 ```bash
-npx -y @1mcp/agent run --preset development validator/validate --args '{"path":"./schema.json"}'
+1mcp run --preset development validator/validate --args '{"path":"./schema.json"}'
 ```
 
 ### 通过 Runtime Target Context 调用
@@ -115,14 +115,14 @@ npx -y @1mcp/agent run --preset development validator/validate --args '{"path":"
 ### 使用 JSON 输出方便脚本处理
 
 ```bash
-npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}' --format json
+1mcp run filesystem/read_file --args '{"path":"./README.md"}' --format json
 ```
 
 ### 使用自定义会话缓存路径
 
 ```bash
 ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid}.{scope} \
-  npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+  1mcp run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ## 输出行为

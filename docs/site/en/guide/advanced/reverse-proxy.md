@@ -25,7 +25,7 @@ When 1MCP runs behind a proxy, it needs to be configured to trust the proxy in o
 
 Trust proxy settings can be configured via the `--trust-proxy` command-line flag or the `ONE_MCP_TRUST_PROXY` environment variable.
 
-For detailed information on the available options and how to configure them in your JSON file, CLI, or environment, please see the **[Configuration Deep Dive](/guide/essentials/configuration#network-options)**.
+For detailed information on the available options and how to configure them in your JSON file, CLI, or environment, please see the **[Configuration Deep Dive](/guide/essentials/configuration#network-configuration)**.
 
 For a complete cloud-hosted Admin Console and local CLI target workflow using Caddy, see **[Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)**.
 

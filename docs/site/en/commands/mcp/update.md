@@ -11,16 +11,16 @@ head:
 
 Updates the configuration of an existing MCP server.
 
-For a complete overview of server management, see the **[Server Management Guide](../../guide/essentials/server-management)**.
+For a complete overview of server management, see the **[Server Management Guide](/guide/essentials/server-management)**.
 
 ## Synopsis
 
 ```bash
 # Standard syntax
-npx -y @1mcp/agent mcp update <name> [options]
+1mcp mcp update <name> [options]
 
 # Quick syntax with " -- " pattern (updates command and args)
-npx -y @1mcp/agent mcp update <name> [options] -- <command> [args...]
+1mcp mcp update <name> [options] -- <command> [args...]
 ```
 
 ## Arguments
@@ -75,35 +75,35 @@ This command supports all global options:
 
 ```bash
 # Update the tags for a server
-npx -y @1mcp/agent mcp update my-server --tags="new-tag,another-tag"
+1mcp mcp update my-server --tags="new-tag,another-tag"
 
 # Update an environment variable
-npx -y @1mcp/agent mcp update my-stdio-server --env="NODE_ENV=production"
+1mcp mcp update my-stdio-server --env="NODE_ENV=production"
 
 # Change the URL of an HTTP server
-npx -y @1mcp/agent mcp update my-http-server --url="https://new.api.com/mcp"
+1mcp mcp update my-http-server --url="https://new.api.com/mcp"
 ```
 
 ### Quick " -- " Pattern Syntax
 
 ```bash
 # Update server command using " -- " pattern
-npx -y @1mcp/agent mcp update my-server -- npx -y updated-package
+1mcp mcp update my-server -- npx -y updated-package
 
 # Update command while preserving environment variables and tags
-npx -y @1mcp/agent mcp update airtable -- npx -y @airtable/mcp-server-v2
+1mcp mcp update airtable -- npx -y @airtable/mcp-server-v2
 
 # Update with additional options
-npx -y @1mcp/agent mcp update my-server --timeout=10000 -- node updated-server.js
+1mcp mcp update my-server --timeout=10000 -- node updated-server.js
 
 # Update restart configuration
-npx -y @1mcp/agent mcp update my-server --restart-on-exit --max-restarts=3 --restart-delay=1500
+1mcp mcp update my-server --restart-on-exit --max-restarts=3 --restart-delay=1500
 
 # Update working directory and HTTP headers
-npx -y @1mcp/agent mcp update stdio-server --cwd=/new/path
-npx -y @1mcp/agent mcp update http-server --headers="Authorization=Bearer newtoken" --timeout=5000
+1mcp mcp update stdio-server --cwd=/new/path
+1mcp mcp update http-server --headers="Authorization=Bearer newtoken" --timeout=5000
 ```
 
 ## See Also
 
-- **[Server Management Guide](../../guide/essentials/server-management)**
+- **[Server Management Guide](/guide/essentials/server-management)**

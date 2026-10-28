@@ -7,12 +7,12 @@ description: 列出配置的 MCP 服务器及其筛选和更新状态。
 
 列出所有已配置的 MCP 服务器。
 
-有关服务器管理的完整概述，请参阅 **[服务器管理指南](../../guide/essentials/server-management)**。
+有关服务器管理的完整概述，请参阅 **[服务器管理指南](/zh/guide/essentials/server-management)**。
 
 ## 摘要
 
 ```bash
-npx -y @1mcp/agent mcp list [options]
+1mcp mcp list [options]
 ```
 
 ## 全局选项
@@ -43,24 +43,24 @@ npx -y @1mcp/agent mcp list [options]
 
 ```bash
 # 列出所有启用的服务器
-npx -y @1mcp/agent mcp list
+1mcp mcp list
 
 # 列出所有服务器，包括禁用的服务器
-npx -y @1mcp/agent mcp list --show-disabled
+1mcp mcp list --show-disabled
 
 # 列出所有带有"prod"标签的服务器
-npx -y @1mcp/agent mcp list --tags=prod
+1mcp mcp list --tags=prod
 
 # 只列出有可用更新的服务器
-npx -y @1mcp/agent mcp list --outdated
+1mcp mcp list --outdated
 
 # 显示所有服务器的详细信息（详细模式）
-npx -y @1mcp/agent mcp list --verbose
+1mcp mcp list --verbose
 
 # 显示包括敏感数据在内的详细信息
-npx -y @1mcp/agent mcp list --verbose --show-secrets
+1mcp mcp list --verbose --show-secrets
 ```
 
 ## 另请参阅
 
-- **[服务器管理指南](../../guide/essentials/server-management)**
+- **[服务器管理指南](/zh/guide/essentials/server-management)**

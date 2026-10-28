@@ -24,7 +24,7 @@ Reuse known tool schemas within the session, including across projects, when the
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent instructions [server] [options]
+1mcp instructions [server] [options]
 ```
 
 ## Description
@@ -92,19 +92,19 @@ See [Project and owner options](/guide/project-checkouts#project-and-owner-optio
 ### Show the Full CLI Playbook
 
 ```bash
-npx -y @1mcp/agent instructions
+1mcp instructions
 ```
 
 ### Show Instructions for a Filtered Server Set
 
 ```bash
-npx -y @1mcp/agent instructions --tags backend
+1mcp instructions --tags backend
 ```
 
 ### Use a Saved Preset
 
 ```bash
-npx -y @1mcp/agent instructions --preset development
+1mcp instructions --preset development
 ```
 
 ### Use a Runtime Target Context
@@ -136,8 +136,8 @@ If authentication is required, the playbook directs the user or agent to retry w
 
 ## See Also
 
-- **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Why this progressive-disclosure workflow exists
-- **[Inspect Command](./inspect.md)** - Discover tools and inspect schemas
-- **[Run Command](./run.md)** - Call a selected tool
-- **[CLI Setup Command](./cli-setup.md)** - Install startup hooks and bootstrap docs for Codex or Claude
-- **[Serve Command](./serve.md)** - Start the 1MCP server that provides the instruction output
+- **[CLI Mode Guide](/guide/integrations/cli-mode)** - Why this progressive-disclosure workflow exists
+- **[Inspect Command](/commands/inspect)** - Discover tools and inspect schemas
+- **[Run Command](/commands/run)** - Call a selected tool
+- **[CLI Setup Command](/commands/cli-setup)** - Install startup hooks and bootstrap docs for Codex or Claude
+- **[Serve Command](/commands/serve)** - Start the 1MCP server that provides the instruction output
