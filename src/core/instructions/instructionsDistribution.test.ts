@@ -366,4 +366,18 @@ describe('instructionsDistribution', () => {
     expect(upsertStartupDocManagedBlock(content, block)).toBe(expected);
     expect(upsertStartupDocManagedBlock(expected, block)).toBe(expected);
   });
+
+  it.each([
+    ['```markdown', '```'],
+    ['~~~markdown', '~~~'],
+    ['````markdown\n```\n~~~', '`````'],
+    ['   ```markdown', '   ```'],
+  ])('ignores reference examples inside %s fences', (opening, closing) => {
+    const block = '@.claude/1MCP.md\n';
+    const example = `${opening}\n${block}${closing}\n`;
+    const content = `${example}\n${block}\n# After\n`;
+
+    expect(upsertStartupDocManagedBlock(content, block)).toBe(content);
+    expect(upsertStartupDocManagedBlock(example, block)).toBe(`${example}${block}`);
+  });
 });

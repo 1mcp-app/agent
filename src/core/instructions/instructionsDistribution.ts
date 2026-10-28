@@ -240,10 +240,24 @@ export function upsertStartupDocManagedBlock(existingContent: string, managedBlo
   }
 
   const withoutLegacyBlocks = normalizedExisting.replace(LEGACY_MANAGED_BLOCK_PATTERN, '');
+  let closingFence: RegExp | undefined;
   let foundReference = false;
   const updatedContent = withoutLegacyBlocks
     .split('\n')
     .flatMap((line) => {
+      if (closingFence) {
+        if (closingFence.test(line)) closingFence = undefined;
+        return [line];
+      }
+
+      const openingFence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (openingFence) {
+        const [, marker, info] = openingFence;
+        if (marker.startsWith('`') && info.includes('`')) return [line];
+        closingFence = new RegExp(`^ {0,3}${marker[0]}{${marker.length},}[ \\t]*$`);
+        return [line];
+      }
+
       if (!managedReferenceAliases.has(line.trim())) return [line];
       if (foundReference) return [];
 
