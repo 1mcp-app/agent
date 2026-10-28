@@ -261,7 +261,7 @@ describe('instructionsDistribution', () => {
 
     expect(content).toContain('If this session already received the current 1MCP instructions content from hooks');
     expect(content).toContain('Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.');
-    expect(content).toContain('Run `1mcp inspect <server>` when its inventory or instructions are missing');
+    expect(content).toContain('Run `1mcp instructions <server>` when its instructions are missing');
   });
 
   it('keeps the managed reference and hook-delivered playbook search workflow consistent', () => {

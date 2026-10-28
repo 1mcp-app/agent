@@ -306,7 +306,7 @@ describeInspectE2E('inspect command E2E', () => {
 
     runner.assertSuccess(instructionsResult, `Instructions failed. Fixture server output:\n${serveOutput}`);
     expect(instructionsResult.stdout).toContain('1MCP CLI Instructions');
-    expect(instructionsResult.stdout).toContain('Run `1mcp inspect <server>`');
+    expect(instructionsResult.stdout).toContain('Run `1mcp instructions <server>`');
     expect(instructionsResult.stdout).toContain('=== SERVER SUMMARY ===');
     expect(instructionsResult.stdout).toContain('<server_summary name="serena">');
     expect(instructionsResult.stdout).toContain('type: template');
@@ -353,18 +353,23 @@ describeInspectE2E('inspect command E2E', () => {
     expect(Number.isInteger(waitOutput.waitedMs)).toBe(true);
     expect(waitOutput.waitedMs).toBeGreaterThanOrEqual(0);
 
-    const serverResult = await runner.runInspectCommand('serena', {
+    const inventory = await runner.runInspectCommand('serena', {
+      cwd: environment.getTempDir(),
+      args: [...getCliSessionCacheArgs(), '--format', 'json'],
+    });
+    runner.assertSuccess(inventory);
+    expect(JSON.parse(inventory.stdout)).not.toHaveProperty('instructions');
+    expect(inventory.stdout).toContain('find_symbol');
+
+    const serverResult = await runner.runCommand('instructions', 'serena', {
       cwd: environment.getTempDir(),
       args: getCliSessionCacheArgs(),
     });
 
     runner.assertSuccess(serverResult);
-    expect(serverResult.stdout).toContain('kind: server');
-    expect(serverResult.stdout).toContain('server: serena');
-    expect(serverResult.stdout).toContain('instructions:');
     expect(serverResult.stdout).toContain('# Serena Instructions');
     expect(serverResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
-    expect(serverResult.stdout).toContain('find_symbol,');
+    expect(serverResult.stdout).not.toContain('find_symbol,');
   });
 
   it.each([false, true])('delivers cold and warm instructions without unrelated startup (owned: %s)', async (owned) => {
@@ -449,14 +454,14 @@ describeInspectE2E('inspect command E2E', () => {
     runner.assertSuccess(invoked, serveOutput);
     const content = runner.parseJsonOutput<Array<{ text: string }>>(invoked);
     expect(JSON.parse(content[0].text).matched).toBe('Fixture');
-    const selected = await runner.runInspectCommand('selected', {
+    const selected = await runner.runCommand('instructions', 'selected', {
       cwd: environment.getTempDir(),
       args: [...getCliSessionCacheArgs(), ...ownerArgs],
     });
     runner.assertSuccess(selected, serveOutput);
     expect(await readFile(warmListMarker, 'utf8')).toBe(warmListsBefore);
     expect(selected.stdout).toContain('# Serena Instructions');
-    expect(selected.stdout).toContain('find_symbol');
+    expect(selected.stdout).not.toContain('find_symbol');
     const listsBefore = await readFile(listMarker, 'utf8');
 
     const warm = await runner.runCommand('instructions', '', {
@@ -464,8 +469,8 @@ describeInspectE2E('inspect command E2E', () => {
       args: ['--config-dir', environment.getConfigDir(), ...ownerArgs],
     });
     runner.assertSuccess(warm, serveOutput);
-    // CLI surfaces retain distinct context bindings, even for the same owner.
-    expect(warm.stdout).not.toContain('# Serena Instructions');
+    // Targeted and aggregate instructions share the same scoped binding.
+    expect(warm.stdout).toContain('# Serena Instructions');
     expect(await readFile(listMarker, 'utf8')).toBe(listsBefore);
     expect((await readFile(selectedMarker, 'utf8')).trim().split('\n')).toHaveLength(1);
     await expect(readFile(unrelatedMarker)).rejects.toMatchObject({ code: 'ENOENT' });

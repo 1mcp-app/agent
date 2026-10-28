@@ -46,6 +46,43 @@ describe('instructions command', () => {
     });
   });
 
+  it('prints only the selected manual through scoped inspection', async () => {
+    mockedGetInspectResult.mockResolvedValueOnce({
+      kind: 'server',
+      server: 'serena',
+      instructions: 'Selected manual',
+      tools: [],
+    });
+    await instructionsCommand({ server: 'serena', preset: 'coding', project: ['/project'] });
+    expect(mockedGetInspectResult).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ target: 'serena', preset: 'coding', project: ['/project'] }),
+      { includeServerInstructions: true, clientSurface: 'instructions' },
+    );
+    expect(mockedStdoutWrite).toHaveBeenCalledExactlyOnceWith('Selected manual\n');
+    expect(mockedAttachReusableClientSurface).not.toHaveBeenCalled();
+    expect(mockedApiGet).not.toHaveBeenCalled();
+  });
+
+  it('reports an absent selected manual without borrowing global instructions', async () => {
+    mockedGetInspectResult.mockResolvedValueOnce({ kind: 'server', server: 'serena', instructions: null, tools: [] });
+    await instructionsCommand({ server: 'serena' });
+    expect(mockedStdoutWrite).toHaveBeenCalledExactlyOnceWith('No instructions available for server: serena.\n');
+    expect(mockedAttachReusableClientSurface).not.toHaveBeenCalled();
+  });
+
+  it.each(['', 'serena/find_symbol'])('rejects a non-server target %j before connecting', async (server) => {
+    await expect(instructionsCommand({ server })).rejects.toThrow('instructions accepts a server name');
+    expect(mockedGetInspectResult).not.toHaveBeenCalled();
+    expect(mockedAttachReusableClientSurface).not.toHaveBeenCalled();
+  });
+
+  it('propagates selected inspection failures without falling back to global instructions', async () => {
+    mockedGetInspectResult.mockRejectedValueOnce(new Error('Server not found'));
+    await expect(instructionsCommand({ server: 'missing' })).rejects.toThrow('Server not found');
+    expect(mockedStdoutWrite).not.toHaveBeenCalled();
+    expect(mockedAttachReusableClientSurface).not.toHaveBeenCalled();
+  });
+
   it('writes the exact runtime-rendered CLI instructions without inspecting servers', async () => {
     const rendered = 'managed cli instructions\nwith exact spacing';
     mockedApiGet.mockResolvedValueOnce({

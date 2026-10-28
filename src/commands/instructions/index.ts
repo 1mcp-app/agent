@@ -6,10 +6,14 @@ import type { Argv } from 'yargs';
 
 export function setupInstructionsCommand(yargs: Argv): Argv {
   return withGlobalOptions(yargs).command(
-    'instructions',
+    'instructions [server]',
     'Show instructions for connected agents',
     (commandYargs) =>
       withProjectSelectionOptions(commandYargs)
+        .positional('server', {
+          describe: 'Show only this server’s instructions; initialize the selected backend when needed',
+          type: 'string',
+        })
         .option('url', {
           alias: 'u',
           describe: 'Override auto-detected 1MCP server URL',
@@ -35,6 +39,7 @@ export function setupInstructionsCommand(yargs: Argv): Argv {
           string: true,
         })
         .example('$0 instructions', 'Show the CLI-mode agent playbook and current servers')
+        .example('$0 instructions filesystem', 'Read the selected server manual')
         .example('$0 instructions --tags backend', 'Show CLI instructions for a filtered backend server set')
         .example('$0 instructions --preset development', 'Show CLI instructions using a preset')
         .epilogue('This command requires a running `1mcp serve` instance. Errors are written to stderr only.'),

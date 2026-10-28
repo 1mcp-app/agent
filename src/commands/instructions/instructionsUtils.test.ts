@@ -65,7 +65,7 @@ describe('instructionsUtils', () => {
 
     expect(output).toContain('1MCP CLI Instructions');
     expect(output).toContain('=== PLAYBOOK ===');
-    expect(output).toContain('Run `1mcp inspect <server>`');
+    expect(output).toContain('Run `1mcp instructions <server>`');
     expect(output).toContain('1mcp auth login --context <name> --token <token>');
     expect(output).not.toContain('1mcp auth login --url');
     expect(output).toContain('=== SERVER SUMMARY ===');

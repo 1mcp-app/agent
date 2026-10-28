@@ -22,7 +22,7 @@ npx -y @1mcp/agent inspect [target] [选项]
 根据 target 的不同，`inspect` 可以：
 
 - 在不带 target 时列出所有已暴露的服务器
-- 在 target 为 `<server>` 时列出该服务器的工具及适用指令
+- 在 target 为 `<server>` 时列出该服务器的工具
 - 在 target 为 `<server>/<tool>` 时输出工具 schema 摘要
 
 支持时，`inspect` 会优先使用已认证的 `/api/v1/inspect` 端点，否则回退到 MCP 协议。它会在首个能力快照发布前报告已配置静态服务器的启动状态；脚本需要等待 `connected` 且 `available: true` 时请使用 [`wait`](/zh/commands/wait)。
@@ -32,8 +32,10 @@ npx -y @1mcp/agent inspect [target] [选项]
 ## Target 形式
 
 - **省略 target** - 列出运行中的 1MCP 实例暴露的所有服务器
-- **`<server>`** - 列出某个服务器的工具及指令；需要初始化时，仅启动所选模板
+- **`<server>`** - 列出某个服务器的工具；需要初始化时，仅启动所选模板
 - **`<server>/<tool>`** - 查看单个工具的 schema
+
+使用 `1mcp instructions <server>` 阅读服务器指令。普通 `inspect` 输出不包含指令块。
 
 ## 选项
 
@@ -76,7 +78,7 @@ npx -y @1mcp/agent inspect [target] [选项]
 1mcp inspect --search 'read a file' --include-descriptions
 1mcp inspect --search read --show-descriptions --format json
 # 阅读所选服务器的适用指令，然后查看 schema 并调用。
-1mcp inspect filesystem
+1mcp instructions filesystem
 1mcp inspect filesystem/read_file
 1mcp run filesystem/read_file --args '{"path":"README.md"}'
 ```
