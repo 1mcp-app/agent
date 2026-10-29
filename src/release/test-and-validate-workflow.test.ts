@@ -48,7 +48,8 @@ function getCiYamlFiles(): string[] {
 
   const scanDir = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (ignoredDirs.has(entry.name)) {
+      // Parallel lifecycle tests create and remove these disposable repository-local directories.
+      if (ignoredDirs.has(entry.name) || (entry.isDirectory() && entry.name.startsWith('.tmp-test-'))) {
         continue;
       }
 

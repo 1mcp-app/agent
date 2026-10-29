@@ -3,6 +3,12 @@ import { link, lstat, mkdir, open, readdir, rename, rmdir, unlink, writeFile } f
 import path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 
+import {
+  inspectProcessIdentity,
+  type ProcessIdentity,
+  processIdentitySchema,
+  readProcessIdentity,
+} from '@src/core/server/processIdentity.js';
 import { projectSetSchema } from '@src/domains/project-selection/projectSelection.js';
 import type { ProjectSetMember } from '@src/types/context.js';
 import { credentialReadFlags, hasSafeCredentialPermissions } from '@src/utils/filePermissions.js';
@@ -30,12 +36,20 @@ export interface HookOwnerIdentity {
   client: 'codex' | 'claude';
   sessionId: string;
   agentId?: string;
+  generation?: string;
 }
 
 export function hookProjectOwnerPath(storageDirectory: string, identity: HookOwnerIdentity): string {
   if (!identity.sessionId || identity.agentId === '') throw new Error('Missing hook owner identity');
   const key = createHash('sha256')
-    .update(JSON.stringify([identity.client, identity.sessionId, identity.agentId ?? null]))
+    .update(
+      JSON.stringify([
+        identity.client,
+        identity.sessionId,
+        identity.agentId ?? null,
+        ...(identity.generation ? [identity.generation] : []),
+      ]),
+    )
     .digest('hex');
   return path.resolve(storageDirectory, 'project-owners', `${key}.json`);
 }
@@ -188,14 +202,6 @@ export async function removeProjectOwner(ownerFile: string): Promise<void> {
   if (names.some((name) => !/^[a-f0-9]{64}(\.selection)?\.json$/.test(name))) {
     throw new Error('Unrecognized owner records; terminal cleanup requires inspection');
   }
-  let locatorFile: string | undefined;
-  if (ended.identity) {
-    const storageDirectory = path.dirname(path.dirname(ownerFile));
-    const thread = ended.identity.agentId ?? ended.identity.sessionId;
-    const locator = await readHookThreadLocatorRecord(storageDirectory, ended.identity.client, thread);
-    if (locator && locator.ownerFile !== ownerFile) throw new Error('Terminal locator and owner disagree');
-    if (locator) locatorFile = hookThreadLocatorPath(storageDirectory, ended.identity.client, thread);
-  }
   for (const name of names) await unlink(path.join(directory, name));
   await rmdir(directory).catch((error: unknown) => {
     if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
@@ -209,13 +215,24 @@ export async function removeProjectOwner(ownerFile: string): Promise<void> {
       if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
     });
   }
-  if (locatorFile) await unlink(locatorFile);
-  await unlink(ownerFile).catch((error: unknown) => {
-    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
-  });
-  await unlink(`${ownerFile}.ended`).catch((error: unknown) => {
-    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
-  });
+  const removeTerminal = async () => {
+    if (ended.identity) {
+      const storage = path.dirname(path.dirname(ownerFile));
+      const thread = ended.identity.agentId ?? ended.identity.sessionId;
+      const locator = await readHookThreadLocatorRecord(storage, ended.identity.client, thread);
+      if (locator?.ownerFile === ownerFile) await unlink(hookThreadLocatorPath(storage, ended.identity.client, thread));
+    }
+    for (const file of [ownerFile, `${ownerFile}.ended`]) {
+      await unlink(file).catch((error: unknown) => {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+      });
+    }
+  };
+  if (ended.identity) {
+    await withHookIdentityLock(path.dirname(path.dirname(ownerFile)), ended.identity, removeTerminal);
+  } else {
+    await removeTerminal();
+  }
 }
 
 const assignmentSchema = z
@@ -401,6 +418,10 @@ const hookOwnerIdentitySchema = z
     client: z.enum(['codex', 'claude']),
     sessionId: z.string().min(1).max(512),
     agentId: z.string().min(1).max(512).optional(),
+    generation: z
+      .string()
+      .regex(/^[a-f0-9]{32}$/)
+      .optional(),
   })
   .strict();
 const terminalOwnerSchema = z
@@ -408,7 +429,7 @@ const terminalOwnerSchema = z
   .strict();
 const threadLocatorSchema = z
   .object({
-    version: z.literal(1),
+    version: z.union([z.literal(1), z.literal(2)]),
     identity: hookOwnerIdentitySchema,
     ownerFile: z.string().refine(path.isAbsolute),
   })
@@ -435,8 +456,30 @@ export async function recordHookThreadLocator(
   if (ownerFile !== hookProjectOwnerPath(storageDirectory, identity))
     throw new Error('Hook identity and explicit owner disagree');
   const file = hookThreadLocatorPath(storageDirectory, identity.client, identity.agentId ?? identity.sessionId);
-  const content = JSON.stringify(threadLocatorSchema.parse({ version: 1, identity, ownerFile }));
-  await publishPrivateRecord(file, content);
+  const content = JSON.stringify(
+    threadLocatorSchema.parse({ version: identity.generation ? 2 : 1, identity, ownerFile }),
+  );
+  const previous = await readHookThreadLocatorRecord(
+    storageDirectory,
+    identity.client,
+    identity.agentId ?? identity.sessionId,
+  );
+  if (previous && previous.ownerFile !== ownerFile) {
+    if (previous.identity.sessionId !== identity.sessionId || previous.identity.agentId !== identity.agentId)
+      throw new Error('Hook thread identity records disagree');
+    if (!(await isProjectOwnerEnded(previous.ownerFile))) throw new Error('Cannot replace an active session owner');
+    const temporary = `${file}.${randomBytes(12).toString('hex')}.tmp`;
+    try {
+      await writeFile(temporary, content, { flag: 'wx', mode: 0o600 });
+      await rename(temporary, file);
+    } finally {
+      await unlink(temporary).catch((error: unknown) => {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+      });
+    }
+  } else {
+    await publishPrivateRecord(file, content);
+  }
   const existing = await readHookThreadLocator(
     storageDirectory,
     identity.client,
@@ -445,7 +488,7 @@ export async function recordHookThreadLocator(
   if (JSON.stringify(existing) !== content) throw new Error('Hook thread identity records disagree');
 }
 
-async function readHookThreadLocatorRecord(
+export async function readHookThreadLocatorRecord(
   storageDirectory: string,
   client: HookOwnerIdentity['client'],
   threadId: string,
@@ -464,6 +507,7 @@ async function readHookThreadLocatorRecord(
     if (!info.isFile() || info.size > 16384 || !hasSafeCredentialPermissions(info, 0o077))
       throw new Error('Invalid private thread locator');
     const record = threadLocatorSchema.parse(JSON.parse(await handle.readFile('utf8')));
+    if ((record.version === 2) !== Boolean(record.identity.generation)) throw new Error('Invalid owner generation');
     if (record.identity.client !== client || (record.identity.agentId ?? record.identity.sessionId) !== threadId)
       throw new Error('Thread locator identity mismatch');
     if (record.ownerFile !== hookProjectOwnerPath(storageDirectory, record.identity))
@@ -478,12 +522,13 @@ async function readHookThreadLocatorRecord(
 export async function acquireProjectOwnerLease(ownerFile: string): Promise<() => Promise<void>> {
   const directory = `${ownerFile}.calls`;
   const file = path.join(directory, `${randomBytes(16).toString('hex')}.json`);
+  const identity = readProcessIdentity(process.pid);
   await withProjectOwnerLock(ownerFile, async () => {
     await readProjectOwner(ownerFile);
     await assertOwnerActive(ownerFile);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await assertPrivateDirectory(directory);
-    await publishPrivateRecord(file, '{"version":1}');
+    await publishPrivateRecord(file, JSON.stringify({ version: 2, pid: process.pid, identity }));
   });
   let released = false;
   return async () => {
@@ -495,11 +540,12 @@ export async function acquireProjectOwnerLease(ownerFile: string): Promise<() =>
   };
 }
 
-/** Unknown or crashed calls retain authority for inspection; age never clears a lease. */
+/** Live or uncertain calls retain authority; only proven termination permits reconciliation. */
 export async function assertNoProjectOwnerCalls(ownerFile: string): Promise<void> {
   const directory = `${ownerFile}.calls`;
   try {
     await assertPrivateDirectory(directory);
+    await reconcileProjectOwnerCalls(ownerFile);
     if ((await readdir(directory)).length)
       throw new Error(
         'Session cleanup has pending or uncertain caller leases; retry after calls finish or inspect abandoned state',
@@ -517,4 +563,59 @@ export async function readHookThreadLocator(
   const record = await readHookThreadLocatorRecord(storageDirectory, client, threadId);
   if (record) await readProjectOwner(record.ownerFile);
   return record;
+}
+
+const callLeaseSchema = z
+  .object({
+    version: z.literal(2),
+    pid: z.number().int().positive(),
+    identity: processIdentitySchema.optional(),
+  })
+  .strict();
+
+/** Caller holds the owner lock. Legacy, foreign-host and uncertain records remain protected. */
+export async function reconcileProjectOwnerCalls(
+  ownerFile: string,
+  terminated?: { pid: number; identity?: ProcessIdentity },
+): Promise<void> {
+  const directory = `${ownerFile}.calls`;
+  let names: string[];
+  try {
+    await assertPrivateDirectory(directory);
+    names = await readdir(directory);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return;
+    throw error;
+  }
+  for (const name of names) {
+    if (!/^[a-f0-9]{32}\.json$/.test(name)) continue;
+    const file = path.join(directory, name);
+    const handle = await open(file, credentialReadFlags(), 0o600);
+    let lease: z.infer<typeof callLeaseSchema> | undefined;
+    try {
+      const info = await handle.stat();
+      if (!info.isFile() || info.size > 4096 || !hasSafeCredentialPermissions(info, 0o077)) continue;
+      const parsed = callLeaseSchema.safeParse(JSON.parse(await handle.readFile('utf8')));
+      if (parsed.success) lease = parsed.data;
+    } finally {
+      await handle.close();
+    }
+    if (!lease?.identity) continue;
+    if (terminated) {
+      if (lease.pid !== terminated.pid || !terminated.identity) continue;
+      if (JSON.stringify(lease.identity) !== JSON.stringify(terminated.identity)) continue;
+    }
+    if (inspectProcessIdentity(lease.pid, lease.identity) === 'dead') await unlink(file);
+  }
+}
+
+/** Serialize trusted lifecycle hooks without changing the per-owner call admission lock. */
+export async function withHookIdentityLock<T>(
+  storage: string,
+  identity: HookOwnerIdentity,
+  action: () => Promise<T>,
+): Promise<T> {
+  const file = hookThreadLocatorPath(storage, identity.client, identity.agentId ?? identity.sessionId);
+  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+  return withProjectOwnerLock(file, action);
 }

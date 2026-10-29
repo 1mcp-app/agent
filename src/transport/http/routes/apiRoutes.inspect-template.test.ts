@@ -1,9 +1,16 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
 import { buildCatalogGeneration } from '@src/core/capabilities/catalogGeneration.js';
+import {
+  publishConfiguredToolSnapshot,
+  readConfiguredToolSnapshot,
+} from '@src/core/capabilities/configuredToolSnapshot.js';
+import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { type ServerAdapter, ServerStatus, ServerType } from '@src/core/server/adapters/types.js';
 import type { OutboundConnections } from '@src/core/types/index.js';
 import type { JsonValue } from '@src/sdk/contracts/index.js';
+import type { LegacySdkEvent } from '@src/sdk/contracts/legacySdkAdapter.js';
 
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -200,6 +207,81 @@ describe('apiRoutes inspect', () => {
     };
 
     inspectHandler = createInspectHandler(serverManager as never);
+  });
+
+  it('lists inventory without querying connected backends and marks unobserved counts unknown', async () => {
+    const res = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: {} }, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: 'servers',
+      servers: expect.arrayContaining([
+        expect.objectContaining({ server: 'context7', toolCount: 0, toolCountKnown: false }),
+      ]),
+    });
+    for (const client of outboundConnections.values()) expect(client.adapter.request).not.toHaveBeenCalled();
+    expect(mockedLoadConfigWithTemplates).not.toHaveBeenCalled();
+  });
+
+  it.each(['current', 'stale', 'replaced', 'partial'] as const)(
+    'uses only current complete connection-bound counts (%s)',
+    async (state) => {
+      mockedGetTransportConfig.mockReturnValue({
+        context7: { type: 'stdio', command: 'node', disabledTools: ['blocked'] },
+      });
+      publishConfiguredToolSnapshot(outboundConnections.get('context7')!, [
+        { name: 'blocked', inputSchema: { type: 'object' } },
+      ]);
+      const registry = ToolRegistry.fromToolsWithServer([
+        { server: 'context7', connectionKey: 'context7', tool: { name: 'blocked', inputSchema: { type: 'object' } } },
+        { server: 'other', connectionKey: 'other:foreign', tool: { name: 'private', inputSchema: { type: 'object' } } },
+      ]).withConnections(new Map(outboundConnections), () => state !== 'stale');
+      lazyOrchestrator.mockReturnValue({
+        peekToolRegistry: () => (state === 'partial' ? registry.withListingMeta({ partial: true }) : registry),
+      });
+      if (state === 'replaced') outboundConnections.set('context7', connection('context7', ['context7']));
+      const res = createMockResponse();
+      await invokeInspectRoute(inspectHandler, { query: {} }, res);
+      const entries = (res.body as { servers: Array<{ server: string; toolCount: number; toolCountKnown?: boolean }> })
+        .servers;
+      const count = entries.find((entry) => entry.server === 'context7');
+      expect(count?.toolCount).toBe(0);
+      expect(count?.toolCountKnown).toBe(state === 'current' ? undefined : false);
+      expect(entries.some((entry) => entry.server === 'other')).toBe(false);
+      for (const client of outboundConnections.values()) expect(client.adapter.request).not.toHaveBeenCalled();
+    },
+  );
+
+  it('marks a count unknown after a tools-changed notification without querying the backend', async () => {
+    let notify!: (event: LegacySdkEvent) => void;
+    const changed = new Promise<LegacySdkEvent>((resolve) => {
+      notify = resolve;
+    });
+    const backend = outboundConnections.get('context7')!;
+    vi.mocked(backend.adapter.nextEvent).mockReturnValueOnce(changed).mockResolvedValue({ type: 'closed' });
+    const tools = [{ name: 'previous', inputSchema: { type: 'object' as const } }];
+    publishConfiguredToolSnapshot(backend, tools);
+    const registry = ToolRegistry.fromToolsWithServer(
+      tools.map((tool) => ({ server: 'context7', tool })),
+    ).withConnections(new Map(outboundConnections));
+    lazyOrchestrator.mockReturnValue({ peekToolRegistry: () => registry });
+    registerCapabilityPaginationNotifications(outboundConnections, backend);
+    const before = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: {} }, before);
+    expect(before.body).toMatchObject({
+      servers: expect.arrayContaining([expect.objectContaining({ server: 'context7', toolCount: 1 })]),
+    });
+    notify({ type: 'notification', notification: { method: 'notifications/tools/list_changed' } });
+    await vi.waitFor(() => expect(readConfiguredToolSnapshot(backend)).toBeUndefined());
+    expect(registry.isCurrent()).toBe(true);
+    const after = createMockResponse();
+    await invokeInspectRoute(inspectHandler, { query: {} }, after);
+    expect(after.body).toMatchObject({
+      servers: expect.arrayContaining([
+        expect.objectContaining({ server: 'context7', toolCount: 0, toolCountKnown: false }),
+      ]),
+    });
+    expect(backend.adapter.request).not.toHaveBeenCalled();
   });
 
   it('reapplies authorization and invalidates search cursors when inventory or authority changes', async () => {
@@ -452,7 +534,7 @@ describe('apiRoutes inspect', () => {
     });
   });
 
-  it('initializes selected template context for bare inspect listings', async () => {
+  it('registers selected template context without initializing backends for bare inspect listings', async () => {
     mockedLoadDeclaredServerConfigs.mockReturnValue({
       staticServers: {},
       templateServers: {
@@ -564,8 +646,8 @@ describe('apiRoutes inspect', () => {
       return server.server === 'serena';
     });
     expect(serenaEntry).toMatchObject({ server: 'serena', type: 'template', available: false, toolCount: 0 });
-    expect(createTemplateBasedServers).toHaveBeenCalledOnce();
-    expect(registerTemplate).toHaveBeenCalledOnce();
-    expect(getRenderedHashForSession).toHaveBeenCalled();
+    expect(createTemplateBasedServers).not.toHaveBeenCalled();
+    expect(registerTemplate).not.toHaveBeenCalled();
+    expect(mockedLoadConfigWithTemplates).not.toHaveBeenCalled();
   });
 });
