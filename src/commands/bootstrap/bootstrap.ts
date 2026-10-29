@@ -171,9 +171,15 @@ export async function runInstructionsProcess(
       clearTimeout(timer);
       const finish = async () => {
         if (ownerFile && child.pid) {
-          await withProjectOwnerLock(ownerFile, () =>
-            reconcileProjectOwnerCalls(ownerFile, { pid: child.pid!, identity: childIdentity }),
-          );
+          try {
+            await withProjectOwnerLock(
+              ownerFile,
+              () => reconcileProjectOwnerCalls(ownerFile, { pid: child.pid!, identity: childIdentity }),
+              { waitMs: 0 },
+            );
+          } catch {
+            // Optional cleanup must not replace the child's result. Retain uncertain leases for recovery.
+          }
         }
         if (timedOut) throw new InstructionsProcessError('instructions_timeout');
         if (code !== 0) throw new InstructionsProcessError('instructions_failed');

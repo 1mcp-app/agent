@@ -319,10 +319,14 @@ export async function recordProjectOwnerSelection(
 }
 
 /** A stale lock is retained for inspection, never cleared by age or process guesses. */
-export async function withProjectOwnerLock<T>(ownerFile: string, action: () => Promise<T>): Promise<T> {
+export async function withProjectOwnerLock<T>(
+  ownerFile: string,
+  action: () => Promise<T>,
+  options: { waitMs?: number } = {},
+): Promise<T> {
   await assertPrivateDirectory(path.dirname(ownerFile));
   const lock = `${ownerFile}.lock`;
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + (options.waitMs ?? 5000);
   for (;;) {
     try {
       await mkdir(lock, { mode: 0o700 });
@@ -573,7 +577,10 @@ const callLeaseSchema = z
   })
   .strict();
 
-/** Caller holds the owner lock. Legacy, foreign-host and uncertain records remain protected. */
+/**
+ * Caller holds the owner lock. `terminated` must identify its own child with an observed exit.
+ * Without that direct evidence, legacy, foreign-host and uncertain records remain protected.
+ */
 export async function reconcileProjectOwnerCalls(
   ownerFile: string,
   terminated?: { pid: number; identity?: ProcessIdentity },
@@ -604,6 +611,9 @@ export async function reconcileProjectOwnerCalls(
     if (terminated) {
       if (lease.pid !== terminated.pid || !terminated.identity) continue;
       if (JSON.stringify(lease.identity) !== JSON.stringify(terminated.identity)) continue;
+      // The parent already observed this exact child exit; avoid another OS probe on its result path.
+      await unlink(file);
+      continue;
     }
     if (inspectProcessIdentity(lease.pid, lease.identity) === 'dead') await unlink(file);
   }
