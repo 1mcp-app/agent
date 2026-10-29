@@ -3,10 +3,12 @@ import { isAbsolute } from 'node:path';
 import type { Readable } from 'node:stream';
 
 import { resolveAgentSessionOptions } from '@src/commands/shared/agentSession.js';
+import { reconcileProjectOwnerCalls, withProjectOwnerLock } from '@src/commands/shared/projectOwnerStore.js';
 import { type ProjectOwnerTarget, readProjectOwnerAssignment } from '@src/commands/shared/projectOwnerStore.js';
 import type { ProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
 import { renderManagedDocContent } from '@src/core/instructions/instructionsDistribution.js';
+import { readProcessIdentity } from '@src/core/server/processIdentity.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 
 import { isSea } from 'node:sea';
@@ -144,6 +146,7 @@ export async function runInstructionsProcess(
   executable: string,
   args: string[],
   deadlineMs = BOOTSTRAP_DEADLINE_MS,
+  ownerFile?: string,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const environment = { ...getRuntimeParentEnvironment() };
@@ -153,31 +156,40 @@ export async function runInstructionsProcess(
     // This implementation child belongs to the outer invocation, not a second command adoption.
     environment.ONE_MCP_PRODUCT_TELEMETRY = 'false';
     const child = spawn(executable, args, { shell: false, env: environment, stdio: ['ignore', 'pipe', 'pipe'] });
+    const childIdentity = child.pid ? readProcessIdentity(child.pid) : undefined;
     const chunks: Buffer[] = [];
-    let settled = false;
-    const finish = (error?: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (error) {
-        child.kill('SIGKILL');
-        reject(error);
-        return;
-      }
-      const output = Buffer.concat(chunks).toString('utf8').trim();
-      if (!output) reject(new InstructionsProcessError('instructions_empty'));
-      else resolve(output);
-    };
-    const timer = setTimeout(() => finish(new InstructionsProcessError('instructions_timeout')), deadlineMs);
-    child.stdout.on('data', (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
-    // Drain stderr without retaining potentially sensitive runtime diagnostics.
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+    }, deadlineMs);
+    child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
     child.stderr.resume();
-    child.once('error', () => finish(new InstructionsProcessError('instructions_unavailable')));
+    child.once('error', () => {
+      clearTimeout(timer);
+      reject(new InstructionsProcessError('instructions_unavailable'));
+    });
     child.once('close', (code) => {
-      if (code !== 0) finish(new InstructionsProcessError('instructions_failed'));
-      else finish();
+      clearTimeout(timer);
+      const finish = async () => {
+        if (ownerFile && child.pid) {
+          try {
+            await withProjectOwnerLock(
+              ownerFile,
+              () => reconcileProjectOwnerCalls(ownerFile, { pid: child.pid!, identity: childIdentity }),
+              { waitMs: 0 },
+            );
+          } catch {
+            // Optional cleanup must not replace the child's result. Retain uncertain leases for recovery.
+          }
+        }
+        if (timedOut) throw new InstructionsProcessError('instructions_timeout');
+        if (code !== 0) throw new InstructionsProcessError('instructions_failed');
+        const output = Buffer.concat(chunks).toString('utf8').trim();
+        if (!output) throw new InstructionsProcessError('instructions_empty');
+        return output;
+      };
+      void finish().then(resolve, reject);
     });
   });
 }
@@ -248,13 +260,12 @@ export async function bootstrapCommand(options: BootstrapCommandOptions): Promis
     try {
       await releaseSessionOwner(options, input, releaseRecordedOwnerTarget);
       process.stdout.write(`${JSON.stringify({ suppressOutput: true })}\n`);
-    } catch {
+    } catch (error) {
+      const detail = cleanupFailureDetail(error);
       process.exitCode = 1;
-      process.stderr.write(
-        'Ownership cleanup coverage gap: session identity, recorded target, or runtime release could not be verified. Inspect project status before removal.\n',
-      );
+      process.stderr.write(`Ownership cleanup coverage gap: ${detail}. Inspect project status before removal.\n`);
       process.stdout.write(
-        `${JSON.stringify({ systemMessage: 'Ownership cleanup coverage gap: session identity, recorded targets, or runtime release could not be verified. Retry recorded terminal cleanup with project recover --project-owner <own-file>; inspect project status before removal.' })}\n`,
+        `${JSON.stringify({ systemMessage: `Ownership cleanup coverage gap: ${detail}. Retry recorded terminal cleanup with project recover --project-owner <own-file>; inspect project status before removal.` })}\n`,
       );
     }
     return;
@@ -282,7 +293,7 @@ export async function bootstrapCommand(options: BootstrapCommandOptions): Promis
   const context = await renderBootstrapContext(ownedOptions, input, async (selected) => {
     const args = buildInstructionsArguments(selected);
     const cliArgs = isSea() ? args : [process.argv[1], ...args];
-    return runInstructionsProcess(process.execPath, cliArgs);
+    return runInstructionsProcess(process.execPath, cliArgs, BOOTSTRAP_DEADLINE_MS, selected['project-owner']);
   });
   process.stdout.write(
     `${JSON.stringify({ hookSpecificOutput: { hookEventName: options.event, additionalContext: context + ownerMessage } })}\n`,
@@ -298,4 +309,18 @@ export async function releaseRecordedOwnerTarget(ownerFile: string, target: Proj
   }
   args.push(`--expected-runtime-scope=${target.runtimeScopeId}`);
   await runInstructionsProcess(process.execPath, isSea() ? args : [process.argv[1], ...args], 2000);
+}
+
+/** Only fixed local lifecycle diagnostics are safe to expose through hook output. */
+function cleanupFailureDetail(error: unknown): string {
+  const messages = [
+    'Session cleanup has pending or uncertain caller leases; retry after calls finish or inspect abandoned state',
+    'Session ownership cleanup is incomplete',
+    'Owner state is busy or has an abandoned lock; inspect before recovery',
+    'Owner credential is missing but recovery records remain; inspect uncertain cleanup',
+    'Terminal cleanup requires persisted release proof',
+    'Session owner changed during terminal selection; no cleanup performed',
+  ];
+  if (error instanceof Error && messages.includes(error.message)) return error.message;
+  return 'session identity, recorded target, or runtime release could not be verified';
 }

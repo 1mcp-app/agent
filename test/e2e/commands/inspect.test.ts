@@ -315,17 +315,24 @@ describeInspectE2E('inspect command E2E', () => {
 
     const listResult = await runner.runCommand('inspect', '', {
       cwd: environment.getTempDir(),
-      args: ['--config-dir', environment.getConfigDir()],
+      args: ['--config-dir', environment.getConfigDir(), '--format', 'json'],
     });
-
     runner.assertSuccess(listResult);
-    expect(listResult.stdout).toContain('kind: servers');
-    expect(listResult.stdout).toContain(
-      'servers[2]{server,type,status,available,loadTracked,toolCount,hasInstructions}:',
+    const observedInventory = JSON.parse(listResult.stdout);
+    expect(observedInventory.kind).toBe('servers');
+    expect(observedInventory.servers).toHaveLength(2);
+    expect(observedInventory.servers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ server: 'runner', available: true }),
+        expect.objectContaining({ server: 'serena', type: 'template', available: false, toolCountKnown: false }),
+      ]),
     );
-    expect(listResult.stdout).toContain('runner,external,connected,true,true,4,false');
-    expect(listResult.stdout).toContain('serena,template,connected,true,false,1,true');
-    expect(listResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
+    const targeted = await runner.runInspectCommand('serena', {
+      cwd: environment.getTempDir(),
+      args: ['--config-dir', environment.getConfigDir(), '--format', 'json'],
+    });
+    runner.assertSuccess(targeted);
+    expect(JSON.parse(targeted.stdout)).toMatchObject({ available: true, totalTools: 1 });
 
     const runResult = await runner.runRunCommand('runner/echo_args', {
       cwd: environment.getTempDir(),

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 import * as authority from '@src/transport/http/utils/templateContextAuthority.js';
 import { ConfigManager } from '@src/config/configManager.js';
+import { publishConfiguredToolSnapshot } from '@src/core/capabilities/configuredToolSnapshot.js';
 import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { authorizeTemplateContext } from '@src/core/context/templateContextTrust.js';
@@ -39,7 +40,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
   let templates: TemplateServerManager;
   let manager: ServerManager;
   let load: ReturnType<typeof vi.spyOn>;
-  const clients = new Map();
+  let clients = new Map();
   const instructions = {
     hasInstructions: () => false,
     getServerInstructions: () => undefined,
@@ -50,7 +51,8 @@ describe('HTTP project binding lifetime and inspect admission', () => {
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), '1mcp-binding-race-'));
     templates = new TemplateServerManager();
-    clients.clear();
+    // Runtime catalog caches are keyed by this map; each test needs a fresh runtime identity.
+    clients = new Map();
     manager = {
       getTemplateServerManager: () => templates,
       getClients: () => clients,
@@ -224,7 +226,16 @@ describe('HTTP project binding lifetime and inspect admission', () => {
   );
 
   it.each(['inspect', 'servers'] as const)('rejects removed bindings before %s backend inventory', async (route) => {
-    removeBindingDuringPreparation();
+    if (route === 'inspect') {
+      const register = templates.registerBindingContext.bind(templates);
+      vi.spyOn(templates, 'registerBindingContext').mockImplementation(async (...args) => {
+        const id = await register(...args);
+        await templates.cleanupTemplateServers(args[1].sessionId!, clients, {});
+        return id;
+      });
+    } else {
+      removeBindingDuringPreparation();
+    }
     const connection = createMockOutboundConnection({ name: 'backend' });
     clients.set('backend', connection);
     const instance = express();
@@ -233,7 +244,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
       .get('/inspect')
       .query({ context: Buffer.from(JSON.stringify(context())).toString('base64url') });
     expect(response.status, JSON.stringify(response.body)).toBe(500);
-    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledTimes(route === 'inspect' ? 0 : 1);
     expect(connection.adapter.request).not.toHaveBeenCalled();
   });
 
@@ -337,6 +348,29 @@ describe('HTTP project binding lifetime and inspect admission', () => {
     const sibling = createMockOutboundConnection({ name: 'symbols' });
     clients.set('symbols:selected', selected);
     clients.set('symbols:sibling', sibling);
+    publishConfiguredToolSnapshot(selected, [{ name: 'frontend_symbol', inputSchema: { type: 'object' } }]);
+    publishConfiguredToolSnapshot(sibling, [
+      { name: 'private_symbol', inputSchema: { type: 'object' } },
+      { name: 'private_second', inputSchema: { type: 'object' } },
+    ]);
+    const cached = ToolRegistry.fromToolsWithServer([
+      {
+        server: 'symbols',
+        connectionKey: 'symbols:selected',
+        tool: { name: 'frontend_symbol', inputSchema: { type: 'object' } },
+      },
+      {
+        server: 'symbols',
+        connectionKey: 'symbols:sibling',
+        tool: { name: 'private_symbol', inputSchema: { type: 'object' } },
+      },
+      {
+        server: 'symbols',
+        connectionKey: 'symbols:sibling',
+        tool: { name: 'private_second', inputSchema: { type: 'object' } },
+      },
+    ]).withConnections(new Map(clients));
+    vi.spyOn(manager, 'getLazyLoadingOrchestrator').mockReturnValue({ peekToolRegistry: () => cached } as never);
     vi.spyOn(templates, 'getAllRenderedHashesForSession').mockReturnValue(new Map([['symbols', 'selected']]));
     vi.mocked(ConfigManager.getInstance().loadDeclaredServerConfigs).mockReturnValue({
       staticServers: {},
@@ -352,7 +386,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
       .query({ context: Buffer.from(JSON.stringify(context())).toString('base64url') });
     expect(response.status).toBe(200);
     expect(response.body.servers).toMatchObject([{ server: 'symbols', toolCount: 1, available: true }]);
-    expect(selected.adapter.request).toHaveBeenCalledOnce();
+    expect(selected.adapter.request).not.toHaveBeenCalled();
     expect(sibling.adapter.request).not.toHaveBeenCalled();
   });
   it.each([

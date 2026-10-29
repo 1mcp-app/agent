@@ -592,3 +592,47 @@ describe('owned instructions subprocess', () => {
     expect(output).toBe(instructions);
   });
 });
+
+it('preserves successful instructions when another caller holds the owner lock', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-busy-owner-'));
+  try {
+    const owner = await createHookProjectOwner(directory, { client: 'codex', sessionId: 'busy' });
+    await fs.mkdir(`${owner}.lock`, { mode: 0o700 });
+    await expect(
+      runInstructionsProcess(process.execPath, ['-e', "process.stdout.write('ready instructions')"], 5000, owner),
+    ).resolves.toBe('ready instructions');
+    expect((await fs.stat(`${owner}.lock`)).isDirectory()).toBe(true);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+it('preserves successful instructions and uncertain records when reconciliation fails', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-invalid-lease-'));
+  try {
+    const owner = await createHookProjectOwner(directory, { client: 'codex', sessionId: 'invalid' });
+    await fs.mkdir(`${owner}.calls`, { mode: 0o700 });
+    const lease = path.join(`${owner}.calls`, `${'a'.repeat(32)}.json`);
+    await fs.writeFile(lease, 'invalid lease', { mode: 0o600 });
+    await expect(
+      runInstructionsProcess(process.execPath, ['-e', "process.stdout.write('ready instructions')"], 5000, owner),
+    ).resolves.toBe('ready instructions');
+    expect(await fs.readFile(lease, 'utf8')).toBe('invalid lease');
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+it('preserves the timeout result when another caller holds the owner lock', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-timeout-busy-owner-'));
+  try {
+    const owner = await createHookProjectOwner(directory, { client: 'codex', sessionId: 'busy-timeout' });
+    await fs.mkdir(`${owner}.lock`, { mode: 0o700 });
+    await expect(
+      runInstructionsProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], 100, owner),
+    ).rejects.toThrow('deadline');
+    expect((await fs.stat(`${owner}.lock`)).isDirectory()).toBe(true);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});

@@ -190,7 +190,7 @@ export async function getInspectResult(
   const clientSurface = resultOptions.clientSurface ?? 'inspect';
   const attachment = await attachReusableClientSurface<InspectCommandOptions, InspectAttachmentValue>({
     clientSurface,
-    alwaysTryRest: options.search !== undefined,
+    alwaysTryRest: options.search !== undefined || parseInspectTarget(options.target).kind === 'all',
     version: clientSurface,
     options,
     rest: (context) => tryInspectRest(context, includeServerInstructions),
@@ -431,6 +431,10 @@ async function tryInspectRest(
       status: 'auth_required',
       message: formatClientSurfaceAuthRequiredMessage(context),
     };
+  }
+
+  if (apiResponse.status === 0 && target.kind === 'all') {
+    return { status: 'error', message: apiResponse.error || 'Cannot reach the inspect endpoint.' };
   }
 
   const isMissingInspectEndpoint =

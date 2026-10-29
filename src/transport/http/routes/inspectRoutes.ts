@@ -4,6 +4,10 @@ import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregato
 import { CapabilityCursorCapacityError } from '@src/core/capabilities/capabilityPagination.js';
 import { createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
+import {
+  isConfiguredToolSnapshotComplete,
+  readConfiguredToolSnapshot,
+} from '@src/core/capabilities/configuredToolSnapshot.js';
 import { InspectCursorError } from '@src/core/capabilities/inspectPagination.js';
 import { inspectSearchOptionsSchema, searchInspectTools } from '@src/core/capabilities/inspectSearch.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
@@ -43,7 +47,7 @@ import {
   summarizeToolSchema,
   type ToolSummary,
 } from './inspectHelpers.js';
-import { ensureRequestContextInitialized } from './inspectRequestContext.js';
+import { ensureRequestContextInitialized, registerHttpRequestContext } from './inspectRequestContext.js';
 
 export {
   buildFilterConfig,
@@ -188,6 +192,43 @@ export async function buildServerSummaries(
   );
 }
 
+/** Inventory observes existing scoped metadata; it never starts or queries a backend. */
+export function buildCachedServerSummaries(
+  filteredConnections: FilteredConnections,
+  toolRegistry: ToolRegistry | undefined,
+  serverRegistry: ServerRegistry,
+  instructionAggregator: ReturnType<ServerManager['getInstructionAggregator']>,
+  declaredServers: DeclaredServers,
+  filterConfig: ReturnType<typeof buildFilterConfig>,
+  options: ServerSummaryOptions = {},
+): ServerSummary[] {
+  const configs = getServerTargetConfigs(declaredServers);
+  const connections = selectSummaryConnections(filteredConnections, configs, options);
+  const counts: Record<string, number> = {};
+  // A registry without backend identity or with partial listing metadata cannot prove a count.
+  if (toolRegistry?.isCurrent() && !toolRegistry.getListingMeta()) {
+    const captured = toolRegistry.getConnections();
+    for (const [key, connection] of connections) {
+      if (captured?.get(key) !== connection) continue;
+      const name = key.includes(':') ? key.split(':')[0] : key;
+      if (!isConfiguredToolSnapshotComplete(connection)) continue;
+      const tools = readConfiguredToolSnapshot(connection);
+      if (!tools) continue;
+      const count = filterDisabledTools([...tools], configs, name).length;
+      counts[name] = Math.max(counts[name] ?? 0, count);
+    }
+  }
+  return summarizeServerState(
+    connections,
+    serverRegistry,
+    instructionAggregator,
+    declaredServers,
+    filterConfig,
+    options,
+    counts,
+  );
+}
+
 function summarizeServerState(
   summaryConnections: FilteredConnections,
   serverRegistry: ServerRegistry,
@@ -257,7 +298,7 @@ function summarizeServerState(
       available: state.available,
       loadTracked: isLoadTrackedStaticServer(declaredServers, cleanName),
       toolCount: info.toolCount,
-      ...(toolCountByServer ? {} : { toolCountKnown: false }),
+      ...(toolCountByServer?.[cleanName] !== undefined ? {} : { toolCountKnown: false }),
       hasInstructions: info.hasInstructions,
     });
   }
@@ -456,7 +497,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
 
       // No target: list all filtered servers
       if (!targetRaw) {
-        const bindingId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+        const bindingId = await registerHttpRequestContext(serverManager, req, res, filterConfig);
         const templateManager = serverManager.getTemplateServerManager?.();
         const projectContext = bindingId ? templateManager?.getBindingContext?.(bindingId) : undefined;
         const scopedConnections = createConnectionResolver(
@@ -466,10 +507,9 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         const filteredConnections = FilteringService.getFilteredConnections(scopedConnections, filterConfig);
         const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 
-        const servers = await buildServerSummaries(
+        const servers = buildCachedServerSummaries(
           filteredConnections,
-          lazyOrchestrator?.getToolRegistry(),
-          lazyOrchestrator?.getCapabilityAggregator(),
+          lazyOrchestrator?.peekToolRegistry(),
           serverManager.getServerRegistry(),
           instructionAggregator,
           declaredServers,

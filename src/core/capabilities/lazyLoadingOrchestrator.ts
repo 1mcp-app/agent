@@ -540,6 +540,11 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * Get the tool registry as last built. A stale registry starts a background rebuild;
    * callers that can wait should use getCurrentToolRegistry().
    */
+  /** Observe the last registry without scheduling backend work. */
+  public peekToolRegistry(): ToolRegistry {
+    return this.toolRegistry;
+  }
+
   public getToolRegistry(): ToolRegistry {
     if (this.isEnabled() && this.toolRegistryNeedsRefresh()) {
       // The synchronous accessor starts a background refresh; awaited request access propagates failures.

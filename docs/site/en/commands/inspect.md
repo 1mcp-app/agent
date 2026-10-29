@@ -39,6 +39,8 @@ When supported, `inspect` uses the authenticated `/api/v1/inspect` endpoint firs
 
 This is the command that turns the broad inventory from `instructions` into a scoped view. Inspect the server and tool only when their inventory, applicable instructions, capabilities, or schema is missing or needs refreshing. Otherwise, use the known schema while keeping project-specific context current.
 
+Bare `1mcp inspect` returns the current server inventory without starting template backends, refreshing capabilities, or requesting tool lists. Counts come only from current, complete metadata for the visible connections. Text and TOON show `unknown` when a count is unavailable; JSON keeps a numeric `toolCount` and adds `toolCountKnown: false`. An unknown count is not evidence of zero tools. Use `inspect <server>` when you need its current tool inventory. Timeouts and connection failures are reported separately from an unsupported inspect endpoint.
+
 ## Targets
 
 - **Omit target** - List all servers exposed by the running 1MCP instance

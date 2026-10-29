@@ -15,6 +15,8 @@ description: 使用 inspect 命令列出服务器、检查服务器工具，并�
 npx -y @1mcp/agent inspect [target] [选项]
 ```
 
+不指定目标的 `1mcp inspect` 直接返回当前服务器清单，不启动模板后端、不刷新能力，也不请求工具列表。工具数量仅来自当前可见连接的有效、完整元数据。数量未知时，文本和 TOON 显示 `unknown`；JSON 保留数值字段 `toolCount`，并返回 `toolCountKnown: false`。未知不表示零个工具。需要查询某个服务器的当前工具清单时，使用 `inspect <server>`。请求超时和连接失败会单独报告，不再误报为服务器不支持检查端点。
+
 ## 描述
 
 `inspect` 是 CLI 工作流中的发现和 schema 查看步骤。服务器或工具信息缺失或需要刷新时，在 [`run`](/zh/commands/run) 之前使用。

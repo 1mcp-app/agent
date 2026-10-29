@@ -1,4 +1,5 @@
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { buildCliContext } from '@src/commands/shared/cliContext.js';
@@ -242,6 +243,47 @@ describe('inspect command internals', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
+
+  it('probes REST for bare inventory despite a negative cached endpoint flag', async () => {
+    const cacheDir = await mkdtemp(join(tmpdir(), 'inspect-rest-cache-'));
+    const template = join(cacheDir, 'session.{pid}');
+    try {
+      const cachePath = getCliSessionCachePath({ cachePathTemplate: template, serverPid: 4242 });
+      await writeCliSessionCache(cachePath, {
+        sessionId: 'cached',
+        serverUrl: 'http://127.0.0.1:3050/mcp',
+        contextHash: makeClientSurfaceContextHash('/tmp/project'),
+        savedAt: Date.now(),
+        hasRestEndpoint: false,
+      });
+      mockedApiClientGet.mockResolvedValue({ ok: true, status: 200, data: { kind: 'servers', servers: [] } });
+      expect(await getInspectResult({ 'cli-session-cache-path': template })).toMatchObject({ kind: 'servers' });
+      expect(mockedApiClientGet).toHaveBeenCalledOnce();
+      expect(transportState.instances).toHaveLength(0);
+    } finally {
+      await rm(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([404, 405])('reports a genuinely unsupported inventory endpoint (%s)', async (status) => {
+    mockedApiClientGet.mockResolvedValue({ ok: false, status, error: `HTTP ${status}` });
+    await expect(getInspectResult({})).rejects.toThrow('does not support');
+  });
+
+  it.each([401, 403])('keeps inventory authentication errors terminal (%s)', async (status) => {
+    mockedApiClientGet.mockResolvedValue({ ok: false, status, error: 'unauthorized' });
+    await expect(getInspectResult({})).rejects.not.toThrow('does not support');
+    expect(transportState.instances).toHaveLength(0);
+  });
+
+  it.each(['Request timed out after 10000ms', 'fetch failed'])(
+    'preserves inventory transport errors: %s',
+    async (error) => {
+      mockedApiClientGet.mockResolvedValue({ ok: false, status: 0, error });
+      await expect(getInspectResult({})).rejects.toThrow(error);
+      expect(transportState.instances).toHaveLength(0);
+    },
+  );
 
   it.each([
     { label: 'missing tools', payload: {} },
