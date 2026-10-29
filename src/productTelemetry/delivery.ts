@@ -7,7 +7,7 @@ import type { PreparedDelivery } from './installationStore.js';
 
 const COLLECTOR = 'https://ingest.1mcp.app/v1/summaries';
 const MAX_ACTIVE = 2;
-const active = new Set<Worker>();
+const active = new Map<Worker, () => void>();
 // Native SEA needs only built-ins; older npm runtimes load installed proxy compatibility modules.
 const SEND_ONCE = `
 const { workerData, parentPort } = require('node:worker_threads');
@@ -88,18 +88,21 @@ export function prepareProductDelivery(endpoint: string = COLLECTOR): Promise<Pr
       workerData: { endpoint, proxyModules },
       name: 'product-usage-delivery',
     });
-    active.add(worker);
     let ready = false;
+    let cancelled = false;
     const cancel = () => {
+      cancelled = true;
       ready = false;
       void worker.terminate().catch(() => {});
       resolve(undefined);
     };
+    active.set(worker, cancel);
     const deadline = setTimeout(cancel, 10_000);
     deadline.unref();
     worker.on('error', cancel);
     worker.once('message', (message) => {
       if (message !== 'ready') return;
+      if (cancelled) return;
       ready = true;
       resolve({
         isReady: () => ready,
@@ -130,5 +133,5 @@ export function dispatchProductBatch(body: string, endpoint: string = COLLECTOR)
 
 /** Best effort: bytes already transmitted cannot be recalled. */
 export function abortProductDelivery(): void {
-  for (const worker of active) void worker.terminate().catch(() => {});
+  for (const cancel of active.values()) cancel();
 }

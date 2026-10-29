@@ -127,6 +127,31 @@ it('honors no_proxy instead of sending a bypassed request through http_proxy', a
   }
 }, 15000);
 
+it('invalidates a prepared sender synchronously when delivery is aborted', async () => {
+  let requests = 0;
+  const server = http.createServer((_request, response) => {
+    requests++;
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  vi.stubEnv('no_proxy', '127.0.0.1');
+  vi.stubEnv('NO_PROXY', '127.0.0.1');
+  let delivery: Awaited<ReturnType<typeof prepareProductDelivery>>;
+  try {
+    delivery = await prepareProductDelivery(`http://127.0.0.1:${(server.address() as net.AddressInfo).port}`);
+    expect(delivery?.isReady()).toBe(true);
+    abortProductDelivery();
+    expect(delivery?.isReady()).toBe(false);
+    delivery!.dispatch('must-not-send');
+  } finally {
+    delivery?.cancel();
+    vi.unstubAllEnvs();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+  expect(requests).toBe(0);
+});
+
 it('keeps the durable queue and exits while a sender is still connecting', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'product-preparation-'));
   const script = path.join(directory, 'sender.mjs');
