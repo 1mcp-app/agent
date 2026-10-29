@@ -13,6 +13,7 @@ import { promisify } from 'node:util';
 
 import { build } from 'esbuild';
 
+import { buildProductProxyModule } from './product-telemetry-proxy.cjs';
 import { createTestProcessEnvironment } from './test-process-environment.mjs';
 
 assert.equal(Number(process.versions.node.split('.')[0]), 24, 'Use repository Node 24');
@@ -32,6 +33,7 @@ import workers from 'node:worker_threads';
 import { syncBuiltinESMExports } from 'node:module';
 import { dispatchProductBatch } from ${JSON.stringify(path.join(packaged, 'delivery.' + extension))};
 import { ProductUsageProducer } from ${JSON.stringify(path.join(packaged, 'producer.' + extension))};
+globalThis.__1MCP_TELEMETRY_PROXY_MODULE__ = ${JSON.stringify(buildProductProxyModule(agent))};
 // Controlled stalled initialization plus actual runtime timers must not retain Node/SEA.
 new ProductUsageProducer({
   store: { admit: () => new Promise(() => {}) },
@@ -108,28 +110,57 @@ try {
   }
   const results = [];
   for (const binary of binaries)
-    for (const mode of ['http', 'tls', 'dns']) {
+    for (const mode of ['http', 'tls', 'dns', 'proxy-http', 'proxy-tls']) {
       const sockets = new Set();
       let observe;
       const observed = new Promise((resolve) => {
         observe = resolve;
       });
-      const server = mode === 'http' ? http.createServer(() => observe()) : net.createServer(() => observe());
+      const server = ['http', 'proxy-http', 'proxy-tls'].includes(mode)
+        ? http.createServer((request) => {
+            let body = '';
+            request.on('data', (chunk) => {
+              body += String(chunk);
+            });
+            request.on('end', () => {
+              assert.equal(body, '{}');
+              if (mode === 'proxy-http') assert.equal(request.url, 'http://controlled.invalid/v1/summaries');
+              observe();
+            });
+          })
+        : net.createServer(() => observe());
+      if (mode === 'proxy-tls')
+        server.on('connect', (request, socket) => {
+          assert.equal(request.url, 'controlled.invalid:443');
+          socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+          observe();
+        });
       server.on('connection', (socket) => {
         sockets.add(socket);
+        socket.on('error', (error) => assert.equal(error.code, 'ECONNRESET'));
         socket.once('close', () => sockets.delete(socket));
       });
       await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
       const port = server.address().port;
-      const endpoint =
-        mode === 'dns'
-          ? 'https://controlled.invalid/v1/summaries'
-          : `${mode === 'tls' ? 'https' : 'http'}://127.0.0.1:${port}/controlled`;
+      let endpoint = `${mode === 'tls' ? 'https' : 'http'}://127.0.0.1:${port}/controlled`;
+      if (mode === 'dns' || mode === 'proxy-tls') endpoint = 'https://controlled.invalid/v1/summaries';
+      if (mode === 'proxy-http') endpoint = 'http://controlled.invalid/v1/summaries';
+      const childEnvironment = mode.startsWith('proxy-')
+        ? createTestProcessEnvironment(
+            {
+              http_proxy: `http://127.0.0.1:${port}`,
+              https_proxy: `http://127.0.0.1:${port}`,
+              no_proxy: '',
+              NO_PROXY: '',
+            },
+            environment,
+          )
+        : environment;
       let child;
       let timeout;
       try {
         child = spawn(binary.executable, [...binary.prefix, endpoint, ...(mode === 'dns' ? ['dns'] : [])], {
-          env: environment,
+          env: childEnvironment,
           stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
         });
         let stdout = '';

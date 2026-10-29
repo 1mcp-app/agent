@@ -8,7 +8,7 @@ import type { PreparedDelivery } from './installationStore.js';
 const COLLECTOR = 'https://ingest.1mcp.app/v1/summaries';
 const MAX_ACTIVE = 2;
 const active = new Map<Worker, () => void>();
-// Native SEA needs only built-ins; older npm runtimes load installed proxy compatibility modules.
+// SEA embeds compatibility modules; npm runtimes resolve their installed dependencies.
 const SEND_ONCE = `
 const { workerData, parentPort } = require('node:worker_threads');
 (async () => {
@@ -73,12 +73,17 @@ export function prepareProductDelivery(endpoint: string = COLLECTOR): Promise<Pr
     const nativeProxy = major >= 25 || (major === 24 && minor >= 5) || (major === 22 && minor >= 21);
     let proxyModules: { environment: string; https: string } | undefined;
     if (!nativeProxy) {
-      // Older supported npm runtimes lack Agent.proxyEnv; native SEA uses Node 24.5+.
-      const resolver = createRequire(import.meta.url);
-      proxyModules = {
-        environment: pathToFileURL(resolver.resolve('proxy-from-env')).href,
-        https: pathToFileURL(resolver.resolve('https-proxy-agent')).href,
-      };
+      const embedded = (globalThis as typeof globalThis & { __1MCP_TELEMETRY_PROXY_MODULE__?: string })
+        .__1MCP_TELEMETRY_PROXY_MODULE__;
+      if (embedded) {
+        proxyModules = { environment: embedded, https: embedded };
+      } else {
+        const resolver = createRequire(import.meta.url);
+        proxyModules = {
+          environment: pathToFileURL(resolver.resolve('proxy-from-env')).href,
+          https: pathToFileURL(resolver.resolve('https-proxy-agent')).href,
+        };
+      }
     }
     const worker = new Worker(SEND_ONCE, {
       eval: true,
