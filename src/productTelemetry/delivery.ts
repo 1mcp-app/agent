@@ -83,6 +83,8 @@ export function prepareProductDelivery(endpoint: string = COLLECTOR): Promise<Pr
     const worker = new Worker(SEND_ONCE, {
       eval: true,
       execArgv: [],
+      // Proxy libraries and native HTTP diagnostics must never print credentials or payloads.
+      env: { ...process.env, DEBUG: '', NODE_DEBUG: '', NODE_DEBUG_NATIVE: '' },
       workerData: { endpoint, proxyModules },
       name: 'product-usage-delivery',
     });

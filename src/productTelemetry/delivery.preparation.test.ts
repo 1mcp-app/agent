@@ -69,15 +69,28 @@ it('uses https_proxy CONNECT without releasing a payload before TLS is ready', a
     connected(request.url!);
   });
   await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
-  vi.stubEnv('https_proxy', `http://127.0.0.1:${(proxy.address() as net.AddressInfo).port}`);
+  vi.stubEnv(
+    'https_proxy',
+    `http://fixture-user:fixture-password@127.0.0.1:${(proxy.address() as net.AddressInfo).port}`,
+  );
   vi.stubEnv('no_proxy', '');
   vi.stubEnv('NO_PROXY', '');
+  vi.stubEnv('DEBUG', 'https-proxy-agent*');
+  vi.stubEnv('NODE_DEBUG', 'http,https,tls,net');
+  const diagnostics: string[] = [];
+  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+    diagnostics.push(String(chunk));
+    return true;
+  });
   try {
     const pending = prepareProductDelivery('https://collector.invalid/v1/summaries');
     expect(await tunnel).toBe('collector.invalid:443');
     abortProductDelivery();
     expect(await pending).toBeUndefined();
+    expect(diagnostics).toEqual([]);
+    expect(process.env.DEBUG).toBe('https-proxy-agent*');
   } finally {
+    stderr.mockRestore();
     abortProductDelivery();
     vi.unstubAllEnvs();
     for (const socket of sockets) socket.destroy();
