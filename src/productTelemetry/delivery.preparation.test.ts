@@ -62,6 +62,8 @@ it('uses https_proxy CONNECT without releasing a payload before TLS is ready', a
   const proxy = http.createServer();
   proxy.on('connect', (request, socket) => {
     sockets.add(socket);
+    // Terminating the TLS sender may reset its peer socket on Linux.
+    socket.on('error', (error) => expect(error).toHaveProperty('code', 'ECONNRESET'));
     socket.on('close', () => sockets.delete(socket));
     socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
     connected(request.url!);
@@ -141,6 +143,7 @@ void store.attemptSend(ticket, () => { throw new Error('unexpected fallback'); }
   const sockets = new Set<Duplex>();
   const server = net.createServer((socket) => {
     sockets.add(socket);
+    socket.on('error', (error) => expect(error).toHaveProperty('code', 'ECONNRESET'));
     socket.once('close', () => sockets.delete(socket));
     connected();
   });

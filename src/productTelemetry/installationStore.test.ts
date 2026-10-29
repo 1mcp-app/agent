@@ -68,6 +68,22 @@ const sample = (outcome: 'success' | 'failure' = 'success') => ({
 });
 
 describe('generation-fenced aggregation and final claims', () => {
+  it('persists expiry without opening a connection when all queued data has aged out', async () => {
+    const { root, store, notice } = await fixture();
+    const ticket = (await store.admit())!;
+    await store.append(ticket, sample());
+    const later = new InstallationStore(path.join(root, 'installation'), {
+      notice,
+      now: () => Date.parse('2026-11-04T10:12:34Z'),
+    });
+    const prepare = vi.fn(async () => undefined);
+    const dispatch = vi.fn();
+    await later.attemptSend(ticket, dispatch, prepare);
+    expect(prepare).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+    expect((await later.status()).queuedSummaries).toBe(0);
+  });
+
   it('sends retained data once after a later connection becomes ready', async () => {
     const { store } = await fixture();
     const ticket = (await store.admit())!;

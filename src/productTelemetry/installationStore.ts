@@ -142,11 +142,13 @@ export class InstallationStore {
     let prepared: PreparedDelivery | undefined;
     let handedOff = false;
     if (prepare) {
-      await this.checkRoot(false);
-      const state = await this.read();
-      if (!matches(state, ticket)) return;
-      prune(state, this.now());
-      if (!state.queue.length) return;
+      const hasQueuedData = await this.transaction(async () => {
+        const state = await this.read();
+        if (!matches(state, ticket)) return false;
+        if (prune(state, this.now())) await this.commit(state);
+        return state.queue.length > 0;
+      });
+      if (!hasQueuedData) return;
       // DNS/TLS must not hold the generation lock or consume the durable queue.
       prepared = await prepare();
       if (!prepared) return;
