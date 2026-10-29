@@ -65,7 +65,10 @@ await build({
   format: 'cjs',
 });
 const binaries = [{ name: 'node', executable: process.execPath, prefix: [entry] }];
-const environment = createTestProcessEnvironment();
+const environment = createTestProcessEnvironment({
+  no_proxy: '127.0.0.1,controlled.invalid',
+  NO_PROXY: '127.0.0.1,controlled.invalid',
+});
 try {
   if (process.argv.includes('--sea')) {
     const blob = path.join(directory, 'synthetic.blob');

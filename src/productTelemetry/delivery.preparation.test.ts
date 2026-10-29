@@ -131,6 +131,7 @@ void store.attemptSend(ticket, () => { throw new Error('unexpected fallback'); }
 `,
       resolveDir: process.cwd(),
     },
+    define: { 'import.meta.url': JSON.stringify(new URL('./delivery.ts', import.meta.url).href) },
     outfile: script,
     bundle: true,
     platform: 'node',
@@ -153,6 +154,7 @@ void store.attemptSend(ticket, () => { throw new Error('unexpected fallback'); }
   try {
     const env = createTestProcessEnvironment();
     env.no_proxy = '127.0.0.1';
+    env.NO_PROXY = '127.0.0.1';
     child = fork(script, [state, `https://127.0.0.1:${(server.address() as net.AddressInfo).port}`], {
       env,
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
