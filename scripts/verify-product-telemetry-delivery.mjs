@@ -40,6 +40,7 @@ new ProductUsageProducer({
 }).startRuntime();
 const mode = process.argv.find(arg => arg === 'dns');
 if (mode) {
+  process.env.no_proxy = 'controlled.invalid';
   dns.lookup = () => { process.send('dns-waiting'); setTimeout(() => {}, 60000); };
   const OriginalWorker = workers.Worker;
   workers.Worker = class extends OriginalWorker {
@@ -51,7 +52,7 @@ if (mode) {
   syncBuiltinESMExports();
 }
 const schedule = globalThis.setTimeout;
-globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 1500) process.stdout.write('deadline-fired'); fn(...args); }, ms);
+globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 10000) process.stdout.write('deadline-fired'); fn(...args); }, ms);
 dispatchProductBatch('{}', process.argv.find(arg => arg.startsWith('http')));
 process.on('message', () => process.disconnect());
 `;

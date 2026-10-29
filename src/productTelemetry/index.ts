@@ -8,7 +8,7 @@ import {
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import { getGlobalConfigDir } from '@src/constants/paths.js';
 
-import { abortProductDelivery, dispatchProductBatch } from './delivery.js';
+import { abortProductDelivery, dispatchProductBatch, prepareProductDelivery } from './delivery.js';
 import { InstallationStore } from './installationStore.js';
 import { writeProductNotice } from './notice.js';
 import {
@@ -38,6 +38,7 @@ function collection(): ProductUsageProducer | undefined {
         store: localInstallationStore(true),
         now: Date.now,
         dispatch: dispatchProductBatch,
+        prepareDelivery: prepareProductDelivery,
         abortDelivery: abortProductDelivery,
         dimensions: {
           version: MCP_SERVER_VERSION,

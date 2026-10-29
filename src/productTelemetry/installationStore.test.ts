@@ -68,6 +68,60 @@ const sample = (outcome: 'success' | 'failure' = 'success') => ({
 });
 
 describe('generation-fenced aggregation and final claims', () => {
+  it('sends retained data once after a later connection becomes ready', async () => {
+    const { store } = await fixture();
+    const ticket = (await store.admit())!;
+    await store.append(ticket, sample());
+    const fallback = vi.fn();
+    await store.attemptSend(ticket, fallback, async () => undefined);
+    const dispatch = vi.fn();
+    const prepare = vi.fn(async () => ({ dispatch, cancel: vi.fn(), isReady: () => true }));
+    await store.attemptSend(ticket, fallback, prepare);
+    await store.attemptSend(ticket, fallback, prepare);
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(fallback).not.toHaveBeenCalled();
+    expect((await store.status()).queuedSummaries).toBe(0);
+  });
+
+  it('retains unattempted data when connection preparation fails', async () => {
+    const { store } = await fixture();
+    const ticket = (await store.admit())!;
+    await store.append(ticket, sample());
+    const dispatch = vi.fn();
+    await store.attemptSend(ticket, dispatch, async () => undefined);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect((await store.status()).queuedSummaries).toBe(1);
+  });
+
+  it('prepares outside the lock and rechecks reset before releasing any payload', async () => {
+    const { store } = await fixture();
+    const ticket = (await store.admit())!;
+    await store.append(ticket, sample());
+    const dispatch = vi.fn();
+    const cancel = vi.fn();
+    await store.attemptSend(ticket, vi.fn(), async () => {
+      expect((await store.status()).coordination).toBe('available');
+      await store.control('reset');
+      return { dispatch, cancel, isReady: () => true };
+    });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledOnce();
+    expect((await store.status()).identityPresent).toBe(false);
+  });
+
+  it('does not claim a batch after its prepared connection expires', async () => {
+    const { store } = await fixture();
+    const ticket = (await store.admit())!;
+    await store.append(ticket, sample());
+    const dispatch = vi.fn();
+    const cancel = vi.fn();
+    await store.attemptSend(ticket, vi.fn(), async () => ({ dispatch, cancel, isReady: () => false }));
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledOnce();
+    expect((await store.status()).queuedSummaries).toBe(1);
+  });
+
   it('merges concurrent deltas and never replays an attempted batch', async () => {
     const { store } = await fixture();
     const ticket = (await store.admit())!;

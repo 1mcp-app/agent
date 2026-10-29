@@ -15,7 +15,7 @@ it('exits while an actually connected one-shot telemetry request is stalled', as
   const script = path.join(directory, 'sender.mjs');
   await build({
     stdin: {
-      contents: `import { dispatchProductBatch } from './src/productTelemetry/delivery.ts'; const schedule = globalThis.setTimeout; globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 1500) process.stdout.write('deadline-fired'); fn(...args); }, ms); dispatchProductBatch('{}', process.argv[2]); process.on('message', () => process.disconnect());`,
+      contents: `import { dispatchProductBatch } from './src/productTelemetry/delivery.ts'; const schedule = globalThis.setTimeout; globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 10000) process.stdout.write('deadline-fired'); fn(...args); }, ms); dispatchProductBatch('{}', process.argv[2]); process.on('message', () => process.disconnect());`,
       resolveDir: process.cwd(),
     },
     outfile: script,
@@ -69,7 +69,7 @@ it('exits during an actually connected stalled TLS handshake', async () => {
   const script = path.join(directory, 'sender.mjs');
   await build({
     stdin: {
-      contents: `import { dispatchProductBatch } from './src/productTelemetry/delivery.ts'; const schedule = globalThis.setTimeout; globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 1500) process.stdout.write('deadline-fired'); fn(...args); }, ms); dispatchProductBatch('{}', process.argv[2]); process.on('message', () => process.disconnect());`,
+      contents: `import { dispatchProductBatch } from './src/productTelemetry/delivery.ts'; const schedule = globalThis.setTimeout; globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 10000) process.stdout.write('deadline-fired'); fn(...args); }, ms); dispatchProductBatch('{}', process.argv[2]); process.on('message', () => process.disconnect());`,
       resolveDir: process.cwd(),
     },
     outfile: script,
@@ -137,7 +137,8 @@ workers.Worker = class extends OriginalWorker {
 };
 syncBuiltinESMExports();
 const schedule = globalThis.setTimeout;
-globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 1500) process.stdout.write('deadline-fired'); fn(...args); }, ms);
+globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 10000) process.stdout.write('deadline-fired'); fn(...args); }, ms);
+process.env.no_proxy = 'controlled.invalid';
 dispatchProductBatch('{}', 'https://controlled.invalid/v1/summaries');
 process.on('message', () => process.disconnect());
 `,

@@ -20,6 +20,13 @@ const stateSchema = z.strictObject({
   queue: z.array(summarySchema),
 });
 type State = z.infer<typeof stateSchema>;
+export interface PreparedDelivery {
+  dispatch(body: string): void;
+  cancel(): void;
+  isReady(): boolean;
+}
+export type PrepareDelivery = () => Promise<PreparedDelivery | undefined>;
+
 export interface AdmissionTicket {
   readonly epoch: string;
   readonly generation: number;
@@ -126,33 +133,55 @@ export class InstallationStore {
     });
   }
 
-  /** A durable final claim precedes transport initiation, within the generation lock. Never await transport. */
-  async attemptSend(ticket: AdmissionTicket, dispatch: (body: string) => void | Promise<void>): Promise<void> {
-    await this.transaction(async () => {
+  /** A durable final claim precedes payload handoff, within the generation lock. Prepare outside that lock. */
+  async attemptSend(
+    ticket: AdmissionTicket,
+    dispatch: (body: string) => void | Promise<void>,
+    prepare?: PrepareDelivery,
+  ): Promise<void> {
+    let prepared: PreparedDelivery | undefined;
+    let handedOff = false;
+    if (prepare) {
+      await this.checkRoot(false);
       const state = await this.read();
       if (!matches(state, ticket)) return;
-      const pruned = prune(state, this.now());
-      const batch = { schema_version: 1 as const, batch_id: randomUUID(), summaries: [] as Summary[] };
-      for (const summary of state.queue.slice(0, 100)) {
-        batch.summaries.push(summary);
-        if (Buffer.byteLength(JSON.stringify(batch), 'utf8') > MAX_BODY) {
-          batch.summaries.pop();
-          break;
+      prune(state, this.now());
+      if (!state.queue.length) return;
+      // DNS/TLS must not hold the generation lock or consume the durable queue.
+      prepared = await prepare();
+      if (!prepared) return;
+    }
+    try {
+      await this.transaction(async () => {
+        const state = await this.read();
+        if (!matches(state, ticket)) return;
+        const pruned = prune(state, this.now());
+        const batch = { schema_version: 1 as const, batch_id: randomUUID(), summaries: [] as Summary[] };
+        for (const summary of state.queue.slice(0, 100)) {
+          batch.summaries.push(summary);
+          if (Buffer.byteLength(JSON.stringify(batch), 'utf8') > MAX_BODY) {
+            batch.summaries.pop();
+            break;
+          }
         }
-      }
-      if (!batch.summaries.length) {
-        if (pruned) await this.commit(state);
-        return;
-      }
-      const body = JSON.stringify(envelopeSchema.parse(batch));
-      state.queue.splice(0, batch.summaries.length);
-      await this.commit(state);
-      try {
-        void Promise.resolve(dispatch(body)).catch(() => {});
-      } catch {
-        /* Every attempt is final. */
-      }
-    });
+        if (!batch.summaries.length) {
+          if (pruned) await this.commit(state);
+          return;
+        }
+        if (prepared && !prepared.isReady()) return;
+        const body = JSON.stringify(envelopeSchema.parse(batch));
+        state.queue.splice(0, batch.summaries.length);
+        await this.commit(state);
+        handedOff = true;
+        try {
+          void Promise.resolve((prepared?.dispatch ?? dispatch)(body)).catch(() => {});
+        } catch {
+          /* Every attempt is final. */
+        }
+      });
+    } finally {
+      if (!handedOff) prepared?.cancel();
+    }
   }
 
   private now(): number {
