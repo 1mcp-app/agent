@@ -1,3 +1,4 @@
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 /**
  * Standardized error handling utilities for preset operations
  */
@@ -55,13 +56,13 @@ export class PresetErrorHandler {
         printer.error(`Context: ${error.context || context}`);
       }
 
-      process.exit(error.exitCode || 1);
+      exitProductCommand(error.exitCode || 1);
     }
 
     // Handle unknown errors
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     printer.error(`${context ? `${context}: ` : ''}${errorMessage}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 
   /**

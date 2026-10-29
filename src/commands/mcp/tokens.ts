@@ -6,6 +6,7 @@ import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator
 import { type TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import boxen from 'boxen';
@@ -443,7 +444,7 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
         if (!preset) {
           printer.error(`Preset not found: ${argv.preset}`);
           printer.info(`Available presets: ${presetManager.getPresetNames().join(', ') || 'none'}`);
-          process.exit(1);
+          exitProductCommand(1);
         }
 
         logger.debug('tokens.using.preset.for.token.estimation.e925577e');
@@ -458,7 +459,7 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
         printer.error(
           `Error loading preset "${argv.preset}": ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
-        process.exit(1);
+        exitProductCommand(1);
       }
     } else if (argv['tag-filter']) {
       try {
@@ -473,7 +474,7 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
         });
       } catch (error) {
         printer.error(`Invalid tag-filter expression: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        process.exit(1);
+        exitProductCommand(1);
       }
     }
 
@@ -530,6 +531,6 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
   } catch (error) {
     logger.error('tokens.error.in.tokens.command.dba89057', { error: error });
     printer.error(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }

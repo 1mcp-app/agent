@@ -3,6 +3,7 @@ import { initializeConfigContext } from '@src/commands/shared/baseConfigUtils.js
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
 import printer from '@src/utils/ui/printer.js';
 import { UrlGenerator } from '@src/utils/ui/urlGenerator.js';
@@ -75,7 +76,7 @@ export async function editCommand(argv: EditArguments): Promise<void> {
 
     if (result.cancelled) {
       printer.info('Operation cancelled.');
-      process.exit(0);
+      exitProductCommand(0);
     }
 
     // Save back to the same preset name, optionally updating description
@@ -92,6 +93,6 @@ export async function editCommand(argv: EditArguments): Promise<void> {
   } catch (error) {
     logger.error('edit.preset.edit.command.failed.b7193133', { error: error });
     printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }

@@ -5,6 +5,16 @@
 
 set -e
 
+# Every binary invocation owns a temporary scope and excludes Product Usage Telemetry.
+for name in ${!ONE_MCP_@}; do unset "$name"; done
+unset CODEX_SESSION_ID CODEX_THREAD_ID
+TEST_RUNTIME_SCOPE=$(mktemp -d)
+mkdir -p "$TEST_RUNTIME_SCOPE/home"
+TEST_BINARY_ENV=(env HOME="$TEST_RUNTIME_SCOPE/home" USERPROFILE="$TEST_RUNTIME_SCOPE/home" XDG_CONFIG_HOME="$TEST_RUNTIME_SCOPE/home/.config")
+export ONE_MCP_CONFIG_DIR="$TEST_RUNTIME_SCOPE"
+export ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED=true
+trap 'rm -rf "$TEST_RUNTIME_SCOPE"' EXIT
+
 BINARY_PATH="${1:-./1mcp}"
 PLATFORM="${2:-unknown}"
 
@@ -12,7 +22,7 @@ echo "🧪 Testing $PLATFORM binary at $BINARY_PATH..."
 
 # Test 1: Basic version check
 echo "1️⃣ Testing version display..."
-VERSION_OUTPUT=$("$BINARY_PATH" --version)
+VERSION_OUTPUT=$("${TEST_BINARY_ENV[@]}" "$BINARY_PATH" --version)
 echo "Version: $VERSION_OUTPUT"
 if [[ "$VERSION_OUTPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
   echo "✅ Version format valid"
@@ -23,7 +33,7 @@ fi
 
 # Test 2: Help command
 echo "2️⃣ Testing help command..."
-"$BINARY_PATH" --help > /dev/null || { echo "❌ Help command failed"; exit 1; }
+"${TEST_BINARY_ENV[@]}" "$BINARY_PATH" --help > /dev/null || { echo "❌ Help command failed"; exit 1; }
 echo "✅ Help command works"
 
 # Test 3: MCP tokens command with tiktoken (most critical test)
@@ -43,21 +53,21 @@ EOF
 # Use different timeout methods based on platform
 if command -v timeout >/dev/null 2>&1; then
   # Linux has timeout command
-  ONE_MCP_CONFIG=test-config.json timeout 15 "$BINARY_PATH" mcp tokens --help > /dev/null || {
+  ONE_MCP_CONFIG=test-config.json timeout 15 "${TEST_BINARY_ENV[@]}" "$BINARY_PATH" mcp tokens --help > /dev/null || {
     echo "❌ Tiktoken test failed - WASM files not working";
     rm -f test-config.json;
     exit 1;
   }
 elif command -v gtimeout >/dev/null 2>&1; then
   # macOS with coreutils installed
-  ONE_MCP_CONFIG=test-config.json gtimeout 15 "$BINARY_PATH" mcp tokens --help > /dev/null || {
+  ONE_MCP_CONFIG=test-config.json gtimeout 15 "${TEST_BINARY_ENV[@]}" "$BINARY_PATH" mcp tokens --help > /dev/null || {
     echo "❌ Tiktoken test failed - WASM files not working";
     rm -f test-config.json;
     exit 1;
   }
 else
   # Fallback for macOS without timeout - use background process with kill
-  ONE_MCP_CONFIG=test-config.json "$BINARY_PATH" mcp tokens --help > /dev/null 2>&1 &
+  ONE_MCP_CONFIG=test-config.json "${TEST_BINARY_ENV[@]}" "$BINARY_PATH" mcp tokens --help > /dev/null 2>&1 &
   PID=$!
   sleep 15
   if kill -0 $PID 2>/dev/null; then
@@ -76,14 +86,14 @@ ADMIN_SMOKE_URL="http://127.0.0.1:$ADMIN_SMOKE_PORT"
 ADMIN_SMOKE_LOG="$ADMIN_SMOKE_DIR/runtime.log"
 mkdir -p "$ADMIN_SMOKE_DIR/config"
 printf '{"mcpServers":{}}\n' > "$ADMIN_SMOKE_DIR/config/mcp.json"
-"$BINARY_PATH" serve --transport http --host 127.0.0.1 --port "$ADMIN_SMOKE_PORT" --external-url "$ADMIN_SMOKE_URL" --config-dir "$ADMIN_SMOKE_DIR/config" > "$ADMIN_SMOKE_LOG" 2>&1 &
+"${TEST_BINARY_ENV[@]}" "$BINARY_PATH" serve --transport http --host 127.0.0.1 --port "$ADMIN_SMOKE_PORT" --external-url "$ADMIN_SMOKE_URL" --config-dir "$ADMIN_SMOKE_DIR/config" > "$ADMIN_SMOKE_LOG" 2>&1 &
 ADMIN_SMOKE_PID=$!
 cleanup_admin_smoke() {
   kill "$ADMIN_SMOKE_PID" 2>/dev/null || true
   wait "$ADMIN_SMOKE_PID" 2>/dev/null || true
   rm -rf "$ADMIN_SMOKE_DIR"
 }
-trap cleanup_admin_smoke EXIT
+trap 'cleanup_admin_smoke; rm -rf "$TEST_RUNTIME_SCOPE"' EXIT
 
 for attempt in $(seq 1 50); do
   if curl -fsS "$ADMIN_SMOKE_URL/health/ready" > /dev/null 2>&1; then
@@ -116,7 +126,7 @@ if [[ ! -s "$ADMIN_SMOKE_DIR/admin-console.js" || ! -s "$ADMIN_SMOKE_DIR/admin-c
   echo "❌ Embedded Admin Console assets were empty"
   exit 1
 fi
-trap - EXIT
+trap 'rm -rf "$TEST_RUNTIME_SCOPE"' EXIT
 cleanup_admin_smoke
 echo "✅ Embedded Admin Console assets working"
 
@@ -126,7 +136,7 @@ mkdir -p test-bin
 cp "$BINARY_PATH" test-bin/
 cd test-bin
 BINARY_NAME=$(basename "$BINARY_PATH")
-PATH_TEST_OUTPUT=$(./"$BINARY_NAME" --version)
+PATH_TEST_OUTPUT=$("${TEST_BINARY_ENV[@]}" ./"$BINARY_NAME" --version)
 if [[ "$PATH_TEST_OUTPUT" == "$VERSION_OUTPUT" ]]; then
   echo "✅ System installation simulation passed"
 else

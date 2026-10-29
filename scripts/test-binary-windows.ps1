@@ -10,6 +10,15 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Apply after clearing all ambient CLI targets and ownership locators.
+Get-ChildItem Env:ONE_MCP_* | Remove-Item
+Remove-Item Env:CODEX_SESSION_ID, Env:CODEX_THREAD_ID -ErrorAction SilentlyContinue
+$TestRuntimeScope = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
+New-Item -ItemType Directory -Path $TestRuntimeScope | Out-Null
+$env:USERPROFILE = $TestRuntimeScope
+$env:HOME = $TestRuntimeScope
+$env:ONE_MCP_CONFIG_DIR = $TestRuntimeScope
+$env:ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED = "true"
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 Write-Host "Testing $Platform binary at $BinaryPath..."
@@ -49,10 +58,12 @@ try {
     try {
         # Run the tiktoken command with a timeout using job with absolute paths
         $job = Start-Job -ScriptBlock {
-            param($binaryPath, $configPath)
+            param($binaryPath, $configPath, $runtimeScope)
             $env:ONE_MCP_CONFIG = $configPath
+            $env:ONE_MCP_CONFIG_DIR = $runtimeScope
+            $env:ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED = "true"
             & $binaryPath mcp tokens --help 2>&1
-        } -ArgumentList $AbsoluteBinaryPath, $configPath
+        } -ArgumentList $AbsoluteBinaryPath, $configPath, $TestRuntimeScope
 
         # Wait for job to complete with 15 second timeout
         $completed = Wait-Job $job -Timeout 15
@@ -156,3 +167,5 @@ try {
     Remove-Item -Recurse -Force test-bin, test-config.json -ErrorAction SilentlyContinue
     exit 1
 }
+
+Remove-Item -Recurse -Force $TestRuntimeScope -ErrorAction SilentlyContinue

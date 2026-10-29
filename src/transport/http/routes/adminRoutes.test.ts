@@ -34,6 +34,16 @@ import {
 } from './adminRoutes.js';
 import { resolveDefaultAdminConsoleAssetsDir } from './adminRoutes.js';
 
+const adoption = vi.hoisted(() => ({ finish: vi.fn(), feature: vi.fn(), open: vi.fn() }));
+vi.mock('@src/productTelemetry/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@src/productTelemetry/index.js')>()),
+  beginProductFeature: (name: string) => {
+    adoption.feature(name);
+    return { finish: adoption.finish };
+  },
+  recordProductFeature: (name: string, outcome: string) => adoption.open(name, outcome),
+}));
+
 const runtimeIdentity = {
   identityProtocolVersion: '1',
   runtimeScopeId: 'scope_123',
@@ -98,6 +108,9 @@ describe('admin routes', () => {
   const requestServers = new Map<express.Express, Server>();
 
   beforeEach(() => {
+    adoption.finish.mockClear();
+    adoption.feature.mockClear();
+    adoption.open.mockClear();
     storageDir = `/tmp/admin-routes-${Date.now()}-${Math.random()}`;
     adminService = new AdminIdentityService({
       runtimeScopeId: 'scope_123',
@@ -975,6 +988,7 @@ describe('admin routes', () => {
     expect(logoutResponse.status).toBe(200);
     expect(logoutResponse.headers['set-cookie']?.[0]).toContain('1mcp_admin_session=;');
     expect(adminService.validateSession(cookieValue(cookie))).toBeNull();
+    expect(adoption.open).toHaveBeenCalledExactlyOnceWith('admin_open', 'success');
   });
 
   it('rate limits repeated failed login attempts by username and source address', async () => {
@@ -1214,6 +1228,7 @@ describe('admin routes', () => {
 
     expect(loginResponse.status).toBe(200);
     expect(loginResponse.headers['set-cookie']).toBeUndefined();
+    expect(adoption.open).not.toHaveBeenCalled();
     expect(loginResponse.body).toMatchObject({
       ok: true,
       cliProtocolVersion: '1',
@@ -1388,6 +1403,72 @@ describe('admin routes', () => {
       },
     });
     expect(adminService.validateSession(sessionToken)).toBeNull();
+  });
+
+  it('records one shared runtime action through each browser and CLI adapter without replay duplicates', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const operationService = new AdminOperationService({
+      runtimeScopeId: 'scope_123',
+      storageDir,
+      now: () => new Date('2026-07-06T00:00:00.000Z'),
+    });
+    configuredServerService.enableConfiguredServer.mockImplementation((input) =>
+      operationService.executeMutation({
+        context: input.context,
+        operationName: 'enableConfiguredServer',
+        run: async () => ({
+          targetName: input.targetName,
+          enabled: true,
+          outcome: 'enabled',
+          configChange: {
+            status: 'changed',
+            operation: 'enable',
+            configPath: '/synthetic/config.json',
+            target: { name: input.targetName, source: 'mcpServers' },
+            changed: true,
+            backup: { created: false },
+            retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+            reload: { status: 'observed' },
+            warnings: [],
+          },
+        }),
+      }),
+    );
+    const app = mountAdminRoutes();
+    const login = await (
+      await request(app)
+    )
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = login.headers['set-cookie']?.[0] as string;
+    const cliLogin = await (
+      await request(app)
+    )
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    for (let replay = 0; replay < 2; replay++) {
+      const browser = await (
+        await request(app)
+      )
+        .post('/admin/api/configured-servers/synthetic/enable')
+        .set('Cookie', cookie)
+        .set('X-CSRF-Token', login.body.csrfToken)
+        .set('Idempotency-Key', 'browser-adoption')
+        .send({});
+      expect(browser.status).toBe(200);
+      const cli = await (
+        await request(app)
+      )
+        .post('/admin/cli/v1/operations/enable-server')
+        .set('Authorization', `Bearer ${cliLogin.body.result.sessionToken}`)
+        .set('X-1MCP-Runtime-Scope-Id', 'scope_123')
+        .set('Idempotency-Key', 'cli-adoption')
+        .send({ targetName: 'synthetic' });
+      expect(cli.status).toBe(200);
+    }
+    expect(adoption.feature.mock.calls).toEqual([['server_enable'], ['server_enable']]);
+    expect(adoption.finish.mock.calls).toEqual([['success'], ['success']]);
+    expect(adoption.open).toHaveBeenCalledExactlyOnceWith('admin_open', 'success');
   });
 
   it('enables and disables configured servers through the CLI adapter with bearer sessions and idempotency context', async () => {

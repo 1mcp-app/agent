@@ -9,6 +9,7 @@ import {
 import { MCPServerParams } from '@src/core/types/index.js';
 import { RuntimeTargetStore, RuntimeTargetStoreError } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 import { LocalRuntimeUnavailableError } from '@src/utils/validation/urlDetection.js';
@@ -937,7 +938,7 @@ function handleEnableDisableError(argv: EnableDisableCommandArgs, enabled: boole
   }
 
   printer.error(`Failed to ${enabled ? 'enable' : 'disable'} server: ${message}`);
-  process.exit(1);
+  exitProductCommand(1);
 }
 
 function errorTarget(argv: EnableDisableCommandArgs): unknown {

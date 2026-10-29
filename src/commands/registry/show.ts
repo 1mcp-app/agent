@@ -3,6 +3,7 @@ import { formatServerDetails } from '@src/domains/registry/formatters/serverDeta
 import { OutputFormat, ShowCommandArgs } from '@src/domains/registry/types.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Arguments, Argv } from 'yargs';
@@ -88,7 +89,7 @@ export async function showCommand(argv: ShowCommandCliArgs): Promise<void> {
     } else {
       printer.error(`Error fetching MCP server details: ${error instanceof Error ? error.message : String(error)}`);
     }
-    process.exit(1);
+    exitProductCommand(1);
   } finally {
     // Cleanup resources to ensure process exits
     cleanupShowHandler();

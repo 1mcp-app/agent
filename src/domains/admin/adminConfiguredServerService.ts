@@ -1526,6 +1526,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     return this.options.operationService.executeMutation({
       context,
       operationName: 'applyConfiguredServerLifecycle',
+      productLifecycleFeature: input.enabled ? 'server_enable' : 'server_disable',
       prepare: async () => {
         const preview = await this.previewConfiguredServerLifecycleResult(input);
         if (preview.previewFingerprint !== input.previewFingerprint) {

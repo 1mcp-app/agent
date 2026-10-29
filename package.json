@@ -36,7 +36,8 @@
     "1mcp": "./build/index.js"
   },
   "files": [
-    "build"
+    "build",
+    "!build/.tmp/**"
   ],
   "lint-staged": {
     "*.{ts,tsx}": [

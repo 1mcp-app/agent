@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 
+import * as runtimeBootstrap from '@src/config/runtimeBootstrap.js';
 import { temporaryProjectOwnerStorage } from '@src/commands/shared/projectOwnerStorage.js';
 import {
   createHookProjectOwner,
@@ -449,6 +450,30 @@ describe('worker bootstrap client contracts', () => {
 });
 
 describe('owned instructions subprocess', () => {
+  it('suppresses implementation-child adoption without forwarding a telemetry override', async () => {
+    const environment = vi.spyOn(runtimeBootstrap, 'getRuntimeParentEnvironment').mockReturnValue({
+      ...getRuntimeParentEnvironment(),
+      ONE_MCP_PRODUCT_TELEMETRY: 'true',
+    });
+    try {
+      const args = buildInstructionsArguments({
+        client: 'codex',
+        event: 'SubagentStart',
+        project: ['/synthetic'],
+        'product-telemetry': true,
+      });
+      expect(args.some((arg) => arg.includes('product-telemetry'))).toBe(false);
+      const output = await runInstructionsProcess(process.execPath, [
+        '-e',
+        'process.stdout.write(JSON.stringify({enabled:process.env.ONE_MCP_PRODUCT_TELEMETRY,args:process.argv.slice(1)}))',
+        ...args,
+      ]);
+      expect(JSON.parse(output)).toEqual({ enabled: 'false', args });
+    } finally {
+      environment.mockRestore();
+    }
+  });
+
   it.each([
     ['instructions_timeout', 'setInterval(() => {}, 1000)'],
     ['instructions_failed', 'process.stderr.write("private secret"); process.exit(2)'],

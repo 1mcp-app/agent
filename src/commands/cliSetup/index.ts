@@ -1,4 +1,5 @@
 import { withGlobalOptions } from '@src/globalOptions.js';
+import { exitProductCommand, runProductCommand } from '@src/productTelemetry/commandScope.js';
 
 import type { Argv } from 'yargs';
 
@@ -48,17 +49,19 @@ export function setupCliSetupCommand(yargs: Argv): Argv {
           'This command writes hook config, startup-file references, and the preparation setup skill. It does not activate backend preparation. Errors are written to stderr only.',
         ),
     async (argv) => {
-      const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
-      const { cliSetupCommand } = await import('./cliSetup.js');
+      return runProductCommand('config', async () => {
+        const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
+        const { cliSetupCommand } = await import('./cliSetup.js');
 
-      configureGlobalLogger(argv, 'stdio');
-      try {
-        await cliSetupCommand(argv as Parameters<typeof cliSetupCommand>[0]);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`${message}\n`);
-        process.exit(1);
-      }
+        configureGlobalLogger(argv, 'stdio');
+        try {
+          await cliSetupCommand(argv as Parameters<typeof cliSetupCommand>[0]);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          process.stderr.write(`${message}\n`);
+          exitProductCommand(1);
+        }
+      });
     },
   );
 }

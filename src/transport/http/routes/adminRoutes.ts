@@ -51,6 +51,7 @@ import type {
   BackendLogSourceUpdate,
 } from '@src/domains/backend-logs/backendLogTypes.js';
 import type { InstructionTemplateMutationResult } from '@src/domains/instruction-template/instructionTemplateManager.js';
+import { recordProductFeature } from '@src/productTelemetry/index.js';
 import {
   createSensitiveOperationLimiter,
   DEFAULT_SENSITIVE_OPERATION_RATE_LIMIT_POLICY,
@@ -464,6 +465,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
 
       failedLoginLimiter.reset(username, source);
       setAdminSessionCookie(res, options.getRuntimeIdentity().externalUrl, login.sessionToken, login.expiresAt);
+      recordProductFeature('admin_open', 'success');
       res.status(200).json({
         authenticated: true,
         account: login.account,

@@ -4,6 +4,7 @@ import { GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js
 import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import { sanitizeForLogging } from '@src/logger/secureLogger.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import { inferTransportType } from '@src/transport/transportFactory.js';
 import printer from '@src/utils/ui/printer.js';
 import { stripMcpSuffix } from '@src/utils/urlUtils.js';
@@ -106,7 +107,7 @@ export async function statusCommand(
     }
   } catch (error) {
     printer.error(`Failed to get server status: ${error instanceof Error ? error.message : error}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 

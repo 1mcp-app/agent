@@ -30,7 +30,11 @@ import {
 } from './modernHttpRoutes.js';
 import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
 
-const { createBridge } = vi.hoisted(() => ({ createBridge: vi.fn() }));
+const { createBridge, beginOperation } = vi.hoisted(() => ({
+  createBridge: vi.fn(),
+  beginOperation: vi.fn((..._args: unknown[]) => ({ finish: vi.fn() })),
+}));
+vi.mock('@src/productTelemetry/index.js', () => ({ beginProductOperation: beginOperation }));
 
 // These transport tests supply private bridges independently of provider catalogs.
 // Catalog admission and header fences use real peers in modernHttpRoutes.paramHeaders.test.ts.
@@ -106,6 +110,7 @@ function modernPost(instance: Server | string, body: object) {
 
 describe('modern HTTP admission', () => {
   it('reserves its IPv4 listener against a competing fixture and preserves modern dispatch', async () => {
+    beginOperation.mockClear();
     const instance = app();
     const server = await ensureListening(instance);
     const address = server.address() as AddressInfo;
@@ -126,6 +131,8 @@ describe('modern HTTP admission', () => {
     expect(response.status).toBe(200);
     expect(response.body.result.supportedVersions).toEqual(['2026-07-28']);
     expect(await ensureListening(instance)).toBe(server);
+    expect(beginOperation.mock.calls).toEqual([['other', 'http', 'other']]);
+    expect(beginOperation.mock.results[0].value.finish.mock.calls).toEqual([['success']]);
   });
 
   it('rejects a signed frontend proof paired with backend context before modern dispatch', async () => {
@@ -459,7 +466,8 @@ describe('modern HTTP admission', () => {
     expect(req.socket.listenerCount('close')).toBe(0);
   });
 
-  it('dispatches tools/list through a request-private gateway bridge and emits no session id', async () => {
+  it('dispatches tools/list through a request-private gateway bridge and emits one operation outcome', async () => {
+    beginOperation.mockClear();
     const close = vi.fn(async () => undefined);
     const outbound = {
       role: 'outbound' as const,
@@ -490,6 +498,8 @@ describe('modern HTTP admission', () => {
       expect.objectContaining({ operation: 'tools/list', params: { cursor: 'next-page' } }),
     );
     expect(close).toHaveBeenCalledTimes(1);
+    expect(beginOperation.mock.calls).toEqual([['tools_list', 'http', 'other']]);
+    expect(beginOperation.mock.results[0].value.finish.mock.calls).toEqual([['success']]);
   });
 
   async function resourceOwnerListener(
@@ -806,6 +816,7 @@ describe('modern HTTP admission', () => {
   });
 
   it('maps bridge creation and gateway protocol failures through the v2 error funnel', async () => {
+    beginOperation.mockClear();
     createBridge.mockRejectedValueOnce(new Error('bridge unavailable'));
     const unavailable = await modernPost(await ensureListening(app()), {
       jsonrpc: '2.0',
@@ -842,6 +853,14 @@ describe('modern HTTP admission', () => {
       data: { 'app.1mcp/failure': { code: '-32602', kind: 'transport' } },
     });
     expect(close).toHaveBeenCalledTimes(1);
+    expect(beginOperation.mock.calls).toEqual([
+      ['tools_list', 'http', 'other'],
+      ['tools_list', 'http', 'other'],
+    ]);
+    expect(beginOperation.mock.results.map((result) => result.value.finish.mock.calls)).toEqual([
+      [['failure']],
+      [['failure']],
+    ]);
   });
 
   it('dispatches direct tools/call through the gateway and validates Mcp-Name exactly', async () => {
@@ -892,6 +911,7 @@ describe('modern HTTP admission', () => {
   });
 
   it('projects preparation authorization loss through the tools/call handler without allocating a bridge', async () => {
+    beginOperation.mockClear();
     const revalidate = vi.fn(async () => false);
     const beforeDispatch = vi.fn(async () => true);
     const setupDeadline = vi.fn(() => ({ signal: new AbortController().signal, stop: vi.fn() }));
@@ -918,6 +938,8 @@ describe('modern HTTP admission', () => {
       expect(beforeDispatch).not.toHaveBeenCalled();
       expect(setupDeadline).not.toHaveBeenCalled();
       expect(createBridge).not.toHaveBeenCalled();
+      expect(beginOperation.mock.calls).toEqual([['tools_call', 'http', 'other']]);
+      expect(beginOperation.mock.results[0].value.finish.mock.calls).toEqual([['failure']]);
     } finally {
       admission.mockRestore();
     }
@@ -995,6 +1017,7 @@ describe('modern HTTP admission', () => {
   );
 
   it('cancels and closes a long-running request when the response socket closes', async () => {
+    beginOperation.mockClear();
     let settleRequest!: (value: object) => void;
     const close = vi.fn(async () => undefined);
     const cancel = vi.fn(async () => settleRequest({ tools: [] }));
@@ -1033,6 +1056,8 @@ describe('modern HTTP admission', () => {
       await expect(pending).rejects.toThrow();
       await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
       await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+      expect(beginOperation.mock.calls).toEqual([['tools_list', 'http', 'other']]);
+      expect(beginOperation.mock.results[0].value.finish.mock.calls).toEqual([['failure']]);
     } finally {
       settleRequest({ tools: [] });
       await new Promise<void>((resolve) => server.close(() => resolve()));

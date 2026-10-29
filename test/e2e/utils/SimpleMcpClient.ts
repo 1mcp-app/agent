@@ -1,6 +1,8 @@
 import { ChildProcess, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 
+import { createTestProcessEnvironment } from '../../../scripts/test-process-environment.mjs';
+
 export interface SimpleMcpClientConfig {
   transport: 'stdio';
   stdioConfig: {
@@ -36,7 +38,7 @@ export class SimpleMcpClient extends EventEmitter {
   constructor(private config: SimpleMcpClientConfig) {
     super();
     this.process = spawn(config.stdioConfig.command, config.stdioConfig.args || [], {
-      env: { ...process.env, ...config.stdioConfig.env },
+      env: createTestProcessEnvironment(config.stdioConfig.env),
     });
 
     this.process.stdout?.on('data', (data) => {

@@ -1,6 +1,8 @@
 import { ChildProcess, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 
+import { createTestProcessEnvironment } from '../../../scripts/test-process-environment.mjs';
+
 export interface ProcessConfig {
   command: string;
   args?: string[];
@@ -29,7 +31,7 @@ export class TestProcessManager extends EventEmitter {
 
     const childProcess = spawn(config.command, config.args || [], {
       cwd: config.cwd,
-      env: { ...process.env, ...config.env },
+      env: createTestProcessEnvironment(config.env),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 

@@ -14,6 +14,7 @@ import { SearchMCPServersArgs } from '@src/domains/registry/mcpToolSchemas.js';
 import { OFFICIAL_REGISTRY_KEY } from '@src/domains/registry/types.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import chalk from 'chalk';
@@ -129,7 +130,7 @@ export async function searchCommand(argv: SearchCommandArgs): Promise<void> {
   } catch (error) {
     logger.error('search.search.command.failed.3c7f64d2', { error: error });
     printer.error(`Error searching MCP registry: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
+    exitProductCommand(1);
   } finally {
     // Cleanup resources to ensure process exits
     cleanupSearchHandler();

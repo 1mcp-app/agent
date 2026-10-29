@@ -3,6 +3,7 @@ import { McpConnectionHelper } from '@src/commands/shared/connectionHelper.js';
 import { getDisabledTools, isToolDisabled, withToolDisabledState } from '@src/core/server/disabledTools.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import { GlobalOptions, withGlobalOptions } from '@src/globalOptions.js';
+import { exitProductCommand, runProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import prompts from 'prompts';
@@ -367,7 +368,7 @@ export async function listToolsCommand(argv: ToolListCommandArgs): Promise<void>
     });
   } catch (error) {
     printer.error(`Failed to list disabled tools: ${error instanceof Error ? error.message : error}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 
@@ -376,7 +377,7 @@ export async function disableToolCommand(argv: ToolCommandBaseArgs): Promise<voi
     await setToolDisabledState(argv, true);
   } catch (error) {
     printer.error(`Failed to disable tool: ${error instanceof Error ? error.message : error}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 
@@ -385,7 +386,7 @@ export async function enableToolCommand(argv: ToolCommandBaseArgs): Promise<void
     await setToolDisabledState(argv, false);
   } catch (error) {
     printer.error(`Failed to enable tool: ${error instanceof Error ? error.message : error}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 
@@ -481,7 +482,7 @@ export async function toolsCommand(
     printRuntimeReloadNote();
   } catch (error) {
     printer.error(`Failed to manage tools interactively: ${error instanceof Error ? error.message : error}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 
@@ -567,7 +568,9 @@ export function setupMcpToolsCommands(yargs: Argv): Argv {
                 ['$0 mcp tools list filesystem --disabled', 'Show disabled tool names for one server'],
               ]),
           async (commandArgv) => {
-            await listToolsCommand(commandArgv as ToolListCommandArgs);
+            return runProductCommand('mcp', async () => {
+              await listToolsCommand(commandArgv as ToolListCommandArgs);
+            });
           },
         )
         .command(
@@ -587,7 +590,9 @@ export function setupMcpToolsCommands(yargs: Argv): Argv {
               })
               .example([['$0 mcp tools disable filesystem write_file', 'Disable one noisy tool in config']]),
           async (commandArgv) => {
-            await disableToolCommand(commandArgv as ToolCommandBaseArgs);
+            return runProductCommand('mcp', async () => {
+              await disableToolCommand(commandArgv as ToolCommandBaseArgs);
+            });
           },
         )
         .command(
@@ -607,7 +612,9 @@ export function setupMcpToolsCommands(yargs: Argv): Argv {
               })
               .example([['$0 mcp tools enable filesystem write_file', 'Re-enable one disabled tool in config']]),
           async (commandArgv) => {
-            await enableToolCommand(commandArgv as ToolCommandBaseArgs);
+            return runProductCommand('mcp', async () => {
+              await enableToolCommand(commandArgv as ToolCommandBaseArgs);
+            });
           },
         )
         .help()
@@ -623,7 +630,9 @@ export function setupMcpToolsCommands(yargs: Argv): Argv {
         );
     },
     async (commandArgv) => {
-      await toolsCommand(commandArgv as InteractiveToolsCommandArgs);
+      return runProductCommand('mcp', async () => {
+        await toolsCommand(commandArgv as InteractiveToolsCommandArgs);
+      });
     },
   );
 }

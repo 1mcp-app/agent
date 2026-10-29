@@ -65,6 +65,14 @@ If you want the full walkthrough (with success criteria and off-ramps), use the 
 
 For a given agent, choose one mode only. If you switch that agent to CLI mode, remove its old direct MCP configuration first.
 
+## Privacy and Product Usage Telemetry
+
+Product Usage Telemetry is **enabled by default** outside CI and tests, with a notice before first collection. It sends aggregate command/feature counts and coarse platform information with a random, pseudonymous installation ID to 1MCP's first-party collector. It excludes prompts, tool arguments/results, credentials, paths, and arbitrary server/tool names.
+
+To opt out for your local OS-user installation, run `1mcp telemetry disable`; use `1mcp telemetry status` to check the effective policy. `DO_NOT_TRACK=1` also suppresses collection. Remote runtimes follow their owner's settings.
+
+Read [Privacy and Product Usage Telemetry](https://docs.1mcp.app/guide/privacy) ([中文](https://docs.1mcp.app/zh/guide/privacy)) for the complete data scope, local storage, retention policy, and reset limitations.
+
 ## Work Across Projects and Worktrees
 
 Use one local runtime across repositories and Git worktrees. After configuring an installed backend with `mcp setup`, the agent selects a checkout on each call:
