@@ -38,6 +38,7 @@ export interface DirectInstallationSource {
   args?: string[];
   env?: Record<string, string>;
   headers?: Record<string, string>;
+  oauth?: MCPServerParams['oauth'];
   tags?: string[];
   timeout?: number;
   connectionTimeout?: number;

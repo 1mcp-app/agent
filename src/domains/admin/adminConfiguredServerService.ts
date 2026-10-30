@@ -8,6 +8,7 @@ import {
   GLOBAL_TRANSPORT_CONFIG_KEYS,
   type GlobalTransportConfig,
   type MCPServerParams,
+  oAuthConfigSchema,
   transportConfigSchema,
 } from '@src/core/types/index.js';
 import {
@@ -120,15 +121,7 @@ const configuredServerCreateDraftSchema = z
         stderr: z.union([z.enum(['inherit', 'ignore', 'overlapped', 'pipe']), z.number().int().min(0)]).optional(),
         inheritParentEnv: z.boolean().optional(),
         envFilter: z.array(z.string()).optional(),
-        oauth: z
-          .object({
-            clientId: z.string().optional(),
-            clientSecret: z.string().optional(),
-            scopes: z.array(z.string()).optional(),
-            autoRegister: z.boolean().optional(),
-            redirectUrl: z.string().optional(),
-          })
-          .optional(),
+        oauth: oAuthConfigSchema.optional(),
         template: z
           .object({
             shareable: z.boolean().optional(),
@@ -234,6 +227,7 @@ function normalizeConfiguredServerCreateDraft(value: unknown): {
     timeout: transport.timeout,
     connectionTimeout: transport.connectionTimeout,
     requestTimeout: transport.requestTimeout,
+    oauth: transport.oauth,
     autoRestart: transport.restartOnExit,
     maxRestarts: transport.maxRestarts,
     restartDelay: transport.restartDelay,
@@ -425,11 +419,14 @@ function createConfiguredServerCreateDiff(
     { fieldPath: ['tags'], oldValue: undefined, newValue: proposed.tags, riskFlags: [] },
   ];
   for (const [key, value] of Object.entries(proposed.transport)) {
+    const riskFlags = previewRiskFlags([key]);
+    if (key === 'oauth' && proposed.secretInputs.some((input) => input.fieldPath[0] === 'oauth'))
+      riskFlags.push('secret');
     diff.push({
       fieldPath: ['transport', key],
       oldValue: undefined,
       newValue: value,
-      riskFlags: previewRiskFlags([key]),
+      riskFlags,
     });
   }
   for (const secret of draft.secrets ?? []) {
@@ -1144,7 +1141,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         ) {
           throw new AdminConfiguredServerApplyError('configured_server_connectivity_blocked');
         }
-        const secretChange = prepared.draft.secrets?.length;
+        const secretChange = preview.diff.some((entry) => entry.riskFlags.includes('secret'));
         const configFingerprint = fingerprintConfiguredServerConfigDocument(document);
         return {
           confirmationRequirements: [
@@ -2677,7 +2674,11 @@ function isSecretCapableRawTransportEdit(key: string, value: unknown): boolean {
   }
 
   if (key === 'oauth' && value && typeof value === 'object' && !Array.isArray(value)) {
-    return containsStringOrSecretLikeField(value);
+    return Object.entries(value).some(([name, entry]) => {
+      if (name === 'privateNetworkOrigins' && oAuthConfigSchema.shape.privateNetworkOrigins.safeParse(entry).success)
+        return false;
+      return isSecretLikeKey(name) || containsStringOrSecretLikeField(entry);
+    });
   }
 
   if (key === 'args' && Array.isArray(value)) {
@@ -3107,7 +3108,20 @@ function applyEditDraft(
       ) {
         continue;
       }
-      (nextConfig as Record<string, unknown>)[key] = cloneUnknown(value);
+      if (key === 'oauth' && value && typeof value === 'object' && !Array.isArray(value)) {
+        nextConfig.oauth = { ...cloneUnknown(nextConfig.oauth ?? serverDefaults?.oauth ?? {}), ...cloneUnknown(value) };
+        // OAuth edits are patches; null explicitly removes a nonsecret option without discarding credentials.
+        for (const name of [
+          'autoRegister',
+          'scopes',
+          'insecureAllowIncompleteMetadata',
+          'privateNetworkOrigins',
+        ] as const) {
+          if ((value as Record<string, unknown>)[name] === null) delete nextConfig.oauth[name];
+        }
+      } else {
+        (nextConfig as Record<string, unknown>)[key] = cloneUnknown(value);
+      }
     }
   }
 

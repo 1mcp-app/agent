@@ -7,7 +7,33 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import { generateMcpConfigSchema } from '../../../docs/site/.vitepress/utils/configSchemaGen.js';
-import { mcpServerConfigSchema, transportConfigSchema } from './transport.js';
+import { mcpServerConfigSchema, oAuthConfigSchema, transportConfigSchema } from './transport.js';
+
+describe('OAuth compatibility configuration', () => {
+  it('defaults to strict metadata and no private-origin approval', () => {
+    expect(oAuthConfigSchema.parse({})).toEqual({});
+    expect(
+      oAuthConfigSchema.parse({
+        insecureAllowIncompleteMetadata: true,
+        privateNetworkOrigins: ['https://ha.example/'],
+      }),
+    ).toEqual({
+      insecureAllowIncompleteMetadata: true,
+      privateNetworkOrigins: ['https://ha.example/'],
+    });
+  });
+  it.each([
+    'http://ha.example',
+    'https://ha.example/path',
+    'https://ha.example?x=1',
+    'https://ha.example#fragment',
+    'https://user:pass@ha.example',
+    'https://*.example',
+    'https://ha.example\\path',
+  ])('rejects unsafe private-origin configuration %s', (origin) => {
+    expect(oAuthConfigSchema.safeParse({ privateNetworkOrigins: [origin] }).success).toBe(false);
+  });
+});
 
 describe.each([
   [
@@ -21,6 +47,19 @@ describe.each([
   const validator = new Ajv({ strict: false });
   addFormats.default(validator);
   const validate = validator.compile(schema);
+
+  it('publishes the independent metadata and network opt-ins with runtime-equivalent validation', () => {
+    for (const oauth of [
+      { insecureAllowIncompleteMetadata: true, privateNetworkOrigins: ['https://private.example'] },
+      { insecureAllowIncompleteMetadata: 'true' },
+      { privateNetworkOrigins: ['http://private.example'] },
+      { privateNetworkOrigins: ['https://private.example/path'] },
+      { privateNetworkOrigins: ['https://*.example'] },
+    ]) {
+      const config = { mcpServers: { backend: { type: 'http', url: 'https://private.example/mcp', oauth } } };
+      expect(validate(config), JSON.stringify(oauth)).toBe(mcpServerConfigSchema.safeParse(config).success);
+    }
+  });
 
   it.each(['instructionTemplates', 'publishedInstructionTemplates'] as const)(
     'matches runtime protected identities and permissive template input for %s',

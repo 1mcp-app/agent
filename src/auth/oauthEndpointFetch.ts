@@ -59,11 +59,16 @@ function isConfiguredLocalOrigin(url: URL, configuredResource: string, configure
   return false;
 }
 
+function isApprovedPrivateOrigin(url: URL, origins: readonly string[] = []): boolean {
+  return url.protocol === 'https:' && origins.some((origin) => new URL(origin).origin === url.origin);
+}
+
 export function validateOAuthEndpoint(
   value: string,
   configuredResource: string,
   expectedOrigin?: string,
   configuredIssuer?: string,
+  privateNetworkOrigins?: readonly string[],
 ): URL {
   try {
     const url = new URL(value);
@@ -71,8 +76,9 @@ export function validateOAuthEndpoint(
     if (url.username || url.password || url.hash) throw oauthAuthorityError();
     if (url.protocol !== 'https:' && !(localException && url.protocol === 'http:')) throw oauthAuthorityError();
     if (expectedOrigin && url.origin !== expectedOrigin) throw oauthAuthorityError();
-    if (url.hostname === 'localhost' && !localException) throw oauthAuthorityError();
-    if (isIP(url.hostname.replace(/^\[|\]$/g, '')) && isPrivateOAuthAddress(url.hostname) && !localException)
+    const privateException = localException || isApprovedPrivateOrigin(url, privateNetworkOrigins);
+    if (url.hostname === 'localhost' && !privateException) throw oauthAuthorityError();
+    if (isIP(url.hostname.replace(/^\[|\]$/g, '')) && isPrivateOAuthAddress(url.hostname) && !privateException)
       throw oauthAuthorityError();
     return url;
   } catch {
@@ -84,6 +90,7 @@ export function validateOAuthEndpoint(
 export function createOAuthEndpointFetch(options: {
   resource: string;
   issuer?: string;
+  privateNetworkOrigins?: string[];
   isResource: (url: URL) => boolean;
   acceptSseEndpoint?: (endpoint: string) => void;
   beforeRequest: (url: URL, init: RequestInit) => Promise<RequestInit>;
@@ -113,7 +120,15 @@ export function createOAuthEndpointFetch(options: {
       const target = new URL(request?.url ?? String(input));
       const resource = new URL(options.resource);
       const isResource = options.isResource(target);
-      const url = isResource ? target : validateOAuthEndpoint(target.href, options.resource, undefined, options.issuer);
+      const url = isResource
+        ? target
+        : validateOAuthEndpoint(
+            target.href,
+            options.resource,
+            undefined,
+            options.issuer,
+            options.privateNetworkOrigins,
+          );
       if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash)
         throw oauthAuthorityError();
       resourceRequest = isResource;
@@ -139,10 +154,15 @@ export function createOAuthEndpointFetch(options: {
               boundedSignal.addEventListener('abort', () => reject(oauthAuthorityError()), { once: true }),
             ),
           ]);
-      const localException = isResource || isConfiguredLocalOrigin(url, options.resource, options.issuer);
+      const approvedPrivateOrigin = isApprovedPrivateOrigin(url, options.privateNetworkOrigins);
+      const localException =
+        isResource || approvedPrivateOrigin || isConfiguredLocalOrigin(url, options.resource, options.issuer);
       reason = 'authority_mismatch';
-      if (!addresses.length || (!localException && addresses.some((item) => isPrivateOAuthAddress(item.address))))
+      if (!addresses.length) throw oauthAuthorityError();
+      if (!localException && addresses.some((item) => isPrivateOAuthAddress(item.address))) {
+        reason = 'private_destination_blocked';
         throw oauthAuthorityError();
+      }
       const resolved = addresses
         .map((item) => item.address)
         .sort()

@@ -1,4 +1,5 @@
 import {
+  auth as modernAuth,
   type OAuthClientProvider as ModernProvider,
   StreamableHTTPClientTransport as ModernTransport,
 } from '@modelcontextprotocol/client';
@@ -6,6 +7,7 @@ import {
 import * as dns from 'node:dns/promises';
 import fs from 'node:fs';
 import http from 'node:http';
+import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -16,17 +18,18 @@ import { oauthDigest } from '@src/auth/oauthAuthority.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { SDKOAuthClientProvider } from './sdkOAuthClientProvider.js';
+import { type OAuthClientConfig, SDKOAuthClientProvider } from './sdkOAuthClientProvider.js';
 
 vi.mock('node:dns/promises', async (original) => ({ ...(await original<typeof dns>()), lookup: vi.fn() }));
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  vi.restoreAllMocks();
   vi.resetAllMocks();
 });
 
-async function fixture(legacy: boolean) {
+async function fixture(legacy: boolean, oauth: Partial<OAuthClientConfig> = {}, privateHostname = false) {
   let base = '';
   let resourceMetadataServed = false;
   const requests: Array<{ url: string; headers: http.IncomingHttpHeaders }> = [];
@@ -111,15 +114,28 @@ async function fixture(legacy: boolean) {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Missing fixture address');
   base = `http://127.0.0.1:${address.port}`;
+  if (privateHostname) {
+    base = `https://private.example:${address.port}`;
+    vi.mocked(dns.lookup).mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);
+    // Keep real loopback sockets and DNS pinning; TLS itself is not under test here.
+    vi.spyOn(https, 'request').mockImplementation((...args: Parameters<typeof https.request>) => {
+      const [input, options, callback] = args;
+      const url = new URL(String(input));
+      url.protocol = 'http:';
+      return http.request(url, options, callback);
+    });
+  }
   cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'oauth-discovery-'));
   cleanups.push(() => fs.rmSync(directory, { recursive: true, force: true }));
-  const connect = async () => {
+  const connect = async (overrides: Partial<OAuthClientConfig> = {}) => {
     const provider = new SDKOAuthClientProvider(
       'discovery-fixture',
       {
         redirectUrl: 'http://127.0.0.1:3050/oauth/callback/fixture',
         legacy,
+        ...oauth,
+        ...overrides,
         authority: {
           owner: 'fixture-runtime',
           source: 'fixture-server',
@@ -165,6 +181,106 @@ async function fixture(legacy: boolean) {
 
 for (const legacy of [true, false])
   describe(`${legacy ? 'legacy' : 'modern'} SDK challenge discovery`, () => {
+    it('uses an explicit client identity when the provider does not support dynamic registration', async () => {
+      const discovery = await fixture(legacy, {
+        clientId: 'http://127.0.0.1:3050/',
+        autoRegister: false,
+        insecureAllowIncompleteMetadata: true,
+      });
+      discovery.shape.serverPatch = {
+        issuer: undefined,
+        authorization_endpoint: '/authorize',
+        token_endpoint: '/token',
+        registration_endpoint: undefined,
+        client_id_metadata_document_supported: true,
+      };
+      const provider = await discovery.connect();
+      const authorization = new URL(provider.getAuthorizationUrl()!);
+      expect(authorization.searchParams.get('client_id')).toBe('http://127.0.0.1:3050/');
+      expect(authorization.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:3050/oauth/callback/fixture');
+      expect(discovery.requests.some((request) => request.url === '/register')).toBe(false);
+    });
+    it('combines independent metadata and private-network opt-ins through SDK registration', async () => {
+      const discovery = await fixture(legacy, { insecureAllowIncompleteMetadata: true }, true);
+      discovery.shape.serverPatch = {
+        issuer: undefined,
+        authorization_endpoint: '/authorize',
+        token_endpoint: '/token',
+      };
+      const provider = await discovery.connect({ privateNetworkOrigins: [discovery.base] });
+      expect(new URL(provider.getAuthorizationUrl()!).origin).toBe(discovery.base);
+      expect(provider.clientInformation()?.client_id).toBe('registered-client');
+      const state = new URL(provider.getAuthorizationUrl()!).searchParams.get('state')!;
+      const callback = new URLSearchParams({ state, code: 'fixture-code', iss: discovery.base });
+      const options = {
+        serverUrl: discovery.base + '/mcp',
+        authorizationCode: 'fixture-code',
+        fetchFn: provider.fetch,
+      };
+      await expect(
+        provider.withAuthorizationCallback(callback, () =>
+          legacy ? legacyAuth(provider, options) : modernAuth(provider as ModernProvider, options),
+        ),
+      ).resolves.toBe('AUTHORIZED');
+      expect(provider.tokens()?.access_token).toBe('fixture-token');
+    });
+    it('does not let insecure metadata compatibility approve private DNS destinations', async () => {
+      const discovery = await fixture(legacy, { insecureAllowIncompleteMetadata: true }, true);
+      const provider = await discovery.connect();
+      expect(provider.getAuthorizationUrl()).toBeUndefined();
+      expect(discovery.failures.at(-1)?.message).toContain('private_destination_blocked');
+      expect(discovery.requests.map((request) => request.url)).toEqual(['/mcp']);
+    });
+    it('repairs missing issuer and relative endpoints only with explicit insecure metadata compatibility', async () => {
+      const discovery = await fixture(legacy, { insecureAllowIncompleteMetadata: true });
+      discovery.shape.serverPatch = {
+        issuer: undefined,
+        authorization_endpoint: '/authorize',
+        token_endpoint: '/token',
+        registration_endpoint: '/register',
+      };
+      const provider = await discovery.connect();
+      expect(new URL(provider.getAuthorizationUrl()!).origin).toBe(discovery.base);
+      expect(provider.clientInformation()?.client_id).toBe('registered-client');
+    });
+    it('rejects the same incomplete metadata by default', async () => {
+      const discovery = await fixture(legacy);
+      discovery.shape.serverPatch = {
+        issuer: undefined,
+        authorization_endpoint: '/authorize',
+        token_endpoint: '/token',
+      };
+      const provider = await discovery.connect();
+      expect(provider.getAuthorizationUrl()).toBeUndefined();
+      expect(discovery.failures.at(-1)?.message).toContain('invalid_metadata');
+    });
+    it('allows same-origin AS discovery when protected-resource metadata is unavailable only with insecure compatibility', async () => {
+      const discovery = await fixture(legacy, { insecureAllowIncompleteMetadata: true });
+      discovery.shape.metadataStatus = 404;
+      discovery.shape.serverPatch = {
+        issuer: undefined,
+        authorization_endpoint: '/authorize',
+        token_endpoint: '/token',
+        registration_endpoint: '/register',
+      };
+      const provider = await discovery.connect();
+      expect(new URL(provider.getAuthorizationUrl()!).origin).toBe(discovery.base);
+      expect(provider.clientInformation()?.client_id).toBe('registered-client');
+    });
+    it.each([
+      { issuer: 'https://wrong.example' },
+      { issuer: '' },
+      { token_endpoint: undefined },
+      { token_endpoint: '//untrusted.example/token' },
+      { token_endpoint: 'https://169.254.169.254/token' },
+      { token_endpoint: 'http://unsafe.example/token' },
+    ])('keeps authority and endpoint validation with insecure metadata compatibility: %j', async (patch) => {
+      const discovery = await fixture(legacy, { insecureAllowIncompleteMetadata: true });
+      discovery.shape.serverPatch = patch;
+      const provider = await discovery.connect();
+      expect(provider.getAuthorizationUrl()).toBeUndefined();
+      expect(discovery.requests.some((request) => request.url === '/register')).toBe(false);
+    });
     it('registers and produces an authorization URL from Firecrawl-shaped AS metadata', async () => {
       const discovery = await fixture(legacy);
       const provider = await discovery.connect();

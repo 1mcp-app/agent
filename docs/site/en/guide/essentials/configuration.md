@@ -320,9 +320,39 @@ Credentials belong to the Runtime Scope, configured source, structured upstream 
 
 Each authorization attempt has its own state and PKCE verifier, expires after fifteen minutes, survives restart, and can be consumed once. At most 32 attempt records are retained per authority during that window. Start authorization again after an expired, rejected, or interrupted callback. Old server-name-keyed credentials are quarantined in owner-only client storage and are never automatically promoted; authorize again after upgrading. Quarantine data remains protected rollback material and is not included in configuration exports. Restoring it does not make unbound credentials eligible.
 
-OAuth metadata, registration, and token responses are limited to 1 MiB and ten seconds total. OAuth redirects are rejected. If the configured MCP resource redirects (for example, `/mcp` to `/mcp/`), 1MCP reports that the upstream URL must be configured to the final destination; it does not forward credentials through the redirect. Discovered endpoints must use public HTTPS; only the exact explicitly configured local resource origin or local `oauth.issuer` origin permits HTTP/private destinations. A separate local authorization server must be explicitly pinned with `oauth.issuer`; advertising another localhost port or address does not approve it. The exact configured MCP resource route and an accepted same-origin SSE message endpoint retain operator-approved HTTP/private-network access; this does not approve discovered OAuth endpoints. For server network requests, each DNS answer is checked and pinned into that request's actual connection. Validated answers may rotate between requests. Active authority and credential records renew their thirty-day storage lifetime; expired idle records still require fresh authorization. Endpoint URLs and scopes are validated before credentials are sent. A Resource Indicator may identify a same-origin parent path (for example, `/api` for `/api/mcp`), with matching query parameters and no fragment. The selected Resource Indicator is retained as the token audience; credentials remain bound to the exact configured upstream route. Upstream resource headers are not forwarded to discovery, registration, or token endpoints. MCP SSE streams retain their normal streaming lifetime. Browser authorization navigation uses the exact validated advertised HTTPS URL (with the configured local-origin exception); the browser controls its own DNS and network connection, which 1MCP does not pin.
+OAuth metadata, registration, and token responses are limited to 1 MiB and ten seconds total. OAuth redirects are rejected. If the configured MCP resource redirects (for example, `/mcp` to `/mcp/`), 1MCP reports that the upstream URL must be configured to the final destination; it does not forward credentials through the redirect. Discovered endpoints must use public HTTPS by default. The exact explicitly configured local-IP or localhost resource/issuer origin permits HTTP/private destinations; `oauth.privateNetworkOrigins` separately permits private destinations for listed HTTPS origins. A separate local authorization server must be explicitly pinned with `oauth.issuer`; advertising another localhost port or address does not approve it. The exact configured MCP resource route and an accepted same-origin SSE message endpoint retain operator-approved HTTP/private-network access; this does not approve discovered OAuth endpoints. For server network requests, each DNS answer is checked and pinned into that request's actual connection. Validated answers may rotate between requests. Active authority and credential records renew their thirty-day storage lifetime; expired idle records still require fresh authorization. Endpoint URLs and scopes are validated before credentials are sent. A Resource Indicator may identify a same-origin parent path (for example, `/api` for `/api/mcp`), with matching query parameters and no fragment. The selected Resource Indicator is retained as the token audience; credentials remain bound to the exact configured upstream route. Upstream resource headers are not forwarded to discovery, registration, or token endpoints. MCP SSE streams retain their normal streaming lifetime. Browser authorization navigation uses the exact validated advertised HTTPS URL (with the configured local-origin exception); the browser controls its own DNS and network connection, which 1MCP does not pin.
 
 Access tokens may be opaque. 1MCP binds the token exchange and Resource Indicator to validated authority; it does not decode arbitrary token claims and claim to verify their signatures. The protected resource remains responsible for cryptographic access-token validation.
+
+#### Explicit insecure metadata compatibility
+
+Prefer fixing the provider's metadata. If that is not possible, set `oauth.insecureAllowIncompleteMetadata: true` for that server. This **insecure**, default-off option works for both public and private providers. It fills an absent issuer from the authorization-server discovery context and resolves relative authorization, token, registration and JWKS endpoints against that issuer. It also permits same-origin authorization-server discovery when protected-resource metadata is unavailable. It does not replace an explicit mismatched issuer, invent missing required endpoints, accept cross-origin relative URLs, or disable resource, redirect, TLS or credential validation.
+
+Private DNS destinations require separate approval. Set `oauth.privateNetworkOrigins` to exact trusted HTTPS origins (scheme, host and optional port; no credentials, wildcards, paths, queries or fragments). A trailing slash is accepted. This does not permit HTTP for private hostnames or approve another hostname/port advertised by discovery. Avoid placing either exception in `serverDefaults.oauth`, where it would be inherited by servers without their own OAuth object.
+
+```json
+{
+  "mcpServers": {
+    "home-assistant": {
+      "type": "http",
+      "url": "https://ha.example/api/mcp",
+      "oauth": {
+        "insecureAllowIncompleteMetadata": true,
+        "privateNetworkOrigins": ["https://ha.example"],
+        "clientId": "http://127.0.0.1:3050/",
+        "redirectUrl": "http://127.0.0.1:3050/oauth/callback/home-assistant",
+        "autoRegister": false
+      }
+    }
+  }
+}
+```
+
+The Home Assistant example uses its [URL-based client identity](https://contributors.home-assistant.io/core/internals/auth-api/#your-client-id), with a matching callback origin, because it does not support Dynamic Client Registration. Adjust the client ID and callback together if your local 1MCP port or origin differs. Other providers may require a registered client ID or a published `clientMetadataUrl`; disabling registration alone does not supply an identity.
+
+For a public destination, omit `privateNetworkOrigins`. With complete metadata, omit `insecureAllowIncompleteMetadata`. Changing either setting requires fresh authorization. These options do not guarantee provider consent.
+
+The `private_destination_blocked` diagnostic means DNS resolved to a private address without approval; `invalid_metadata` means the provider document failed format validation; `authority_mismatch` means authority validation failed.
 
 ### Native OAuth credential storage
 

@@ -4518,6 +4518,107 @@ describe('AdminConfiguredServerService', () => {
     );
   });
 
+  it.each([
+    { insecureAllowIncompleteMetadata: false },
+    { privateNetworkOrigins: ['https://new.example'] },
+    { privateNetworkOrigins: [] },
+  ])('applies nonsecret OAuth option edits while preserving credentials and other options: %j', async (oauthEdit) => {
+    const oauth = {
+      clientId: 'existing-client',
+      clientSecret: 'existing-secret',
+      insecureAllowIncompleteMetadata: true,
+      privateNetworkOrigins: ['https://old.example'],
+    };
+    writeConfig({ mcpServers: { alpha: { type: 'http', url: 'https://private.example/mcp', disabled: true, oauth } } });
+    const service = createService();
+    const edit = { transport: { oauth: oauthEdit } };
+    const preview = await service.previewConfiguredServerEdit({ context: context(), targetName: 'alpha', edit });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) throw new Error('Expected a valid preview');
+    expect(preview.result.validation.status).toBe('valid');
+    expect(JSON.stringify(preview)).not.toContain('existing-secret');
+    const applied = await service.applyConfiguredServerEdit({
+      context: context({
+        confirmationFacts: { previewConfirmed: preview.result.previewFingerprint, connectionCriticalConfirmed: true },
+      }),
+      targetName: 'alpha',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+    expect(applied.ok).toBe(true);
+    expect(readConfig().mcpServers.alpha.oauth).toEqual({ ...oauth, ...oauthEdit });
+  });
+
+  it('removes an OAuth option explicitly without discarding credentials or scopes', async () => {
+    const oauth = {
+      clientId: 'existing-client',
+      clientSecret: 'existing-secret',
+      autoRegister: false,
+      scopes: ['read'],
+    };
+    writeConfig({ mcpServers: { alpha: { type: 'http', url: 'https://private.example/mcp', disabled: true, oauth } } });
+    const service = createService();
+    const edit = { transport: { oauth: { autoRegister: null, insecureAllowIncompleteMetadata: true } } };
+    const preview = await service.previewConfiguredServerEdit({ context: context(), targetName: 'alpha', edit });
+    if (!preview.ok) throw new Error('Expected a valid preview');
+    expect(preview.result.validation.status).toBe('valid');
+    const applied = await service.applyConfiguredServerEdit({
+      context: context({
+        confirmationFacts: { previewConfirmed: preview.result.previewFingerprint, connectionCriticalConfirmed: true },
+      }),
+      targetName: 'alpha',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+    expect(applied.ok).toBe(true);
+    expect(readConfig().mcpServers.alpha.oauth).toEqual({
+      clientId: oauth.clientId,
+      clientSecret: oauth.clientSecret,
+      scopes: ['read'],
+      insecureAllowIncompleteMetadata: true,
+    });
+  });
+
+  it('requires secret confirmation before creating a server with inline OAuth credentials', async () => {
+    writeConfig({ mcpServers: {} });
+    const service = createService();
+    const draft = {
+      name: 'oauth-create',
+      enabled: false,
+      transport: {
+        type: 'http',
+        url: 'https://private.example/mcp',
+        oauth: { clientSecret: 'new-secret' },
+      },
+    };
+    const preview = await service.previewConfiguredServerCreate({ context: context(), draft });
+    if (!preview.ok) throw new Error('Expected a valid preview');
+    expect(preview.result.diff.some((entry) => entry.riskFlags.includes('secret'))).toBe(true);
+    expect(JSON.stringify(preview)).not.toContain('new-secret');
+    const confirmationFacts = {
+      previewConfirmed: preview.result.previewFingerprint,
+      targetNameConfirmed: draft.name,
+      connectionCriticalConfirmed: true,
+    };
+    const rejected = await service.applyConfiguredServerCreate({
+      context: context({ confirmationFacts }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+    expect(rejected).toMatchObject({ ok: false, status: 'mutation_confirmation_required' });
+    expect(readConfig().mcpServers[draft.name]).toBeUndefined();
+    const applied = await service.applyConfiguredServerCreate({
+      context: context({
+        idempotencyKey: 'confirmed-oauth-create',
+        confirmationFacts: { ...confirmationFacts, secretChangeConfirmed: true },
+      }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+    expect(applied.ok).toBe(true);
+    expect(readConfig().mcpServers[draft.name].oauth?.clientSecret).toBe('new-secret');
+  });
+
   it('previews a direct create with an opaque secret-bound fingerprint and no inline secret exposure', async () => {
     const service = createService();
     const draft = {
@@ -4621,7 +4722,16 @@ describe('AdminConfiguredServerService', () => {
       const draft = {
         name: `remote-${type}`,
         enabled: true,
-        transport: { type, url: `https://${type}.example/mcp`, connectionTimeout: 2_000, requestTimeout: 5_000 },
+        transport: {
+          type,
+          url: `https://${type}.example/mcp`,
+          connectionTimeout: 2_000,
+          requestTimeout: 5_000,
+          oauth: {
+            insecureAllowIncompleteMetadata: true,
+            privateNetworkOrigins: [`https://${type}.example`],
+          },
+        },
       };
       const preview = await service.previewConfiguredServerCreate({ context: context(), draft });
       expect(preview).toMatchObject({
@@ -4654,6 +4764,7 @@ describe('AdminConfiguredServerService', () => {
         url: draft.transport.url,
         connectionTimeout: 2_000,
         requestTimeout: 5_000,
+        oauth: draft.transport.oauth,
       });
     },
   );

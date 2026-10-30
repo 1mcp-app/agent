@@ -232,6 +232,28 @@ export interface StdioTransportConfig extends BaseTransportConfig {
  */
 export const oAuthConfigSchema = z.object({
   issuer: z.url().optional().describe('Exact approved upstream authorization-server issuer'),
+  insecureAllowIncompleteMetadata: z
+    .boolean()
+    .optional()
+    .describe('INSECURE: infer a missing OAuth issuer and resolve same-origin relative endpoints; disabled by default'),
+  privateNetworkOrigins: z
+    .array(
+      z
+        .url()
+        .and(
+          z
+            .string()
+            .regex(
+              /^https:\/\/[^/?#@*\\\s]+\/?$/,
+              'Expected an exact HTTPS origin without credentials, path, query or fragment',
+            ),
+        ),
+    )
+    .max(16)
+    .optional()
+    .describe(
+      'Exact HTTPS origins explicitly permitted to resolve to private addresses for this upstream OAuth client',
+    ),
   clientMetadataUrl: z.url().optional().describe('HTTPS Client ID Metadata Document URL'),
   credentialAuthority: z
     .string()
