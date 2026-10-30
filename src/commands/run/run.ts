@@ -33,6 +33,7 @@ import {
 } from '@src/commands/shared/serveClient.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
 import { DEFAULT_TOOL_CALL_TIMEOUT_MS, MAX_TOOL_CALL_TIMEOUT_MS } from '@src/constants/cliTimeouts.js';
+import { captureJson, SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
 import {
   createGatewayFailure,
@@ -635,12 +636,16 @@ export async function invokeTool(options: {
 
     toolDispatchStarted = true;
     const response = await client.callTool(options.qualifiedToolName, resolvedArguments.arguments, options.timeoutMs);
+    if ('result' in response) captureJson(response.result, false, true);
     return {
       rawResponse: toJsonValue(response, TOOL_RESULT_JSON_VALUE_LIMITS) as unknown as JsonRpcResponse<CallToolResult>,
       sessionId: client.sessionId,
       retryWithFreshSession: false,
     };
   } catch (error) {
+    if (toolDispatchStarted && error instanceof SchemaBoundaryError && error.code === 'schema_budget_exceeded') {
+      return failureResponse(createGatewayFailure({ kind: 'protocol', code: error.code, message: error.code }));
+    }
     if (error instanceof ServeRequestTimeoutError) {
       if (toolDispatchStarted) return failureResponse(requestTimeoutFailure('tool execution', error.timeoutMs));
       const phase = error.method === 'initialize' ? 'server discovery' : 'schema discovery';
