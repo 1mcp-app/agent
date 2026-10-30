@@ -1,5 +1,6 @@
 import { isNativeError } from 'node:util/types';
 
+import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import { JSON_VALUE_LIMITS, RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/jsonValue.js';
 
 import { z } from 'zod';
@@ -167,6 +168,9 @@ function ownDataValue(record: object, key: string): unknown {
 }
 
 export function gatewayFailureFromUnknown(error: unknown, kind: GatewayFailureKind = 'internal'): GatewayFailure {
+  if (error instanceof SchemaBoundaryError && error.code === 'schema_budget_exceeded') {
+    return createGatewayFailure({ kind: 'protocol', code: error.code, message: error.code });
+  }
   const record = typeof error === 'object' && error !== null ? error : undefined;
   const resourceError = record && ownedResourceNotFoundErrors.get(record);
   if (resourceError) return resourceError;
@@ -215,6 +219,7 @@ export function gatewayFailureFromMcpError(error: unknown): GatewayFailure {
       'runtime_draining',
       'gateway_target_unavailable',
       'resource_not_found',
+      'schema_budget_exceeded',
       'schema_evaluation_timeout',
       'schema_evaluation_unavailable',
     ].includes(code) ||

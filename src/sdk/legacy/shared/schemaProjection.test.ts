@@ -52,3 +52,17 @@ it('does not accept malformed canonical content when bypassing the private v1 sh
     'schema_output_invalid',
   );
 });
+
+it.each([projectLegacyToolResult, projectCanonicalToolResult])('projects accepted large tool output', (project) => {
+  const result = { content: [{ type: 'text', text: 'x'.repeat(1_000_001) }] };
+  expect(project(result)).toEqual(result);
+});
+
+it.each([projectLegacyToolResult, projectCanonicalToolResult])(
+  'rejects oversized projection with a size failure',
+  (project) => {
+    expect(() => project({ content: [{ type: 'text', text: '界'.repeat(1_400_000) }] })).toThrow(
+      'schema_budget_exceeded',
+    );
+  },
+);

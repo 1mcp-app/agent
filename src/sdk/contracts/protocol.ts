@@ -1,4 +1,12 @@
-import { type JsonObject, type JsonValue, toJsonValue } from './jsonValue.js';
+import {
+  JSON_VALUE_LIMITS,
+  type JsonObject,
+  type JsonValue,
+  type JsonValueLimits,
+  RESPONSE_JSON_VALUE_LIMITS,
+  toJsonValue,
+  TOOL_RESULT_JSON_VALUE_LIMITS,
+} from './jsonValue.js';
 
 /** MCP methods that return capability lists and may use the bounded response budget. */
 const CAPABILITY_LIST_METHODS: Readonly<Record<string, true>> = {
@@ -10,6 +18,13 @@ const CAPABILITY_LIST_METHODS: Readonly<Record<string, true>> = {
 
 export function isCapabilityListMethod(method: string): boolean {
   return Object.hasOwn(CAPABILITY_LIST_METHODS, method);
+}
+
+/** Select output budgets without relaxing the ordinary input/resource contract. */
+export function resultJsonValueLimits(method: string): JsonValueLimits {
+  if (method === 'tools/call') return TOOL_RESULT_JSON_VALUE_LIMITS;
+  if (isCapabilityListMethod(method)) return RESPONSE_JSON_VALUE_LIMITS;
+  return JSON_VALUE_LIMITS;
 }
 
 /** Stable JSON-RPC and transport error codes used by 1MCP. */

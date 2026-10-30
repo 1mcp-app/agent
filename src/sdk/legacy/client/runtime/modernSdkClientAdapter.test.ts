@@ -499,7 +499,8 @@ describe('ModernSdkClientAdapter', () => {
 
   it.each([
     ['bounded', { content: [{ type: 'text', text: 'x'.repeat(64 * 1024) }] }, true],
-    ['string budget', { content: [{ type: 'text', text: 'x'.repeat(1_000_001) }] }, false],
+    ['large accepted output', { content: [{ type: 'text', text: 'x'.repeat(1_000_001) }] }, true],
+    ['output byte budget', { content: [{ type: 'text', text: 'x'.repeat(4 * 1024 * 1024) }] }, false],
     ['node budget', { content: Array.from({ length: 4000 }, () => ({ type: 'text', text: 'x' })) }, false],
   ] as const)('retains gateway %s limits on a real SSE tool result', async (_label, result, accepted) => {
     let calls = 0;
@@ -532,6 +533,8 @@ describe('ModernSdkClientAdapter', () => {
     try {
       const pending = adapter.request({ id: 'large' as never, method: 'tools/call', params: { name: 'echo' } });
       if (accepted) await expect(pending).resolves.toMatchObject(result);
+      else if (_label === 'output byte budget')
+        await expect(pending).rejects.toMatchObject({ code: 'schema_budget_exceeded' });
       else await expect(pending).rejects.toThrow('Gateway transport failure');
       expect(calls).toBe(1);
     } finally {
