@@ -3,7 +3,7 @@ import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js'
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
 import { access, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
-import { join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -59,6 +59,40 @@ describeRunE2E('run command E2E', () => {
     expect(output.echoed).toContain('"message": "hello"');
     expect(output.echoed).toContain('"count": 2');
     expect(output.count).toBe(2);
+  });
+
+  it('spills bounded stdout to a complete local temporary artifact that survives CLI exit', async () => {
+    await startServeProcess();
+    const message = '完整🌍'.repeat(1000);
+    const result = await runner.runRunCommand('runner/echo_args', {
+      args: [
+        ...getCliSessionCacheArgs(),
+        '--url',
+        `http://127.0.0.1:${servePort}/mcp`,
+        '--args',
+        JSON.stringify({ message, count: 7 }),
+        '--format',
+        'json',
+        '--stdout-budget-bytes',
+        '1024',
+      ],
+    });
+    runner.assertSuccess(result);
+    expect(result.stderr).toBe('');
+    expect(Buffer.byteLength(`${result.stdout}\n`)).toBeLessThanOrEqual(1024);
+    const receipt = JSON.parse(result.stdout) as { artifact: string; path: string; bytes: number };
+    expect(receipt.artifact).toBe('temporary-json');
+    expect(isAbsolute(receipt.path)).toBe(true);
+    try {
+      const json = await readFile(receipt.path, 'utf8');
+      expect(Buffer.byteLength(json)).toBe(receipt.bytes);
+      const artifact = JSON.parse(json);
+      expect(JSON.parse(artifact.content[0].text)).toEqual({ message, count: 7 });
+      expect(JSON.parse(artifact.structuredContent.echoed)).toEqual({ message, count: 7 });
+      expect(artifact.structuredContent.count).toBe(7);
+    } finally {
+      await rm(dirname(receipt.path), { recursive: true, force: true });
+    }
   });
 
   it('reports an execution deadline without replay and accepts a subsequent call', async () => {
