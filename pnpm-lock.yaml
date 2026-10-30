@@ -247,6 +247,9 @@ importers:
       prompts:
         specifier: ^2.4.2
         version: 2.4.2
+      proxy-from-env:
+        specifier: 2.1.0
+        version: 2.1.0
       semver:
         specifier: ^7.7.3
         version: 7.8.5

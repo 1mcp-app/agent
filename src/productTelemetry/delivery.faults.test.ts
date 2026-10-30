@@ -2,7 +2,7 @@ import http from 'node:http';
 import https from 'node:https';
 import type { AddressInfo, Socket } from 'node:net';
 
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 
 import { dispatchProductBatch } from './delivery.js';
 
@@ -42,9 +42,11 @@ it('caps stalled senders at two, terminates their sockets at the deadline, and l
   const deadline = Date.now();
   let guard: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
-    guard = setTimeout(() => reject(new Error('controlled sender failed to terminate')), 5000);
+    guard = setTimeout(() => reject(new Error('controlled sender failed to terminate')), 13000);
   });
   try {
+    vi.stubEnv('no_proxy', '127.0.0.1');
+    vi.stubEnv('NO_PROXY', '127.0.0.1');
     const endpoint = `http://127.0.0.1:${port}/synthetic`;
     dispatchProductBatch('first', endpoint);
     dispatchProductBatch('second', endpoint);
@@ -52,14 +54,15 @@ it('caps stalled senders at two, terminates their sockets at the deadline, and l
     await Promise.race([bothReceived, timeout]);
     expect(bodies.sort()).toEqual(['first', 'second']);
     await Promise.race([bothClosed, timeout]);
-    expect(Date.now() - deadline).toBeGreaterThanOrEqual(1300);
-    expect(Date.now() - deadline).toBeLessThan(5000);
+    expect(Date.now() - deadline).toBeGreaterThanOrEqual(9000);
+    expect(Date.now() - deadline).toBeLessThan(13000);
     expect(bodies).toHaveLength(2);
     expect(http.globalAgent).toBe(httpAgent);
     expect(https.globalAgent).toBe(httpsAgent);
   } finally {
+    vi.unstubAllEnvs();
     clearTimeout(guard);
     for (const socket of sockets) socket.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
-}, 10000);
+}, 15000);

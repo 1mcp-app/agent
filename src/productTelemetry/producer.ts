@@ -1,5 +1,5 @@
 import { labels, type Summary } from './contract.js';
-import type { AdmissionTicket, InstallationStore } from './installationStore.js';
+import type { AdmissionTicket, InstallationStore, PrepareDelivery } from './installationStore.js';
 
 export interface CommandCompletion {
   finish(outcome: 'success' | 'failure'): void;
@@ -26,6 +26,7 @@ export class ProductUsageProducer {
       dimensions: ProductDimensions;
       dispatch: (body: string) => void | Promise<void>;
       abortDelivery?: () => void;
+      prepareDelivery?: PrepareDelivery;
     },
   ) {
     this.work = options.store
@@ -124,7 +125,7 @@ export class ProductUsageProducer {
     this.cadence = setInterval(() => {
       const ticket = this.ticket;
       if (!ticket || this.pending >= 256) return;
-      this.enqueue(() => this.options.store.attemptSend(ticket, this.options.dispatch));
+      this.enqueue(() => this.options.store.attemptSend(ticket, this.options.dispatch, this.options.prepareDelivery));
     }, 300_000);
     this.cadence.unref();
     this.observation = setInterval(() => {
@@ -187,7 +188,8 @@ export class ProductUsageProducer {
         if (this.ticket === ticket) this.ticket = undefined;
         return;
       }
-      if (!this.cadence) await this.options.store.attemptSend(ticket, this.options.dispatch);
+      if (!this.cadence)
+        await this.options.store.attemptSend(ticket, this.options.dispatch, this.options.prepareDelivery);
     });
   }
 

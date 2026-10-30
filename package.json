@@ -132,6 +132,7 @@
     "mdast-util-from-markdown": "2.1.0",
     "ora": "^9.0.0",
     "prompts": "^2.4.2",
+    "proxy-from-env": "2.1.0",
     "semver": "^7.7.3",
     "smol-toml": "^1.6.0",
     "source-map-support": "^0.5.21",

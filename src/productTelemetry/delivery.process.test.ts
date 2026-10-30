@@ -15,9 +15,10 @@ it('exits while an actually connected one-shot telemetry request is stalled', as
   const script = path.join(directory, 'sender.mjs');
   await build({
     stdin: {
-      contents: `import { dispatchProductBatch } from './src/productTelemetry/delivery.ts'; const schedule = globalThis.setTimeout; globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 1500) process.stdout.write('deadline-fired'); fn(...args); }, ms); dispatchProductBatch('{}', process.argv[2]); process.on('message', () => process.disconnect());`,
+      contents: `import { dispatchProductBatch } from './src/productTelemetry/delivery.ts'; const schedule = globalThis.setTimeout; globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 10000) process.stdout.write('deadline-fired'); fn(...args); }, ms); dispatchProductBatch('{}', process.argv[2]); process.on('message', () => process.disconnect());`,
       resolveDir: process.cwd(),
     },
+    define: { 'import.meta.url': JSON.stringify(new URL('./delivery.ts', import.meta.url).href) },
     outfile: script,
     bundle: true,
     platform: 'node',
@@ -41,7 +42,10 @@ it('exits while an actually connected one-shot telemetry request is stalled', as
   const address = server.address() as import('node:net').AddressInfo;
   try {
     child = fork(script, [`http://127.0.0.1:${address.port}/controlled`], {
-      env: createTestProcessEnvironment(),
+      env: createTestProcessEnvironment({
+        no_proxy: '127.0.0.1,controlled.invalid',
+        NO_PROXY: '127.0.0.1,controlled.invalid',
+      }),
       stdio: ['ignore', 'pipe', 'ignore', 'ipc'],
     });
     child.stdout!.on('data', (chunk) => {
@@ -69,9 +73,10 @@ it('exits during an actually connected stalled TLS handshake', async () => {
   const script = path.join(directory, 'sender.mjs');
   await build({
     stdin: {
-      contents: `import { dispatchProductBatch } from './src/productTelemetry/delivery.ts'; const schedule = globalThis.setTimeout; globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 1500) process.stdout.write('deadline-fired'); fn(...args); }, ms); dispatchProductBatch('{}', process.argv[2]); process.on('message', () => process.disconnect());`,
+      contents: `import { dispatchProductBatch } from './src/productTelemetry/delivery.ts'; const schedule = globalThis.setTimeout; globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 10000) process.stdout.write('deadline-fired'); fn(...args); }, ms); dispatchProductBatch('{}', process.argv[2]); process.on('message', () => process.disconnect());`,
       resolveDir: process.cwd(),
     },
+    define: { 'import.meta.url': JSON.stringify(new URL('./delivery.ts', import.meta.url).href) },
     outfile: script,
     bundle: true,
     platform: 'node',
@@ -93,7 +98,10 @@ it('exits during an actually connected stalled TLS handshake', async () => {
   const address = server.address() as import('node:net').AddressInfo;
   try {
     child = fork(script, [`https://127.0.0.1:${address.port}/controlled`], {
-      env: createTestProcessEnvironment(),
+      env: createTestProcessEnvironment({
+        no_proxy: '127.0.0.1,controlled.invalid',
+        NO_PROXY: '127.0.0.1,controlled.invalid',
+      }),
       stdio: ['ignore', 'pipe', 'ignore', 'ipc'],
     });
     child.stdout!.on('data', (chunk) => {
@@ -137,12 +145,14 @@ workers.Worker = class extends OriginalWorker {
 };
 syncBuiltinESMExports();
 const schedule = globalThis.setTimeout;
-globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 1500) process.stdout.write('deadline-fired'); fn(...args); }, ms);
+globalThis.setTimeout = (fn, ms, ...args) => schedule(() => { if (ms === 10000) process.stdout.write('deadline-fired'); fn(...args); }, ms);
+process.env.no_proxy = 'controlled.invalid';
 dispatchProductBatch('{}', 'https://controlled.invalid/v1/summaries');
 process.on('message', () => process.disconnect());
 `,
       resolveDir: process.cwd(),
     },
+    define: { 'import.meta.url': JSON.stringify(new URL('./delivery.ts', import.meta.url).href) },
     outfile: script,
     bundle: true,
     platform: 'node',
@@ -151,7 +161,13 @@ process.on('message', () => process.disconnect());
   let child: ChildProcess | undefined;
   let output = '';
   try {
-    child = fork(script, [], { env: createTestProcessEnvironment(), stdio: ['ignore', 'pipe', 'ignore', 'ipc'] });
+    child = fork(script, [], {
+      env: createTestProcessEnvironment({
+        no_proxy: '127.0.0.1,controlled.invalid',
+        NO_PROXY: '127.0.0.1,controlled.invalid',
+      }),
+      stdio: ['ignore', 'pipe', 'ignore', 'ipc'],
+    });
     child.stdout!.on('data', (chunk) => {
       output += String(chunk);
     });
