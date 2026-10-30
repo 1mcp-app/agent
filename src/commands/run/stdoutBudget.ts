@@ -1,6 +1,6 @@
 import { encode } from '@toon-format/toon';
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -11,6 +11,7 @@ import {
   truncateText,
 } from '@src/commands/run/runUtils.js';
 import type { CallToolResult } from '@src/sdk/contracts/index.js';
+import { secureNewPrivateEntry, verifyPrivateDirectory } from '@src/utils/security/privateFileSystem.js';
 
 import { z } from 'zod';
 
@@ -63,11 +64,18 @@ export async function formatBudgetedToolOutput(
     const json = JSON.stringify(result);
     const bytes = Buffer.byteLength(json, 'utf8');
     directory = await mkdtemp(budget.temporaryPrefix);
+    await verifyPrivateDirectory(directory, { created: true });
     const path = join(directory, 'result.json');
     const receipt = formatReceipt(path, bytes, format);
     if (Buffer.byteLength(`${receipt}\n`, 'utf8') > budget.bytes)
       throw new Error('Artifact receipt exceeds stdout budget.');
-    await writeFile(path, json, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    const handle = await open(path, 'wx', 0o600);
+    try {
+      await secureNewPrivateEntry(path, false);
+      await handle.writeFile(json, 'utf8');
+    } finally {
+      await handle.close();
+    }
     return receipt;
   } catch (cause) {
     if (directory) await rm(directory, { recursive: true, force: true }).catch(() => undefined);

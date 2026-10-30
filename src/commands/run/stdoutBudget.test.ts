@@ -17,7 +17,7 @@ describe('budgeted tool stdout', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     vi.mocked(os.tmpdir).mockReset();
-    vi.mocked(filesystem.writeFile).mockReset();
+    vi.mocked(filesystem.open).mockReset();
     await Promise.all(artifacts.splice(0).map((path) => rm(dirname(path), { recursive: true, force: true })));
   });
 
@@ -92,12 +92,17 @@ describe('budgeted tool stdout', () => {
   );
 
   it('reports completed upstream execution after a partial write without returning output', async () => {
-    const { writeFile: original } = await vi.importActual<typeof filesystem>('node:fs/promises');
+    const { open: original } = await vi.importActual<typeof filesystem>('node:fs/promises');
     const cause = new Error('ENOSPC: no space left on device');
-    vi.mocked(filesystem.writeFile).mockImplementationOnce(async (path, _data, options) => {
+    vi.mocked(filesystem.open).mockImplementationOnce(async (path, ...options) => {
       artifacts.push(String(path));
-      await original(path, '{', options);
-      throw cause;
+      const handle = await original(path, ...options);
+      const write = handle.writeFile.bind(handle);
+      vi.spyOn(handle, 'writeFile').mockImplementationOnce(async () => {
+        await write('{');
+        throw cause;
+      });
+      return handle;
     });
     const result = { content: [{ type: 'text' as const, text: 'a'.repeat(2000) }] };
     await expect(

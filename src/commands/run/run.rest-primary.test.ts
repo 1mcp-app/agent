@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readFile, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
 import { buildCliContext } from '@src/commands/shared/cliContext.js';
@@ -196,7 +196,7 @@ describe('runCommand REST-first path', () => {
   afterEach(async () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
-    vi.mocked(writeFile).mockReset();
+    vi.mocked(open).mockReset();
     process.exitCode = undefined;
     vi.unstubAllGlobals();
     await rm(cacheDir, { recursive: true, force: true });
@@ -255,9 +255,9 @@ describe('runCommand REST-first path', () => {
       mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
       mockFetch.mockResolvedValueOnce(makeRestResponse(200, { result }));
       const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
-      vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
+      vi.mocked(open).mockImplementation(async (path, ...options) => {
         if (basename(String(path)) === 'result.json') throw new Error(reason);
-        return actual.writeFile(path, data, options);
+        return actual.open(path, ...options);
       });
       const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
       const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
