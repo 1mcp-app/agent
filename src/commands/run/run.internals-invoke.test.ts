@@ -186,6 +186,19 @@ describe('run command internals', () => {
   });
 
   describe('invokeTool', () => {
+    it('delivers accepted large results through the MCP fallback', async () => {
+      transportState.callResult = { content: [{ type: 'text', text: 'x'.repeat(1_000_001) }] };
+      const response = await invokeTool({
+        serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+        displayToolName: 'runner/echo_args',
+        qualifiedToolName: 'runner_1mcp_echo_args',
+        explicitArgs: '{}',
+        resolveTool: false,
+      });
+      expect(response.rawResponse).toMatchObject({ result: transportState.callResult });
+      expect(transportState.instances[0].closed).toBe(true);
+    });
+
     it('reports an uncertain execution deadline without replaying the MCP call', async () => {
       transportState.ignoreMethod = 'tools/call';
       const response = await invokeTool({

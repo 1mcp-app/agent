@@ -51,6 +51,7 @@ import {
   hasHttpErrorCode,
   toJsonValue,
   type Tool,
+  TOOL_RESULT_JSON_VALUE_LIMITS,
   toProtocolTools,
 } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
@@ -635,7 +636,7 @@ export async function invokeTool(options: {
     toolDispatchStarted = true;
     const response = await client.callTool(options.qualifiedToolName, resolvedArguments.arguments, options.timeoutMs);
     return {
-      rawResponse: toJsonValue(response) as unknown as JsonRpcResponse<CallToolResult>,
+      rawResponse: toJsonValue(response, TOOL_RESULT_JSON_VALUE_LIMITS) as unknown as JsonRpcResponse<CallToolResult>,
       sessionId: client.sessionId,
       retryWithFreshSession: false,
     };

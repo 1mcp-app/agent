@@ -1,7 +1,11 @@
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
-import { missingClientCapabilityFailure, ResourceRouteNotFoundError } from '@src/gateway/contracts/gatewayFailure.js';
+import {
+  gatewayFailureFromUnknown,
+  missingClientCapabilityFailure,
+  ResourceRouteNotFoundError,
+} from '@src/gateway/contracts/gatewayFailure.js';
 import logger from '@src/logger/logger.js';
 import { normalizeEvent } from '@src/observability/events/normalize.js';
 
@@ -346,5 +350,16 @@ describe('formatErrorResponse', () => {
       code: ErrorCode.InternalError,
       message: '[object Object]',
     });
+  });
+});
+
+it('preserves a locally captured output size failure after gateway normalization', async () => {
+  const invoke = withErrorHandling(async () => {
+    throw gatewayFailureFromUnknown(new SchemaBoundaryError('schema_budget_exceeded'), 'transport');
+  }, 'Error calling tool');
+  await expect(invoke()).rejects.toMatchObject({
+    code: -32000,
+    message: 'schema_budget_exceeded',
+    data: { 'app.1mcp/failure': { kind: 'protocol', code: 'schema_budget_exceeded' } },
   });
 });

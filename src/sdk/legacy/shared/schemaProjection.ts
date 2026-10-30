@@ -1,7 +1,13 @@
 import { Server, specTypeSchemas } from '@modelcontextprotocol/server';
 
-import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
-import { type JsonObject, type JsonValue, RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
+import { captureJson, SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
+import {
+  type JsonObject,
+  type JsonValue,
+  RESPONSE_JSON_VALUE_LIMITS,
+  toJsonValue,
+  TOOL_RESULT_JSON_VALUE_LIMITS,
+} from '@src/sdk/contracts/index.js';
 import type { Server as LegacyServer } from '@src/sdk/legacy/server/index.js';
 import { Protocol } from '@src/sdk/legacy/shared/protocol.js';
 
@@ -25,17 +31,19 @@ export function projectLegacyTool(tool: unknown): JsonValue {
   return (projected.tools as JsonValue[])[0];
 }
 export function projectLegacyToolResult(result: unknown, outputSchema?: Readonly<Record<string, unknown>>): JsonObject {
+  captureJson(result, false, true);
   assertCanonicalToolResult(result);
-  return toJsonValue(
-    codec.projectCallToolResult(result as Parameters<Server['projectCallToolResult']>[0], outputSchema),
-  ) as JsonObject;
+  const projected = codec.projectCallToolResult(result as Parameters<Server['projectCallToolResult']>[0], outputSchema);
+  captureJson(projected, false, true);
+  return toJsonValue(projected, TOOL_RESULT_JSON_VALUE_LIMITS) as JsonObject;
 }
 
 export function projectCanonicalToolResult(
   result: unknown,
   outputSchema?: Readonly<Record<string, unknown>>,
 ): JsonObject {
-  const canonical = toJsonValue(result) as JsonObject;
+  captureJson(result, false, true);
+  const canonical = toJsonValue(result, TOOL_RESULT_JSON_VALUE_LIMITS) as JsonObject;
   const projected = projectLegacyToolResult(canonical, outputSchema);
   return {
     ...projected,

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import {
   missingClientCapabilityFromBridge,
   resourceNotFoundFromBridge,
@@ -168,6 +169,7 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
         const failure = missingClientCapabilityFromBridge(error);
         if (failure) throw failure;
       }
+      if (error instanceof SchemaBoundaryError) throw error;
       throw toProtocolError(error);
     } finally {
       this.controllers.delete(request.id);

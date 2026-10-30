@@ -8,7 +8,7 @@ import {
 
 import { randomUUID } from 'node:crypto';
 
-import { captureJson } from '@src/core/validation/schemaPolicy.js';
+import { captureJson, SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import { LegacyOutboundEraAdapter } from '@src/gateway/adapters/legacy/legacyOutboundEraAdapter.js';
 import { ModernOutboundEraAdapter } from '@src/gateway/adapters/modern/modernOutboundEraAdapter.js';
 import { createEffectiveRequestAuthority } from '@src/gateway/contracts/effectiveRequestAuthority.js';
@@ -42,6 +42,7 @@ import {
   measureJsonValue,
   OneMcpProtocolError,
   RESPONSE_JSON_VALUE_LIMITS,
+  resultJsonValueLimits,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
 import { currentRequestProgress } from '@src/sdk/contracts/requestProgress.js';
@@ -267,7 +268,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
             },
           },
         ),
-        isCapabilityListMethod(request.method) ? RESPONSE_JSON_VALUE_LIMITS : undefined,
+        resultJsonValueLimits(request.method),
       );
     } finally {
       this.gatewayRequests.delete(request.id);
@@ -415,6 +416,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
         const failure = missingClientCapabilityFailure(error.requiredCapabilities);
         if (failure) throw failure;
       }
+      if (error instanceof SchemaBoundaryError) throw error;
       throw toProtocolError(error);
     } finally {
       this.controllers.delete(request.id);
