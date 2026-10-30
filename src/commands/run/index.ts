@@ -63,6 +63,10 @@ export function setupRunCommand(yargs: Argv): Argv {
           type: 'number',
           default: 2000,
         })
+        .option('stdout-budget-bytes', {
+          describe: 'Opt-in UTF-8 stdout byte budget; oversized results become private temporary JSON artifacts',
+          type: 'number',
+        })
         .example([
           ['$0 run filesystem/read_file --args \'{"path":"./foo.txt"}\'', 'Call a tool with explicit JSON arguments'],
           ['$0 run summarizer/summarize < README.md', 'Pipe raw stdin into the first required string argument'],

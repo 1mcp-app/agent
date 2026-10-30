@@ -76,6 +76,17 @@ A timeout reports whether it occurred during server discovery, schema discovery,
 - **`--format <toon|json|text|compact>`** - Output format
 - **`--raw`** - Alias for `--format json`
 - **`--max-chars <number>`** - Maximum characters for compact output (default: `2000`)
+- **`--stdout-budget-bytes <number>`** - Opt-in UTF-8 stdout byte budget, including the final newline and any artifact receipt. Must be a positive safe integer large enough for a receipt; invalid or unusably small values are rejected before the tool runs.
+
+With a stdout budget, `run` measures the rendered output before compact truncation. Output at or below the budget keeps its usual representation. Larger output saves the complete received tool result (all content blocks, structured content, and metadata) as JSON in a private per-invocation OS temporary directory on the CLI host, including when using a remote runtime. Only after a successful write does stdout receive a bounded receipt with an absolute path, JSON file byte size, and guidance to filter or analyze selected fields with tools. JSON and TOON receipts use the selected format; text and compact receipts are readable text.
+
+```bash
+1mcp run analyzer/analyze --args '{"path":"./src"}' --format json --stdout-budget-bytes 4096
+```
+
+Temporary artifacts survive normal CLI exit, but OS cleanup or reboot can remove them. Treat them as sensitive local files. A failed local write reports that the upstream call completed and exits nonzero, without replaying the tool or dumping oversized output. Tool and protocol errors retain their existing stderr output and failure status. With no stdout budget, ordinary formatting and compact truncation are unchanged.
+
+This option controls CLI display only. It does not raise runtime hard acceptance limits (including the existing 4 MiB output limit) or recover a result rejected before the CLI receives it.
 
 ### Related Global Options
 

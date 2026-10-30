@@ -1,11 +1,13 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, open, readFile, rm } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 
 import { buildCliContext } from '@src/commands/shared/cliContext.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getCliSessionContextHash, readCliSessionCache, writeCliSessionCache } from './run.js';
+
+vi.mock('node:fs/promises', { spy: true });
 
 const mockedResolveProjectContext = vi.hoisted(() => vi.fn());
 
@@ -194,6 +196,7 @@ describe('runCommand REST-first path', () => {
   afterEach(async () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.mocked(open).mockReset();
     process.exitCode = undefined;
     vi.unstubAllGlobals();
     await rm(cacheDir, { recursive: true, force: true });
@@ -231,6 +234,105 @@ describe('runCommand REST-first path', () => {
   function makeConnectedServerResponse() {
     return makeRestResponse(200, { kind: 'server', server: 'runner', status: 'connected', available: true });
   }
+
+  it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, 1])(
+    'rejects an invalid or impossible stdout budget %s before any upstream activity',
+    async (bytes) => {
+      const { runCommand } = await import('./run.js');
+      await expect(runCommand({ tool: 'runner/echo_args', args: '{}', 'stdout-budget-bytes': bytes })).rejects.toThrow(
+        '--stdout-budget-bytes',
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(transportState.instances).toHaveLength(0);
+    },
+  );
+
+  it.each(['ENOSPC: no space left on device', 'EACCES: permission denied'])(
+    'reports %s after one completed REST call without printing or retrying the result',
+    async (reason) => {
+      const result = { content: [{ type: 'text', text: 'private-result'.repeat(200) }] };
+      mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+      mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+      mockFetch.mockResolvedValueOnce(makeRestResponse(200, { result }));
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      vi.mocked(open).mockImplementation(async (path, ...options) => {
+        if (basename(String(path)) === 'result.json') throw new Error(reason);
+        return actual.open(path, ...options);
+      });
+      const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+      const { runCommand } = await import('./run.js');
+      await runCommand({
+        tool: 'runner/echo_args',
+        args: '{}',
+        format: 'json',
+        'stdout-budget-bytes': 1024,
+        'config-dir': cacheDir,
+      });
+      expect(process.exitCode).toBe(1);
+      expect(stdout).not.toHaveBeenCalled();
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('upstream call completed'));
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining(reason));
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      expect(transportState.instances).toHaveLength(0);
+    },
+  );
+
+  it('keeps oversized failed tool output on stderr with its original failure status', async () => {
+    const message = 'tool failed '.repeat(200);
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(
+      makeRestResponse(200, {
+        result: { isError: true, content: [{ type: 'text', text: message }] },
+      }),
+    );
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{}',
+      format: 'text',
+      'stdout-budget-bytes': 1024,
+      'config-dir': cacheDir,
+    });
+    expect(process.exitCode).toBe(5);
+    expect(stdout).not.toHaveBeenCalled();
+    expect(stderr).toHaveBeenCalledWith(`${message}\n`);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(['rest', 'mcp'] as const)('spills the complete result received through %s', async (path) => {
+    const result = {
+      content: [{ type: 'text', text: 'text'.repeat(500) }],
+      structuredContent: { value: 'structured'.repeat(200) },
+      _meta: { provider: 'preserved' },
+    };
+    transportState.callResult = result;
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(
+      path === 'rest' ? makeRestResponse(200, { result }) : makeTextResponse(404, 'Not Found'),
+    );
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{}',
+      format: 'json',
+      'stdout-budget-bytes': 1024,
+      'config-dir': cacheDir,
+    });
+    const receipt = JSON.parse(String(stdout.mock.calls.at(-1)?.[0]));
+    try {
+      expect(JSON.parse(await readFile(receipt.path, 'utf8'))).toEqual(result);
+      expect(Buffer.byteLength(String(stdout.mock.calls.at(-1)?.[0]))).toBeLessThanOrEqual(1024);
+      expect(transportState.instances).toHaveLength(path === 'mcp' ? 1 : 0);
+    } finally {
+      await rm(dirname(receipt.path), { recursive: true, force: true });
+    }
+  });
 
   it.each([undefined, 120_000])('lets REST tool execution use its own budget (%s)', async (timeoutMs) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
