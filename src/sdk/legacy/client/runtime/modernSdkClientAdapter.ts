@@ -42,6 +42,7 @@ import {
   measureJsonValue,
   OneMcpProtocolError,
   RESPONSE_JSON_VALUE_LIMITS,
+  resultJsonValueLimits,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
 import { currentRequestProgress } from '@src/sdk/contracts/requestProgress.js';
@@ -267,7 +268,7 @@ export class ModernSdkClientAdapter implements LegacySdkAdapter {
             },
           },
         ),
-        isCapabilityListMethod(request.method) ? RESPONSE_JSON_VALUE_LIMITS : undefined,
+        resultJsonValueLimits(request.method),
       );
     } finally {
       this.gatewayRequests.delete(request.id);

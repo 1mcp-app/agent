@@ -19,7 +19,7 @@ import {
   runWithNativeInitialInputResponses,
   withSelectedNativeInputResponses,
 } from '@src/gateway/interactions/nativeInputResponses.js';
-import { JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
+import { JSON_VALUE_LIMITS, RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
 import { withRequestProgress } from '@src/sdk/contracts/requestProgress.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -499,8 +499,17 @@ describe('ModernSdkClientAdapter', () => {
 
   it.each([
     ['bounded', { content: [{ type: 'text', text: 'x'.repeat(64 * 1024) }] }, true],
-    ['string budget', { content: [{ type: 'text', text: 'x'.repeat(1_000_001) }] }, false],
-    ['node budget', { content: Array.from({ length: 4000 }, () => ({ type: 'text', text: 'x' })) }, false],
+    [
+      'default string budget',
+      { content: [{ type: 'text', text: 'x'.repeat(JSON_VALUE_LIMITS.maxTotalStringLength + 1) }] },
+      true,
+    ],
+    ['default node budget', { content: Array.from({ length: 4000 }, () => ({ type: 'text', text: 'x' })) }, true],
+    [
+      'response string budget',
+      { content: [{ type: 'text', text: 'x'.repeat(RESPONSE_JSON_VALUE_LIMITS.maxTotalStringLength + 1) }] },
+      false,
+    ],
   ] as const)('retains gateway %s limits on a real SSE tool result', async (_label, result, accepted) => {
     let calls = 0;
     const handler = createMcpHandler(
