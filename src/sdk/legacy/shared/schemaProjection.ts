@@ -28,6 +28,7 @@ export function projectLegacyToolResult(result: unknown, outputSchema?: Readonly
   assertCanonicalToolResult(result);
   return toJsonValue(
     codec.projectCallToolResult(result as Parameters<Server['projectCallToolResult']>[0], outputSchema),
+    RESPONSE_JSON_VALUE_LIMITS,
   ) as JsonObject;
 }
 
@@ -35,7 +36,7 @@ export function projectCanonicalToolResult(
   result: unknown,
   outputSchema?: Readonly<Record<string, unknown>>,
 ): JsonObject {
-  const canonical = toJsonValue(result) as JsonObject;
+  const canonical = toJsonValue(result, RESPONSE_JSON_VALUE_LIMITS) as JsonObject;
   const projected = projectLegacyToolResult(canonical, outputSchema);
   return {
     ...projected,

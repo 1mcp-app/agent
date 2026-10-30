@@ -1,4 +1,4 @@
-import { JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
+import { JSON_VALUE_LIMITS, RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
 
 import { captureCapabilityListResult } from './capabilityListCapture.js';
 
@@ -75,8 +75,21 @@ describe('capability list capture', () => {
     expect(() => captureCapabilityListResult('tools/list', result, limits)).toThrow('node limit');
   });
 
-  it('keeps tool-call results under the ordinary JSON node limit', () => {
-    const result = { content: Array.from({ length: JSON_VALUE_LIMITS.maxNodes }, () => null) };
+  it('captures tool-call resources above the default JSON string limit', () => {
+    const blob = 'A'.repeat(JSON_VALUE_LIMITS.maxTotalStringLength);
+    const result = {
+      content: [
+        { type: 'text', text: 'file of 750000 bytes' },
+        { type: 'resource', resource: { uri: 'file:///image.png', mimeType: 'image/png', blob } },
+      ],
+    };
+
+    expect(() => toJsonValue(result, JSON_VALUE_LIMITS)).toThrow('total string length limit');
+    expect(captureCapabilityListResult('tools/call', result)).toEqual(result);
+  });
+
+  it('keeps tool-call results under the response JSON budget', () => {
+    const result = { content: Array.from({ length: RESPONSE_JSON_VALUE_LIMITS.maxNodes }, () => null) };
 
     expect(() => captureCapabilityListResult('tools/call', result)).toThrow('node limit');
   });

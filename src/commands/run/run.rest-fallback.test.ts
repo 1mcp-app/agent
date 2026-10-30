@@ -261,6 +261,34 @@ describe('runCommand REST-first path', () => {
     expect(cache?.hasRestEndpoint).toBe(false);
   });
 
+  it('prints MCP fallback tool results above the default JSON string budget', async () => {
+    const blob = 'A'.repeat(1_000_001);
+    transportState.callResult = {
+      content: [{ type: 'resource', resource: { uri: 'file:///image.png', mimeType: 'image/png', blob } }],
+    } as never;
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Cannot POST /api/v1/tool-invocations'));
+    let stdout = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      stdout += String(chunk);
+      return true;
+    });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      raw: true,
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    expect(stderr).not.toHaveBeenCalled();
+    expect(stdout).toContain(blob);
+    vi.clearAllMocks();
+  });
+
   it('surfaces upstream REST errors without MCP fallback', async () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',

@@ -1,5 +1,5 @@
 import { runtimeAdmission, RuntimeDrainingError } from '@src/core/server/runtimeDrain.js';
-import { isCapabilityListMethod, RESPONSE_JSON_VALUE_LIMITS } from '@src/sdk/contracts/index.js';
+import { resultJsonValueLimits } from '@src/sdk/contracts/index.js';
 
 import { z } from 'zod';
 
@@ -124,9 +124,7 @@ export class GatewayDispatcher {
     this.active.set(request.requestId, outbound);
     this.dispatched.add(request);
     try {
-      const resultLimits =
-        outbound.resultLimits ??
-        (isCapabilityListMethod(outboundRequest.operation) ? RESPONSE_JSON_VALUE_LIMITS : undefined);
+      const resultLimits = outbound.resultLimits ?? resultJsonValueLimits(outboundRequest.operation);
       return gatewaySuccess(toImmutableJsonValue(await outbound.request(outboundRequest), resultLimits));
     } catch (error) {
       const failure = gatewayFailureFromUnknown(error, 'transport');

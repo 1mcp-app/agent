@@ -1,4 +1,4 @@
-import { type JsonObject, toJsonValue } from './jsonValue.js';
+import { type JsonObject, RESPONSE_JSON_VALUE_LIMITS, toJsonValue } from './jsonValue.js';
 import {
   type CallToolResult,
   type ClientCapabilities,
@@ -11,6 +11,7 @@ import {
   type PromptArgument,
   type Resource,
   type ResourceTemplate,
+  resultJsonValueLimits,
   type ServerCapabilities,
   type Tool,
   toProtocolJSONRPCMessage,
@@ -21,6 +22,14 @@ import {
 } from './protocol.js';
 
 describe('plain protocol contracts', () => {
+  it('selects the JSON budget for each upstream result', () => {
+    expect(resultJsonValueLimits('tools/list')).toBe(RESPONSE_JSON_VALUE_LIMITS);
+    expect(resultJsonValueLimits('resources/templates/list')).toBe(RESPONSE_JSON_VALUE_LIMITS);
+    expect(resultJsonValueLimits('tools/call')).toBe(RESPONSE_JSON_VALUE_LIMITS);
+    expect(resultJsonValueLimits('resources/read')).toBeUndefined();
+    expect(resultJsonValueLimits('prompts/get')).toBeUndefined();
+  });
+
   it('keeps the stable error code values', () => {
     expect(ErrorCode).toMatchObject({
       ConnectionClosed: -32000,

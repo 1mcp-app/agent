@@ -4,12 +4,11 @@ import { gatewayOperationSchema } from '@src/gateway/contracts/gatewayRequest.js
 import { toImmutableJsonValue } from '@src/gateway/contracts/immutableJson.js';
 import {
   createLegacyTimeoutMs,
-  isCapabilityListMethod,
   type JsonValue,
   type LegacyRequestId,
   type LegacySdkAdapter,
   type LegacySdkRequest,
-  RESPONSE_JSON_VALUE_LIMITS,
+  resultJsonValueLimits,
   toJsonValue,
 } from '@src/sdk/contracts/index.js';
 import type { Client } from '@src/sdk/legacy/client/index.js';
@@ -64,7 +63,7 @@ export class LegacyGatewayClientAdapter extends LegacySdkClientAdapter {
         }),
         deadlineUnixMs: Date.now() + timeoutMs,
       });
-      return toJsonValue(result, isCapabilityListMethod(request.method) ? RESPONSE_JSON_VALUE_LIMITS : undefined);
+      return toJsonValue(result, resultJsonValueLimits(request.method));
     } finally {
       this.gatewayRequests.delete(request.id);
     }

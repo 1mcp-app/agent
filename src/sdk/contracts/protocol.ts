@@ -1,4 +1,10 @@
-import { type JsonObject, type JsonValue, toJsonValue } from './jsonValue.js';
+import {
+  type JsonObject,
+  type JsonValue,
+  type JsonValueLimits,
+  RESPONSE_JSON_VALUE_LIMITS,
+  toJsonValue,
+} from './jsonValue.js';
 
 /** MCP methods that return capability lists and may use the bounded response budget. */
 const CAPABILITY_LIST_METHODS: Readonly<Record<string, true>> = {
@@ -10,6 +16,17 @@ const CAPABILITY_LIST_METHODS: Readonly<Record<string, true>> = {
 
 export function isCapabilityListMethod(method: string): boolean {
   return Object.hasOwn(CAPABILITY_LIST_METHODS, method);
+}
+
+/**
+ * JSON budget for capturing one upstream result of `method`; `undefined` keeps the default.
+ * Tool results use the response budget because the schema boundary owns their size limit
+ * (`SCHEMA_LIMITS.outputBytes` and `instanceNodes`) and reports an overflow as
+ * `schema_budget_exceeded`; a tighter capture budget would fail first as a transport error.
+ */
+export function resultJsonValueLimits(method: string): JsonValueLimits | undefined {
+  if (isCapabilityListMethod(method) || method === 'tools/call') return RESPONSE_JSON_VALUE_LIMITS;
+  return undefined;
 }
 
 /** Stable JSON-RPC and transport error codes used by 1MCP. */

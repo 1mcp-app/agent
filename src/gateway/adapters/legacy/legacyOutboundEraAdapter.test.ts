@@ -54,12 +54,12 @@ describe('LegacyOutboundEraAdapter', () => {
       resultLimits: RESPONSE_JSON_VALUE_LIMITS,
     });
 
-    await expect(adapter.request(request({ operation: 'tools/call' }))).resolves.toEqual({
+    await expect(adapter.request(request({ operation: 'prompts/get' }))).resolves.toEqual({
       _meta: { other: 'preserved' },
       structuredContent: result.structuredContent,
     });
     const upstreamAdapter = new LegacyOutboundEraAdapter(legacy, LEGACY_PIN, { now: () => 1_000 });
-    await expect(upstreamAdapter.request(request({ operation: 'tools/call' }))).rejects.toMatchObject({
+    await expect(upstreamAdapter.request(request({ operation: 'prompts/get' }))).rejects.toMatchObject({
       kind: 'transport',
     });
     expect(result._meta.baggage).toBe('private');
@@ -70,6 +70,14 @@ describe('LegacyOutboundEraAdapter', () => {
     const adapter = new LegacyOutboundEraAdapter(legacy, LEGACY_PIN, { now: () => 1_000 });
 
     await expect(adapter.request(request())).resolves.toEqual(result);
+  });
+  it('uses the response JSON budget for tool results by default', async () => {
+    const blob = 'A'.repeat(JSON_VALUE_LIMITS.maxTotalStringLength);
+    const result = { content: [{ type: 'resource', resource: { uri: 'file:///image.png', blob } }] };
+    const legacy = legacyAdapter(result);
+    const adapter = new LegacyOutboundEraAdapter(legacy, LEGACY_PIN, { now: () => 1_000 });
+
+    await expect(adapter.request(request({ operation: 'tools/call' }))).resolves.toEqual(result);
   });
 
   it('maps the gateway request id and remaining absolute deadline to the legacy adapter', async () => {

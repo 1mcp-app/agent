@@ -123,12 +123,12 @@ describe('LegacySdkClientAdapter', () => {
     vi.spyOn(client, 'request').mockResolvedValue(result as never);
     const bridge = new LegacySdkClientAdapter(client, createTransport(), { interactionBridge: true });
 
-    await expect(bridge.request({ id: 'bridge' as never, method: 'tools/call' })).resolves.toEqual({
+    await expect(bridge.request({ id: 'bridge' as never, method: 'prompts/get' })).resolves.toEqual({
       _meta: { other: 'preserved' },
       structuredContent: result.structuredContent,
     });
     const upstream = new LegacySdkClientAdapter(client, createTransport());
-    await expect(upstream.request({ id: 'upstream' as never, method: 'tools/call' })).rejects.toBeInstanceOf(
+    await expect(upstream.request({ id: 'upstream' as never, method: 'prompts/get' })).rejects.toBeInstanceOf(
       OneMcpProtocolError,
     );
     expect(result._meta.baggage).toBe('private');

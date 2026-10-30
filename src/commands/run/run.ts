@@ -49,6 +49,7 @@ import logger from '@src/logger/logger.js';
 import {
   type CallToolResult,
   hasHttpErrorCode,
+  RESPONSE_JSON_VALUE_LIMITS,
   toJsonValue,
   type Tool,
   toProtocolTools,
@@ -635,7 +636,8 @@ export async function invokeTool(options: {
     toolDispatchStarted = true;
     const response = await client.callTool(options.qualifiedToolName, resolvedArguments.arguments, options.timeoutMs);
     return {
-      rawResponse: toJsonValue(response) as unknown as JsonRpcResponse<CallToolResult>,
+      // The gateway already bounded this response; the default JSON budget would cut large tool results.
+      rawResponse: toJsonValue(response, RESPONSE_JSON_VALUE_LIMITS) as unknown as JsonRpcResponse<CallToolResult>,
       sessionId: client.sessionId,
       retryWithFreshSession: false,
     };
