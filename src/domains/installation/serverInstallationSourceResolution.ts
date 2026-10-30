@@ -169,6 +169,7 @@ function createDirectServerConfig(source: DirectInstallationSource): MCPServerPa
     type: source.transport,
     url: source.url,
     headers: source.headers,
+    oauth: source.oauth,
   });
 }
 

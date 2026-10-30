@@ -314,9 +314,39 @@ HTTP 和 SSE 上游在两代协议中遵循相同的 OAuth 授权主体规则。
 
 每次授权尝试都有独立的 state 和 PKCE verifier，十五分钟后过期，可在重启后继续，但只能消费一次。在该时间窗口内，每个授权主体最多保留 32 条尝试记录。回调过期、被拒绝或中断后，应重新发起授权。旧版按服务器名称索引的凭据会被隔离到仅所有者可访问的客户端存储中，不会自动迁移为已绑定凭据；升级后需要重新授权。隔离数据仍是受保护的回滚材料，不包含在配置导出中。恢复这些数据也不会使未绑定凭据变为可用。
 
-OAuth 元数据、注册和令牌响应的大小上限为 1 MiB，总耗时上限为十秒。OAuth 请求不接受重定向。如果配置的 MCP 资源发生重定向（例如从 `/mcp` 跳转到 `/mcp/`），1MCP 会提示将上游 URL 配置为最终目标，不会通过重定向转发凭据。通过发现获得的端点必须使用公网 HTTPS；只有与显式配置的本地资源 origin 或本地 `oauth.issuer` origin 完全一致的目标才允许 HTTP/私有网络访问。独立的本地授权服务器必须通过 `oauth.issuer` 显式指定；上游声明另一个 localhost 端口或地址并不代表该目标已获准访问。精确配置的 MCP 资源路由，以及已接受的同源 SSE 消息端点，保留运维配置允许的 HTTP/私有网络访问能力；这不会批准通过发现获得的 OAuth 端点。服务器发起网络请求时，会验证每次 DNS 解析结果，并将其固定到该请求的实际连接。通过验证的地址可以在不同请求之间轮换。活跃的授权主体和凭据记录会续期其三十天的存储有效期；闲置过期的记录仍需重新授权。发送凭据前会验证端点 URL 和权限范围。资源指示符（Resource Indicator）可以指向同源父路径（例如 `/api/mcp` 对应的 `/api`），但查询参数必须一致，且不能包含片段。所选资源指示符作为令牌的受众保留；凭据仍绑定到精确配置的上游路由。上游资源请求的请求头不会转发到发现、注册或令牌端点。MCP SSE 流保持正常的流式连接生命周期。浏览器授权跳转使用经过验证的精确 HTTPS URL（显式配置的本地 origin 除外）；浏览器自行控制 DNS 和网络连接，1MCP 不会固定浏览器的连接地址。
+OAuth 元数据、注册和令牌响应的大小上限为 1 MiB，总耗时上限为十秒。OAuth 请求不接受重定向。如果配置的 MCP 资源发生重定向（例如从 `/mcp` 跳转到 `/mcp/`），1MCP 会提示将上游 URL 配置为最终目标，不会通过重定向转发凭据。通过发现获得的端点默认必须使用公网 HTTPS。显式配置的本地 IP 或 localhost 资源/issuer 源允许 HTTP 和私有网络访问；`oauth.privateNetworkOrigins` 则单独允许所列 HTTPS 源访问私有地址。独立的本地授权服务器必须通过 `oauth.issuer` 显式指定；上游声明另一个 localhost 端口或地址并不代表该目标已获准访问。精确配置的 MCP 资源路由，以及已接受的同源 SSE 消息端点，保留运维配置允许的 HTTP/私有网络访问能力；这不会批准通过发现获得的 OAuth 端点。服务器发起网络请求时，会验证每次 DNS 解析结果，并将其固定到该请求的实际连接。通过验证的地址可以在不同请求之间轮换。活跃的授权主体和凭据记录会续期其三十天的存储有效期；闲置过期的记录仍需重新授权。发送凭据前会验证端点 URL 和权限范围。资源指示符（Resource Indicator）可以指向同源父路径（例如 `/api/mcp` 对应的 `/api`），但查询参数必须一致，且不能包含片段。所选资源指示符作为令牌的受众保留；凭据仍绑定到精确配置的上游路由。上游资源请求的请求头不会转发到发现、注册或令牌端点。MCP SSE 流保持正常的流式连接生命周期。浏览器授权跳转使用经过验证的精确 HTTPS URL（显式配置的本地 origin 除外）；浏览器自行控制 DNS 和网络连接，1MCP 不会固定浏览器的连接地址。
 
 访问令牌可以是不透明令牌。1MCP 将令牌交换和资源指示符绑定到经过验证的授权主体，不会解码任意令牌声明并声称已验证其签名。受保护资源仍负责访问令牌的密码学验证。
+
+#### 显式启用不安全的元数据兼容模式
+
+优先修复提供方的元数据。如果无法修复，可为该服务器设置 `oauth.insecureAllowIncompleteMetadata: true`。此选项**不安全且默认关闭**，对公网和私有网络提供方均适用。它根据授权服务器发现上下文补齐缺失的 issuer，并以该 issuer 为基准解析授权、令牌、注册和 JWKS 端点的相对 URL。受保护资源元数据不可用时，它还允许在已配置资源的同源地址发现授权服务器。它不会替换显式但不匹配的 issuer、猜测缺失的必需端点、接受跨源相对 URL，也不会关闭资源、重定向、TLS 或凭据校验。
+
+DNS 解析到私有地址需要单独批准。将 `oauth.privateNetworkOrigins` 设置为明确可信的 HTTPS 源（协议、主机和可选端口；不得包含凭据、通配符、路径、查询参数或片段）。允许末尾斜杠。这不会允许私有主机名使用 HTTP，也不会批准发现文档中声明的其他主机名或端口。避免将任一例外配置放入 `serverDefaults.oauth`，因为没有独立 OAuth 对象的服务器会继承它。
+
+```json
+{
+  "mcpServers": {
+    "home-assistant": {
+      "type": "http",
+      "url": "https://ha.example/api/mcp",
+      "oauth": {
+        "insecureAllowIncompleteMetadata": true,
+        "privateNetworkOrigins": ["https://ha.example"],
+        "clientId": "http://127.0.0.1:3050/",
+        "redirectUrl": "http://127.0.0.1:3050/oauth/callback/home-assistant",
+        "autoRegister": false
+      }
+    }
+  }
+}
+```
+
+Home Assistant 示例使用其支持的 [URL 客户端标识](https://contributors.home-assistant.io/core/internals/auth-api/#your-client-id)，并保持回调同源，因为它不支持动态客户端注册。如果本地 1MCP 的端口或源不同，请同时调整客户端 ID 和回调地址。其他提供方可能要求预先注册的客户端 ID 或已发布的 `clientMetadataUrl`；仅关闭自动注册不会提供客户端标识。
+
+公网目标无需配置 `privateNetworkOrigins`；元数据完整时无需配置 `insecureAllowIncompleteMetadata`。修改任一设置后需要重新授权。这些选项不保证提供方授权成功。
+
+`private_destination_blocked` 表示 DNS 解析到了未经批准的私有地址；`invalid_metadata` 表示提供方文档未通过格式校验；`authority_mismatch` 表示授权主体校验失败。
 
 ### OAuth 原生凭据存储
 

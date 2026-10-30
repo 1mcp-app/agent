@@ -108,6 +108,8 @@ function createOAuthProvider(name: string, validatedTransport: ValidatedTranspor
         url: validatedTransport.url,
         headers: validatedTransport.headers,
         issuer: oauthConfig.issuer,
+        insecureAllowIncompleteMetadata: oauthConfig.insecureAllowIncompleteMetadata,
+        privateNetworkOrigins: oauthConfig.privateNetworkOrigins,
         clientId: oauthConfig.clientId,
         clientSecret: oauthConfig.clientSecret,
         scopes: oauthConfig.scopes,
