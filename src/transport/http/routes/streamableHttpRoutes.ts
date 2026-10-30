@@ -204,6 +204,12 @@ export function setupStreamableHttpRoutes(
       });
 
       if (result.status === StreamableSessionStatus.Missing) {
+        // The MCP spec reserves 404 for a session ID the server no longer knows;
+        // a non-initialize request without the header is a 400.
+        if (!headerSessionId && !isInitialize) {
+          sendBadRequest(res, 'Bad Request: Mcp-Session-Id header is required');
+          return;
+        }
         sendNotFound(res, 'Session not found. Send an initialize request first to create a new session.', {
           sessionId: result.sessionId,
         });

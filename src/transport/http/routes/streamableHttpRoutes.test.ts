@@ -459,6 +459,32 @@ describe('Streamable HTTP Routes', () => {
       );
     });
 
+    it('should return 400 when sessionId header missing and request is not initialize', async () => {
+      mockLifecycle.resolvePostSession.mockResolvedValue({
+        status: StreamableSessionStatus.Missing,
+        sessionId: '',
+        reason: StreamableSessionMissingReason.InitializeRequired,
+      });
+
+      mockRequest.headers = {};
+      mockRequest.body = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
+      await postHandler(mockRequest, mockResponse);
+
+      expect(mockLifecycle.resolvePostSession).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: undefined, isInitializeRequest: false }),
+      );
+      expect(mockResponse.status).toHaveBeenCalledWith(400);
+      expect(mockResponse.status).not.toHaveBeenCalledWith(404);
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: expect.objectContaining({
+            code: ErrorCode.InvalidParams,
+            message: 'Bad Request: Mcp-Session-Id header is required',
+          }),
+        }),
+      );
+    });
+
     it('should create new session when session not found but request is initialize', async () => {
       const mockTransport = {
         sessionId: 'new-session-from-initialize',
