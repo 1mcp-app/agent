@@ -247,32 +247,36 @@ describe('runCommand REST-first path', () => {
     },
   );
 
-  it('fails local delivery after one completed REST call without printing or retrying the result', async () => {
-    const result = { content: [{ type: 'text', text: 'private-result'.repeat(200) }] };
-    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
-    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
-    mockFetch.mockResolvedValueOnce(makeRestResponse(200, { result }));
-    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
-    vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
-      if (basename(String(path)) === 'result.json') throw new Error('disk full');
-      return actual.writeFile(path, data, options);
-    });
-    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-    const { runCommand } = await import('./run.js');
-    await runCommand({
-      tool: 'runner/echo_args',
-      args: '{}',
-      format: 'json',
-      'stdout-budget-bytes': 1024,
-      'config-dir': cacheDir,
-    });
-    expect(process.exitCode).toBe(1);
-    expect(stdout).not.toHaveBeenCalled();
-    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('upstream call completed'));
-    expect(mockFetch).toHaveBeenCalledTimes(3);
-    expect(transportState.instances).toHaveLength(0);
-  });
+  it.each(['ENOSPC: no space left on device', 'EACCES: permission denied'])(
+    'reports %s after one completed REST call without printing or retrying the result',
+    async (reason) => {
+      const result = { content: [{ type: 'text', text: 'private-result'.repeat(200) }] };
+      mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+      mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+      mockFetch.mockResolvedValueOnce(makeRestResponse(200, { result }));
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
+        if (basename(String(path)) === 'result.json') throw new Error(reason);
+        return actual.writeFile(path, data, options);
+      });
+      const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+      const { runCommand } = await import('./run.js');
+      await runCommand({
+        tool: 'runner/echo_args',
+        args: '{}',
+        format: 'json',
+        'stdout-budget-bytes': 1024,
+        'config-dir': cacheDir,
+      });
+      expect(process.exitCode).toBe(1);
+      expect(stdout).not.toHaveBeenCalled();
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('upstream call completed'));
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining(reason));
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      expect(transportState.instances).toHaveLength(0);
+    },
+  );
 
   it('keeps oversized failed tool output on stderr with its original failure status', async () => {
     const message = 'tool failed '.repeat(200);

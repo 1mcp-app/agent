@@ -4,7 +4,12 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { formatToolCallOutput, RunCommandInputError, type RunOutputFormat } from '@src/commands/run/runUtils.js';
+import {
+  formatToolCallOutput,
+  RunCommandInputError,
+  type RunOutputFormat,
+  truncateText,
+} from '@src/commands/run/runUtils.js';
 import type { CallToolResult } from '@src/sdk/contracts/index.js';
 
 import { z } from 'zod';
@@ -64,10 +69,15 @@ export async function formatBudgetedToolOutput(
       throw new Error('Artifact receipt exceeds stdout budget.');
     await writeFile(path, json, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     return receipt;
-  } catch {
+  } catch (cause) {
     if (directory) await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+    const reason = truncateText(
+      (cause instanceof Error ? cause.message : String(cause)).replace(/[\r\n\t]/g, ' '),
+      256,
+    );
     throw new Error(
-      'The upstream call completed, but local temporary artifact delivery failed. No result was printed; inspect the tool outcome before retrying.',
+      `The upstream call completed, but local temporary artifact delivery failed (${reason}). No result was printed; inspect the tool outcome before retrying.`,
+      { cause },
     );
   }
 }

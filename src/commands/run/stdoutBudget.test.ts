@@ -93,16 +93,36 @@ describe('budgeted tool stdout', () => {
 
   it('reports completed upstream execution after a partial write without returning output', async () => {
     const { writeFile: original } = await vi.importActual<typeof filesystem>('node:fs/promises');
+    const cause = new Error('ENOSPC: no space left on device');
     vi.mocked(filesystem.writeFile).mockImplementationOnce(async (path, _data, options) => {
       artifacts.push(String(path));
       await original(path, '{', options);
-      throw new Error('disk full');
+      throw cause;
     });
     const result = { content: [{ type: 'text' as const, text: 'a'.repeat(2000) }] };
-    await expect(formatBudgetedToolOutput(result, 'json', 20, validateStdoutBudget(1024, 'json'))).rejects.toThrow(
-      'upstream call completed',
-    );
+    await expect(
+      formatBudgetedToolOutput(result, 'json', 20, validateStdoutBudget(1024, 'json')),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('ENOSPC: no space left on device'),
+      cause,
+    });
     await expect(stat(artifacts.at(-1)!)).rejects.toThrow();
+  });
+
+  it('bounds a non-Error delivery reason while preserving the complete cause', async () => {
+    const cause = `EACCES: permission denied\n${'details'.repeat(1000)}`;
+    vi.mocked(filesystem.mkdtemp).mockRejectedValueOnce(cause);
+    const result = { content: [{ type: 'text' as const, text: 'a'.repeat(2000) }] };
+    const error = await formatBudgetedToolOutput(result, 'json', 20, validateStdoutBudget(1024, 'json')).catch(
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).cause).toBe(cause);
+    expect((error as Error).message).toContain('EACCES: permission denied');
+    expect((error as Error).message).toContain('upstream call completed');
+    expect((error as Error).message).toContain('inspect the tool outcome before retrying');
+    expect((error as Error).message).not.toContain('\n');
+    expect((error as Error).message.length).toBeLessThan(500);
   });
 
   it('makes the artifact path absolute when the OS temporary directory is relative', async () => {
