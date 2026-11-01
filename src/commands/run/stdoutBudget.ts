@@ -1,8 +1,10 @@
 import { encode } from '@toon-format/toon';
 
-import { mkdtemp, open, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { constants } from 'node:fs';
+import { access, mkdir, mkdtemp, open, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import {
   formatToolCallOutput,
@@ -31,20 +33,56 @@ export interface StdoutBudget {
   temporaryPrefix: string;
 }
 
-export function validateStdoutBudget(value: number | undefined, format: RunOutputFormat): StdoutBudget | undefined {
-  if (value === undefined) return undefined;
+export function validateStdoutBudget(
+  value: number | undefined,
+  format: RunOutputFormat,
+  spillDir?: string,
+): StdoutBudget | undefined {
+  if (value === undefined) {
+    if (spillDir !== undefined) throw new RunCommandInputError('--spill-dir requires --spill-to-file-above-bytes.');
+    return undefined;
+  }
+  const directory = z
+    .string()
+    .min(1)
+    .refine((path) => !path.includes('\0'))
+    .optional()
+    .safeParse(spillDir);
+  if (!directory.success)
+    throw new RunCommandInputError('--spill-dir must be a non-empty directory path without null bytes.');
   const parsed = budgetSchema.safeParse(value);
-  if (!parsed.success) throw new RunCommandInputError('--stdout-budget-bytes must be a positive safe integer.');
-  const temporaryPrefix = join(resolve(tmpdir()), '1mcp-result-');
+  if (!parsed.success) throw new RunCommandInputError('--spill-to-file-above-bytes must be a positive safe integer.');
+  const temporaryPrefix = join(resolve(spillDir ?? tmpdir()), '1mcp-result-');
   // mkdtemp appends six ASCII characters; reserve the largest possible JSON byte count before dispatch.
   const path = join(`${temporaryPrefix}XXXXXX`, 'result.json');
   const minimum = Buffer.byteLength(`${formatReceipt(path, Number.MAX_SAFE_INTEGER, format)}\n`, 'utf8');
   if (value < minimum) {
     throw new RunCommandInputError(
-      `--stdout-budget-bytes must be at least ${minimum} bytes to fit a temporary artifact receipt.`,
+      `--spill-to-file-above-bytes must be at least ${minimum} bytes to fit a temporary artifact receipt.`,
     );
   }
   return { bytes: parsed.data, temporaryPrefix };
+}
+
+export async function prepareSpillDirectory(budget: StdoutBudget | undefined): Promise<void> {
+  if (!budget) return;
+  const directory = dirname(budget.temporaryPrefix);
+  try {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await access(directory, constants.W_OK | constants.X_OK);
+    // access() does not check Windows ACLs; create an empty probe without touching existing files.
+    const probe = join(directory, `.1mcp-write-probe-${randomUUID()}`);
+    const handle = await open(probe, 'wx', 0o600);
+    try {
+      await handle.close();
+    } finally {
+      await rm(probe);
+    }
+  } catch (cause) {
+    throw new RunCommandInputError(
+      `Cannot prepare spill directory ${directory}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
 }
 
 export async function formatBudgetedToolOutput(

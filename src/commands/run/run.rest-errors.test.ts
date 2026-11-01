@@ -261,7 +261,7 @@ describe('runCommand REST-first path', () => {
         args: '{}',
         'config-dir': cacheDir,
         'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
-        'stdout-budget-bytes': 1024,
+        'spill-to-file-above-bytes': 1024,
       } as never);
       expect(process.exitCode).toBe(5);
       expect(stderr.join('')).toContain('example.invalid');
@@ -296,7 +296,7 @@ describe('runCommand REST-first path', () => {
         args: '{}',
         'config-dir': cacheDir,
         'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
-        'stdout-budget-bytes': 1024,
+        'spill-to-file-above-bytes': 1024,
       } as never);
       expect(process.exitCode).toBe(exit);
       expect(

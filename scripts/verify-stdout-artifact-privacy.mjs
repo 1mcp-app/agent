@@ -62,17 +62,33 @@ try {
     (await inspect(inherited)).rules.some((rule) => rule.sid === 'S-1-1-0'),
     'Fixture must inherit broad read access.',
   );
-  process.env.TEMP = broad;
-  process.env.TMP = broad;
-  process.env.TMPDIR = broad;
-  const { formatBudgetedToolOutput, validateStdoutBudget } = await import('../build/commands/run/stdoutBudget.js');
+  const { formatBudgetedToolOutput, prepareSpillDirectory, validateStdoutBudget } =
+    await import('../build/commands/run/stdoutBudget.js');
   const { secureNewPrivateEntry, verifyPrivateDirectory } =
     await import('../build/utils/security/privateFileSystem.js');
   const result = {
     content: [{ type: 'text', text: 'synthetic-private-result'.repeat(1000) }],
     _meta: { synthetic: true },
   };
-  const stdout = await formatBudgetedToolOutput(result, 'json', 2000, validateStdoutBudget(4096, 'json'));
+  const denied = path.join(scratch, 'denied-parent');
+  await mkdir(denied);
+  await acl(
+    denied,
+    `
+    $item=[IO.DirectoryInfo]::new($p); $a=$item.GetAccessControl()
+    $a.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,'Write','Deny'))
+    $item.SetAccessControl($a)
+  `,
+  );
+  await assert.rejects(
+    prepareSpillDirectory(validateStdoutBudget(4096, 'json', denied)),
+    /Cannot prepare spill directory/,
+  );
+  const parentAcl = await inspect(broad);
+  const budget = validateStdoutBudget(4096, 'json', broad);
+  await prepareSpillDirectory(budget);
+  const stdout = await formatBudgetedToolOutput(result, 'json', 2000, budget);
+  assert.deepEqual(await inspect(broad), parentAcl);
   assert(Buffer.byteLength(`${stdout}\n`) <= 4096);
   const receipt = JSON.parse(stdout);
   assert.equal(path.dirname(path.dirname(receipt.path)), broad);
@@ -99,6 +115,9 @@ try {
     platform: process.platform,
     node: process.versions.node,
     broadInheritanceProved: true,
+    customSpillDirectory: true,
+    parentAclPreserved: true,
+    deniedDestinationRejected: true,
     directoryOwnerOnly: true,
     fileOwnerOnly: true,
     completeArtifact: true,

@@ -45,8 +45,17 @@ describe('setupRunCommand', () => {
   it('leaves stdout budgets disabled by default and parses an explicit byte budget', async () => {
     const parser = () => setupRunCommand(yargs([]).exitProcess(false).help(false).version(false).strict());
     await parser().parseAsync(['run', 'filesystem/read_file']);
-    expect(runCommandMock.mock.calls.at(-1)?.[0]['stdout-budget-bytes']).toBeUndefined();
-    await parser().parseAsync(['run', 'filesystem/read_file', '--stdout-budget-bytes', '1024']);
-    expect(runCommandMock).toHaveBeenLastCalledWith(expect.objectContaining({ 'stdout-budget-bytes': 1024 }));
+    expect(runCommandMock.mock.calls.at(-1)?.[0]['spill-to-file-above-bytes']).toBeUndefined();
+    await parser().parseAsync([
+      'run',
+      'filesystem/read_file',
+      '--spill-to-file-above-bytes',
+      '1024',
+      '--spill-dir',
+      './results',
+    ]);
+    expect(runCommandMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ 'spill-to-file-above-bytes': 1024, 'spill-dir': './results' }),
+    );
   });
 });

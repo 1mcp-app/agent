@@ -75,18 +75,35 @@ A timeout reports whether it occurred during server discovery, schema discovery,
 
 - **`--format <toon|json|text|compact>`** - Output format
 - **`--raw`** - Alias for `--format json`
-- **`--max-chars <number>`** - Maximum characters for compact output (default: `2000`)
-- **`--stdout-budget-bytes <number>`** - Opt-in UTF-8 stdout byte budget, including the final newline and any artifact receipt. Must be a positive safe integer large enough for a receipt; invalid or unusably small values are rejected before the tool runs.
+- **`--max-chars <number>`** - Maximum characters for compact output (default: `2000`); truncates the displayed text without saving a file. Other formats are unaffected.
+- **`--spill-to-file-above-bytes <number>`** - Save the complete received result to a private JSON file when rendered output exceeds this UTF-8 byte threshold, including the final newline. Must be a positive safe integer large enough for the artifact receipt; invalid or unusably small values are rejected before the tool runs.
+- **`--spill-dir <path>`** - Parent directory for spilled results on the CLI host (default: OS temporary directory). Requires `--spill-to-file-above-bytes`. Relative paths resolve from the CLI working directory. Missing folders are created and invalid or inaccessible destinations are rejected before the tool runs.
 
-With a stdout budget, `run` measures the rendered output before compact truncation. Output at or below the budget keeps its usual representation. Larger output saves the complete received tool result (all content blocks, structured content, and metadata) as JSON in a private per-invocation OS temporary directory on the CLI host, including when using a remote runtime. Only after a successful write does stdout receive a bounded receipt with an absolute path, JSON file byte size, and guidance to filter or analyze selected fields with tools. JSON and TOON receipts use the selected format; text and compact receipts are readable text.
+| Option                        | Output behavior                                | Complete result saved?              |
+| ----------------------------- | ---------------------------------------------- | ----------------------------------- |
+| `--max-chars`                 | Truncates compact output only                  | No                                  |
+| `--spill-to-file-above-bytes` | Replaces oversized output with a file receipt  | Yes, when the threshold is exceeded |
+| `--spill-dir`                 | Selects the parent directory for spilled files | Only when spilling occurs           |
+
+The spill check runs **before compact truncation**. At or below the threshold, output keeps its usual representation, including `--max-chars` truncation in compact mode. Above it, `run` saves the complete received tool result (all content blocks, structured content, and metadata) as JSON in a unique, private per-invocation subdirectory. Existing parent-directory permissions are unchanged; the artifact directory and file are owner-only. Even with a remote runtime, files are stored on the CLI host.
+
+Only after a successful write does stdout receive a receipt with an absolute path, JSON file byte size, and guidance to filter or analyze selected fields with tools. The receipt also fits the byte threshold; its minimum size depends on the destination path. JSON and TOON receipts use the selected format; text and compact receipts are readable text. `--max-chars` does not truncate receipts.
 
 ```bash
-1mcp run analyzer/analyze --args '{"path":"./src"}' --format json --stdout-budget-bytes 4096
+# Display a shortened result without saving it
+1mcp run analyzer/analyze --args '{"path":"./src"}' --format compact --max-chars 1000
+
+# Preserve oversized results in the default temporary directory
+1mcp run analyzer/analyze --args '{"path":"./src"}' --format json --spill-to-file-above-bytes 4096
+
+# Preserve oversized results under ./results; truncate smaller compact output
+1mcp run analyzer/analyze --args '{"path":"./src"}' --format compact --max-chars 1000 \
+  --spill-to-file-above-bytes 4096 --spill-dir ./results
 ```
 
-Temporary artifacts survive normal CLI exit, but OS cleanup or reboot can remove them. Treat them as sensitive local files. A failed local write reports that the upstream call completed and exits nonzero, without replaying the tool or dumping oversized output. Tool and protocol errors retain their existing stderr output and failure status. With no stdout budget, ordinary formatting and compact truncation are unchanged.
+Files survive normal CLI exit. OS cleanup or reboot may remove files in the default temporary directory. Files in a custom directory remain until you or an external cleanup process removes them; `run` does not automatically clean up successful artifacts. Treat them as sensitive local files. A failed local write reports that the upstream call completed and exits nonzero, without replaying the tool or dumping oversized output. Tool and protocol errors retain their existing stderr output and failure status. Without the spill option, ordinary formatting and compact truncation are unchanged.
 
-This option controls CLI display only. It does not raise runtime hard acceptance limits (including the existing 4 MiB output limit) or recover a result rejected before the CLI receives it.
+These options control CLI output only. They do not raise runtime hard acceptance limits (including the existing 4 MiB output limit) or recover a result rejected before the CLI receives it.
 
 ### Related Global Options
 

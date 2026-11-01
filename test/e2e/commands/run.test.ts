@@ -63,6 +63,7 @@ describeRunE2E('run command E2E', () => {
 
   it('spills bounded stdout to a complete local temporary artifact that survives CLI exit', async () => {
     await startServeProcess();
+    const spillDir = join(environment.getTempDir(), 'custom-results');
     const message = '完整🌍'.repeat(1000);
     const result = await runner.runRunCommand('runner/echo_args', {
       args: [
@@ -73,7 +74,9 @@ describeRunE2E('run command E2E', () => {
         JSON.stringify({ message, count: 7 }),
         '--format',
         'json',
-        '--stdout-budget-bytes',
+        '--spill-dir',
+        spillDir,
+        '--spill-to-file-above-bytes',
         '1024',
       ],
     });
@@ -82,6 +85,7 @@ describeRunE2E('run command E2E', () => {
     expect(Buffer.byteLength(`${result.stdout}\n`)).toBeLessThanOrEqual(1024);
     const receipt = JSON.parse(result.stdout) as { artifact: string; path: string; bytes: number };
     expect(receipt.artifact).toBe('temporary-json');
+    expect(dirname(dirname(receipt.path))).toBe(spillDir);
     expect(isAbsolute(receipt.path)).toBe(true);
     try {
       const json = await readFile(receipt.path, 'utf8');

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, open, readFile, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, open, readFile, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
 import { buildCliContext } from '@src/commands/shared/cliContext.js';
@@ -239,9 +239,33 @@ describe('runCommand REST-first path', () => {
     'rejects an invalid or impossible stdout budget %s before any upstream activity',
     async (bytes) => {
       const { runCommand } = await import('./run.js');
-      await expect(runCommand({ tool: 'runner/echo_args', args: '{}', 'stdout-budget-bytes': bytes })).rejects.toThrow(
-        '--stdout-budget-bytes',
-      );
+      await expect(
+        runCommand({ tool: 'runner/echo_args', args: '{}', 'spill-to-file-above-bytes': bytes }),
+      ).rejects.toThrow('--spill-to-file-above-bytes');
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(transportState.instances).toHaveLength(0);
+    },
+  );
+
+  it.each(['missing-threshold', 'inaccessible', 'write-denied', 'file'] as const)(
+    'rejects a %s spill destination before upstream activity',
+    async (scenario) => {
+      const { runCommand } = await import('./run.js');
+      const directory = join(cacheDir, 'spill');
+      if (scenario === 'inaccessible') vi.mocked(access).mockRejectedValueOnce(new Error('EACCES'));
+      if (scenario === 'write-denied') vi.mocked(open).mockRejectedValueOnce(new Error('EACCES'));
+      if (scenario === 'file') {
+        const { writeFile } = await import('node:fs/promises');
+        await writeFile(directory, 'keep');
+      }
+      await expect(
+        runCommand({
+          tool: 'runner/echo_args',
+          args: '{}',
+          'spill-dir': directory,
+          ...(scenario === 'missing-threshold' ? {} : { 'spill-to-file-above-bytes': 1024 }),
+        }),
+      ).rejects.toThrow(scenario === 'missing-threshold' ? '--spill-dir requires' : 'Cannot prepare spill directory');
       expect(mockFetch).not.toHaveBeenCalled();
       expect(transportState.instances).toHaveLength(0);
     },
@@ -266,7 +290,7 @@ describe('runCommand REST-first path', () => {
         tool: 'runner/echo_args',
         args: '{}',
         format: 'json',
-        'stdout-budget-bytes': 1024,
+        'spill-to-file-above-bytes': 1024,
         'config-dir': cacheDir,
       });
       expect(process.exitCode).toBe(1);
@@ -294,7 +318,7 @@ describe('runCommand REST-first path', () => {
       tool: 'runner/echo_args',
       args: '{}',
       format: 'text',
-      'stdout-budget-bytes': 1024,
+      'spill-to-file-above-bytes': 1024,
       'config-dir': cacheDir,
     });
     expect(process.exitCode).toBe(5);
@@ -321,7 +345,7 @@ describe('runCommand REST-first path', () => {
       tool: 'runner/echo_args',
       args: '{}',
       format: 'json',
-      'stdout-budget-bytes': 1024,
+      'spill-to-file-above-bytes': 1024,
       'config-dir': cacheDir,
     });
     const receipt = JSON.parse(String(stdout.mock.calls.at(-1)?.[0]));
