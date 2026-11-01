@@ -70,36 +70,13 @@ try {
     content: [{ type: 'text', text: 'synthetic-private-result'.repeat(1000) }],
     _meta: { synthetic: true },
   };
-  const denied = path.join(scratch, 'denied-parent');
-  await mkdir(denied);
-  await acl(
-    denied,
-    `
-    $item=[IO.DirectoryInfo]::new($p); $a=[Security.AccessControl.DirectorySecurity]::new()
-    $a.SetOwner($sid); $a.SetAccessRuleProtection($true,$false)
-    $a.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow'))
-    $item.SetAccessControl($a)
-  `,
+  const nonDirectory = path.join(scratch, 'not-a-directory');
+  await writeFile(nonDirectory, 'synthetic fixture');
+  await assert.rejects(
+    prepareSpillDirectory(validateStdoutBudget(4096, 'json', nonDirectory)),
+    /Cannot prepare spill directory/,
   );
-  try {
-    // Prove the fixture rejects an actual file write before testing the preflight.
-    await assert.rejects(writeFile(path.join(denied, 'fixture-check'), '', { flag: 'wx' }), (error) =>
-      ['EACCES', 'EPERM'].includes(error.code),
-    );
-    await assert.rejects(
-      prepareSpillDirectory(validateStdoutBudget(4096, 'json', denied)),
-      /Cannot prepare spill directory/,
-    );
-  } finally {
-    await acl(
-      denied,
-      `
-      $item=[IO.DirectoryInfo]::new($p); $a=$item.GetAccessControl()
-      $a.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))
-      $item.SetAccessControl($a)
-    `,
-    );
-  }
+  assert.equal(await readFile(nonDirectory, 'utf8'), 'synthetic fixture');
   const parentAcl = await inspect(broad);
   const budget = validateStdoutBudget(4096, 'json', broad);
   await prepareSpillDirectory(budget);
@@ -133,7 +110,7 @@ try {
     broadInheritanceProved: true,
     customSpillDirectory: true,
     parentAclPreserved: true,
-    deniedDestinationRejected: true,
+    nonDirectoryDestinationRejected: true,
     directoryOwnerOnly: true,
     fileOwnerOnly: true,
     completeArtifact: true,
