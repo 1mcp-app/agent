@@ -36,6 +36,12 @@ export const RESPONSE_JSON_VALUE_LIMITS: JsonValueLimits = Object.freeze({
   maxTotalStringLength: 32 * 1024 * 1024,
 });
 
+/** Tool output keeps foreign-value depth/node protections; byte admission is checked separately. */
+export const TOOL_RESULT_JSON_VALUE_LIMITS: JsonValueLimits = Object.freeze({
+  ...JSON_VALUE_LIMITS,
+  maxTotalStringLength: RESPONSE_JSON_VALUE_LIMITS.maxTotalStringLength,
+});
+
 /** What a value spends from a {@link JsonValueLimits} budget. */
 export interface JsonValueCost {
   readonly nodes: number;
