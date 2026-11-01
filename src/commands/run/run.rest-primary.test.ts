@@ -229,7 +229,7 @@ describe('runCommand REST-first path', () => {
     return makeRestResponse(200, { kind: 'server', server: 'runner', status: 'connected', available: true });
   }
 
-  it('uses REST when hasRestEndpoint is true in cache and skips MCP', async () => {
+  it.each(['rest-result', 'x'.repeat(1_000_001)])('delivers REST output (%#) without MCP fallback', async (text) => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
@@ -239,7 +239,7 @@ describe('runCommand REST-first path', () => {
     });
 
     const restResult = {
-      result: { content: [{ type: 'text', text: 'rest-result' }], isError: false },
+      result: { content: [{ type: 'text', text }], isError: false },
       server: 'runner',
       tool: 'echo_args',
     };
@@ -286,7 +286,7 @@ describe('runCommand REST-first path', () => {
 
     // MCP transport should NOT have been used
     expect(transportState.instances).toHaveLength(0);
-    expect(output.join('')).toContain('rest-result');
+    expect(output.join('')).toContain(text);
   });
 
   it('sends the same canonical session id in header and context on a first REST call', async () => {

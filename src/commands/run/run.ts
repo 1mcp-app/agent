@@ -30,6 +30,7 @@ import {
   StreamableServeClient,
 } from '@src/commands/shared/serveClient.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
+import { captureJson, SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
 import {
   createGatewayFailure,
@@ -44,6 +45,7 @@ import {
   hasHttpErrorCode,
   toJsonValue,
   type Tool,
+  TOOL_RESULT_JSON_VALUE_LIMITS,
   toProtocolTools,
 } from '@src/sdk/contracts/index.js';
 import type { ContextData } from '@src/types/context.js';
@@ -552,12 +554,21 @@ export async function invokeTool(options: {
 
     toolDispatchStarted = true;
     const response = await client.callTool(options.qualifiedToolName, resolvedArguments.arguments);
+    if ('result' in response) captureJson(response.result, false, true);
     return {
-      rawResponse: toJsonValue(response) as unknown as JsonRpcResponse<CallToolResult>,
+      rawResponse: toJsonValue(response, TOOL_RESULT_JSON_VALUE_LIMITS) as unknown as JsonRpcResponse<CallToolResult>,
       sessionId: client.sessionId,
       retryWithFreshSession: false,
     };
   } catch (error) {
+    if (toolDispatchStarted && error instanceof SchemaBoundaryError && error.code === 'schema_budget_exceeded') {
+      const failure = createGatewayFailure({ kind: 'protocol', code: error.code, message: error.code });
+      return {
+        rawResponse: { jsonrpc: '2.0', id: 0, error: gatewayFailureToMcp(failure) },
+        sessionId: client.sessionId,
+        retryWithFreshSession: false,
+      };
+    }
     if (!toolDispatchStarted && hasHttpErrorCode(error, 404) && options.sessionId) {
       return {
         rawResponse: {
