@@ -10,6 +10,11 @@ import {
   type RunOutputFormat,
   validateToolArgs,
 } from '@src/commands/run/runUtils.js';
+import {
+  formatBudgetedToolOutput,
+  prepareSpillDirectory,
+  validateStdoutBudget,
+} from '@src/commands/run/stdoutBudget.js';
 import { formatUpstreamEofGuidance } from '@src/commands/run/upstreamEofGuidance.js';
 import { ApiClient, DEFAULT_API_TIMEOUT_MS } from '@src/commands/shared/apiClient.js';
 import {
@@ -98,6 +103,8 @@ export interface RunCommandOptions extends GlobalOptions, ProjectSelectionOption
   format?: RunOutputFormat;
   raw?: boolean;
   'max-chars'?: number;
+  'spill-to-file-above-bytes'?: number;
+  'spill-dir'?: string;
   'timeout-ms'?: number;
   args?: string;
   tool: string;
@@ -148,6 +155,8 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const toolReference = parseToolReference(options.tool);
   const format = options.raw ? 'json' : options.format || 'toon';
   const maxChars = options['max-chars'] ?? 2000;
+  const stdoutBudget = validateStdoutBudget(options['spill-to-file-above-bytes'], format, options['spill-dir']);
+  await prepareSpillDirectory(stdoutBudget);
   const stdinPromise = options.args === undefined ? readStdin() : Promise.resolve(undefined);
   const attachment = await attachReusableClientSurface<RunCommandOptions, RunAttachmentValue>({
     clientSurface: 'run',
@@ -185,14 +194,15 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
 
   const { response } = attachment.value;
 
-  const output = formatToolCallOutput(response.rawResponse, format, maxChars);
   if ('error' in response.rawResponse) {
+    const output = formatToolCallOutput(response.rawResponse, format, maxChars);
     process.stderr.write(`${output}\n`);
     process.exitCode = gatewayFailureExitCode(gatewayFailureFromMcpError(response.rawResponse.error));
     return;
   }
 
   if (response.rawResponse.result.isError) {
+    const output = formatToolCallOutput(response.rawResponse, format, maxChars);
     process.stderr.write(`${output}\n`);
     if (format !== 'json') {
       const guidance = formatUpstreamEofGuidance(response.rawResponse.result);
@@ -202,8 +212,13 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
     return;
   }
 
-  if (output.length > 0) {
-    process.stdout.write(`${output}\n`);
+  try {
+    const output = await formatBudgetedToolOutput(response.rawResponse.result, format, maxChars, stdoutBudget);
+    if (output.length > 0) process.stdout.write(`${output}\n`);
+  } catch (error) {
+    if (!stdoutBudget) throw error;
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
   }
 }
 

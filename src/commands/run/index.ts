@@ -59,9 +59,19 @@ export function setupRunCommand(yargs: Argv): Argv {
           default: false,
         })
         .option('max-chars', {
-          describe: 'Maximum characters for compact output',
+          describe: 'Truncate compact output to this many characters; does not save a file',
           type: 'number',
           default: 2000,
+        })
+        .option('spill-to-file-above-bytes', {
+          describe:
+            'Save the complete result to private JSON when output exceeds this UTF-8 byte threshold, before compact truncation',
+          type: 'number',
+        })
+        .option('spill-dir', {
+          describe:
+            'Parent directory for spilled results on the CLI host (default: OS temp); requires --spill-to-file-above-bytes',
+          type: 'string',
         })
         .example([
           ['$0 run filesystem/read_file --args \'{"path":"./foo.txt"}\'', 'Call a tool with explicit JSON arguments'],
