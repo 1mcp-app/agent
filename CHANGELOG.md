@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bind project selections to individual calls by @xizhibei in [#636](https://github.com/1mcp-app/agent/pull/636)
 
 ### 🐛 Bug Fixes
+- Run Windows binary smoke without PowerShell jobs by @xizhibei
 - Honor tool output budgets across result capture by @xizhibei in [#726](https://github.com/1mcp-app/agent/pull/726)
 - Return 400 when a POST omits the Mcp-Session-Id header by @sarankumar1325 in [#722](https://github.com/1mcp-app/agent/pull/722)
 - Add explicit discovery compatibility options by @xizhibei in [#720](https://github.com/1mcp-app/agent/pull/720)
