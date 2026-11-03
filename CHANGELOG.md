@@ -5,11 +5,67 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.40.0-beta.1] - 2026-11-02
 
-### Added
+### 🚀 Features
+- Spill oversized results to a configurable directory by @xizhibei in [#725](https://github.com/1mcp-app/agent/pull/725)
+- Implement Product Usage Telemetry by @xizhibei in [#705](https://github.com/1mcp-app/agent/pull/705)
+- Install preparation setup skill by @xizhibei in [#671](https://github.com/1mcp-app/agent/pull/671)
+- Resolve agent session ownership and project defaults automatically by @xizhibei in [#669](https://github.com/1mcp-app/agent/pull/669)
+- Add ownership-aware project lifecycle controls by @xizhibei in [#662](https://github.com/1mcp-app/agent/pull/662)
+- Polish help output across commands by @xizhibei in [#660](https://github.com/1mcp-app/agent/pull/660)
+- Configure backend preparation with shareable JSON recipes by @xizhibei in [#652](https://github.com/1mcp-app/agent/pull/652)
+- Support checkout selection and configured backend preparation by @xizhibei in [#640](https://github.com/1mcp-app/agent/pull/640)
+- Add bounded checkout-specific job lifecycle by @xizhibei in [#635](https://github.com/1mcp-app/agent/pull/635)
+- Deliver explicit worker project instructions by @xizhibei in [#638](https://github.com/1mcp-app/agent/pull/638)
+- Bind project selections to individual calls by @xizhibei in [#636](https://github.com/1mcp-app/agent/pull/636)
 
-- Configure installed CodeGraph, Code Review Graph, and Serena backends with `1mcp mcp setup --known <name>`; registry installation remains available through `mcp install`.
+### 🐛 Bug Fixes
+- Run Windows binary smoke without PowerShell jobs by @xizhibei
+- Honor tool output budgets across result capture by @xizhibei in [#726](https://github.com/1mcp-app/agent/pull/726)
+- Return 400 when a POST omits the Mcp-Session-Id header by @sarankumar1325 in [#722](https://github.com/1mcp-app/agent/pull/722)
+- Add explicit discovery compatibility options by @xizhibei in [#720](https://github.com/1mcp-app/agent/pull/720)
+- Preserve queued usage until the sender connects by @xizhibei in [#716](https://github.com/1mcp-app/agent/pull/716)
+- Keep inspect responsive and resume ended sessions safely by @xizhibei in [#715](https://github.com/1mcp-app/agent/pull/715)
+- Preserve existing instruction reference position by @xizhibei in [#713](https://github.com/1mcp-app/agent/pull/713)
+- Deliver scoped guidance without backend startup by @xizhibei in [#711](https://github.com/1mcp-app/agent/pull/711)
+- Recover scopes with absent ownership evidence by @Xxx91n in [#686](https://github.com/1mcp-app/agent/pull/686)
+- Make tool execution deadlines explicit and consistent by @xizhibei in [#710](https://github.com/1mcp-app/agent/pull/710)
+- Report caller release success independently by @xizhibei in [#707](https://github.com/1mcp-app/agent/pull/707)
+- Hide Windows background runtime consoles by @xizhibei in [#697](https://github.com/1mcp-app/agent/pull/697)
+- Align action options and explain bootstrap failures by @xizhibei in [#692](https://github.com/1mcp-app/agent/pull/692)
+- Support explicit non-ready probe mappings by @xizhibei in [#691](https://github.com/1mcp-app/agent/pull/691)
+- Restore Python fixtures and modern proxy context by @xizhibei in [#687](https://github.com/1mcp-app/agent/pull/687)
+- Scope project selectors to supported commands by @xizhibei in [#684](https://github.com/1mcp-app/agent/pull/684)
+- Consolidate Dependabot updates and repair dependency guards by @xizhibei in [#666](https://github.com/1mcp-app/agent/pull/666)
+- Exclude nested worktrees from ESLint by @xizhibei in [#664](https://github.com/1mcp-app/agent/pull/664)
+- Clarify project selectors for static server inspection by @xizhibei in [#663](https://github.com/1mcp-app/agent/pull/663)
+- Deliver full instructions with preset advisory by @xizhibei in [#657](https://github.com/1mcp-app/agent/pull/657)
+- Sync release-X.Y branches and keep latest/next npm tags by @xizhibei in [#656](https://github.com/1mcp-app/agent/pull/656)
+- Preserve OAuth discovery roles and safe failure diagnostics by @xizhibei in [#655](https://github.com/1mcp-app/agent/pull/655)
+- Send a user-agent on OAuth endpoint requests by @tanakaisworking in [#654](https://github.com/1mcp-app/agent/pull/654)
+- Preserve linked checkout identity and inherit main defaults by @xizhibei in [#634](https://github.com/1mcp-app/agent/pull/634)
+
+### 💼 Other
+- Merge commit from fork by @xizhibei
+
+### 🚜 Refactor
+- Retire MCP migration evidence gates by @xizhibei in [#699](https://github.com/1mcp-app/agent/pull/699)
+
+### 📚 Documentation
+- Refresh agent guidance and architecture decisions by @xizhibei
+- Guide worktrees and cross-project agent sessions by @xizhibei in [#668](https://github.com/1mcp-app/agent/pull/668)
+- Isolate VitePress site under docs/site by @xizhibei in [#658](https://github.com/1mcp-app/agent/pull/658)
+
+### 🧪 Testing
+- Isolate fixture listeners on the request address by @xizhibei in [#637](https://github.com/1mcp-app/agent/pull/637)
+
+### ⚙️ Miscellaneous Tasks
+- Simplify validation and shorten conformance checks by @xizhibei in [#674](https://github.com/1mcp-app/agent/pull/674)
+
+## New Contributors
+* @sarankumar1325 made their first contribution in [#722](https://github.com/1mcp-app/agent/pull/722)
+* @tanakaisworking made their first contribution in [#654](https://github.com/1mcp-app/agent/pull/654)
 
 ## [0.39.2] - 2026-10-13
 
@@ -1273,6 +1329,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.40.0-beta.1]: https://github.com/1mcp-app/agent/compare/v0.39.2..v0.40.0-beta.1
 [0.39.2]: https://github.com/1mcp-app/agent/compare/v0.39.1..v0.39.2
 [0.39.1]: https://github.com/1mcp-app/agent/compare/v0.39.0..v0.39.1
 [0.39.0]: https://github.com/1mcp-app/agent/compare/v0.38.2..v0.39.0

@@ -705,6 +705,8 @@ Pool policy changes require an Aggregated Runtime restart. They do not resize th
 
 ## See Also
 
+For a workflow across repositories and Git worktrees, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
+
 - **[Template Syntax Reference](/reference/mcp-templates/syntax)** - Complete syntax and helper reference
 - **[Custom Instructions Template](/guide/custom-instructions-template)** - Customize LLM instructions (different feature)
 - **[Context Collection](/guide/advanced/server-filtering)** - How context is collected

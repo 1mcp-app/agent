@@ -320,8 +320,6 @@ function ownedGatewayRequestInit(modern, family, endpoint) {
   return { headers: { Authorization: `Bearer ${token}` }, redirect: 'manual' };
 }
 
-class FixtureSdkResultTypeError extends Error {}
-
 function assertCompleted(result) {
   if (result?.resultType === 'input_required') throw new Error('CONTINUATION_INCOMPLETE');
   if (result?.isError === true) throw new Error('CONTINUATION_TOOL_ERROR');
@@ -353,14 +351,7 @@ async function runSdkRequestState(client, callTool, toolName) {
     });
     assertCompleted(continued);
   }
-  try {
-    assertCompleted(await callTool('test_mrtr_no_result_type'));
-  } catch (error) {
-    if (error?.code === 'INVALID_RESULT' && error?.data?.violation === 'missing-resultType') {
-      throw new FixtureSdkResultTypeError();
-    }
-    throw error;
-  }
+  assertCompleted(await callTool('test_mrtr_no_result_type'));
 }
 
 function createOfficialClient(modern, family) {
@@ -407,8 +398,7 @@ async function main() {
       writeJson(process.stderr, {
         kind: 'conformance-client',
         ok: false,
-        classification: error instanceof FixtureSdkResultTypeError ? 'fixture-sdk-rejected' : 'gateway-rejected',
-        ...(error instanceof FixtureSdkResultTypeError ? { reasonCode: 'missing-result-type' } : {}),
+        classification: 'gateway-rejected',
       });
       process.exitCode = 1;
       return;

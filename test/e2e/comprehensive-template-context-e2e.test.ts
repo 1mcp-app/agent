@@ -1,5 +1,5 @@
-import { randomBytes } from 'crypto';
 import { promises as fsPromises } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { ConfigManager } from '@src/config/configManager.js';
@@ -17,11 +17,7 @@ describe('Comprehensive Template & Context E2E', () => {
   let configManager: any;
 
   beforeEach(async () => {
-    // Create temporary directories under ./build/
-    const buildDir = join(process.cwd(), 'build');
-    await fsPromises.mkdir(buildDir, { recursive: true });
-    tempConfigDir = join(buildDir, `.tmp-test-comprehensive-e2e-${randomBytes(4).toString('hex')}`);
-    await fsPromises.mkdir(tempConfigDir, { recursive: true });
+    tempConfigDir = await fsPromises.mkdtemp(join(tmpdir(), '1mcp-test-comprehensive-e2e-'));
 
     configFilePath = join(tempConfigDir, 'mcp.json');
 

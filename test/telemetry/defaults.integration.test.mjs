@@ -11,6 +11,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 import { test } from 'vitest';
 
+import { createTestProcessEnvironment } from '../../scripts/test-process-environment.mjs';
 import { createCollector } from './fake-collector.mjs';
 
 test('endpoint-only stdio runtime and exporter-configured management command never connect to Collector', async () => {
@@ -50,7 +51,7 @@ test('endpoint-only stdio runtime and exporter-configured management command nev
           '--log-level',
           'error',
         ],
-        env,
+        env: createTestProcessEnvironment({}, env),
         stderr: 'pipe',
       }),
     );
@@ -61,7 +62,7 @@ test('endpoint-only stdio runtime and exporter-configured management command nev
       process.execPath,
       [resolve('build/index.js'), 'mcp', 'list', '--config', config, '--config-dir', directory],
       {
-        env: { ...env, OTEL_TRACES_EXPORTER: 'otlp', OTEL_METRICS_EXPORTER: 'otlp' },
+        env: createTestProcessEnvironment({ OTEL_TRACES_EXPORTER: 'otlp', OTEL_METRICS_EXPORTER: 'otlp' }, env),
         timeout: 10000,
       },
     );

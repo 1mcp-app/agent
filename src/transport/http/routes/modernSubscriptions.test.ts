@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 
+import * as telemetry from '@src/observability/telemetry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type InboundConnectionConfig } from '@src/core/types/index.js';
@@ -122,8 +123,51 @@ afterEach(async () => {
 });
 const messages = (frames: string[]) => frames.map((frame) => JSON.parse(frame.split('data: ')[1]));
 
+const facts = vi.hoisted(() => ({ begin: vi.fn((..._args: unknown[]) => ({ finish: vi.fn() })) }));
+vi.mock('@src/productTelemetry/index.js', () => ({ beginProductOperation: facts.begin }));
+
 describe('modern subscription ownership', () => {
+  it.each([
+    { error: { kind: 'invalid-request' }, outcome: 'caller-error', cancel: false },
+    { error: new Error('Coverage unavailable'), outcome: 'internal-error', cancel: false },
+    { error: { code: -32603 }, outcome: 'upstream-error', cancel: false },
+    { error: new Error('Coverage unavailable'), outcome: 'cancelled', cancel: true },
+  ])('records $outcome setup failure without a lifecycle start', async ({ error, outcome, cancel }) => {
+    const end = vi.fn();
+    const operation = vi
+      .spyOn(telemetry, 'startTelemetryOperation')
+      .mockReturnValue({ run: (callback) => callback(), end });
+    const measurement = vi.spyOn(telemetry, 'recordTelemetryMeasurement');
+    try {
+      const value = tracked();
+      value.prepare.mockImplementationOnce(async () => {
+        if (cancel) value.controller.abort();
+        throw error;
+      });
+      await value.start({ toolsListChanged: true });
+      if (!cancel) expect(value.response.statusCode).toBe(400);
+      expect(end).toHaveBeenCalledWith(outcome);
+      expect(measurement.mock.calls.filter(([name]) => name === 'gateway.subscription.lifecycle')).toEqual([]);
+    } finally {
+      operation.mockRestore();
+      measurement.mockRestore();
+    }
+  });
+
+  it('counts a gracefully completed admitted subscription once', async () => {
+    facts.begin.mockClear();
+    const value = tracked();
+    const pending = value.start({ toolsListChanged: true });
+    await vi.waitFor(() => expect(value.frames).toHaveLength(1));
+    await closeModernSubscriptions(value.manager);
+    await pending;
+    await closeModernSubscriptions(value.manager);
+    expect(facts.begin.mock.calls).toEqual([['other', 'http', 'other']]);
+    expect(facts.begin.mock.results[0].value.finish.mock.calls).toEqual([['success']]);
+  });
+
   it('keeps same-grant cancellation within the logical session and context generation', async () => {
+    facts.begin.mockClear();
     const value = tracked();
     const config = { logicalTemplateSessionId: 'proxy-a', logicalTemplateBindingId: 'context-a' };
     const pending = value.start({ toolsListChanged: true }, config);
@@ -142,6 +186,8 @@ describe('modern subscription ownership', () => {
     cancelModernSubscription(req, value.response as unknown as Response, value.manager, config);
     await pending;
     expect(value.close).toHaveBeenCalledOnce();
+    expect(facts.begin.mock.calls).toEqual([['other', 'http', 'other']]);
+    expect(facts.begin.mock.results[0].value.finish.mock.calls).toEqual([['failure']]);
   });
 
   it('advertises only supported notification coverage across the visible provider set', () => {

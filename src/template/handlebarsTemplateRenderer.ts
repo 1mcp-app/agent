@@ -30,6 +30,9 @@ export class HandlebarsTemplateRenderer {
    * @returns Rendered configuration with all variables replaced
    */
   renderTemplate(templateConfig: MCPServerParams, context: ContextData): MCPServerParams {
+    // Credentials authorize runtime ownership and must never reach backend template inputs.
+    const { owner: _owner, ...templateContext } = context;
+    context = templateContext;
     // Deep clone to avoid mutating the original configuration
     const config = JSON.parse(JSON.stringify(templateConfig)) as MCPServerParams;
 

@@ -14,6 +14,7 @@ import {
 } from '@src/commands/serve/serveOptions.js';
 import { resolveTemplateContextTrust } from '@src/commands/serve/templateContextTrust.js';
 import { ConfigManager } from '@src/config/configManager.js';
+import { configureProductTelemetryBootstrap } from '@src/config/productTelemetryBootstrap.js';
 import { getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import {
@@ -31,8 +32,10 @@ import { getBackgroundLaunchConfigPath, readBackgroundLaunchConfig } from '@src/
 import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
 import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
 import type { RuntimeLaunchBootstrap } from '@src/core/server/runtimeLaunchIpc.js';
+import { scheduleRuntimeOwnershipIdentityRepair } from '@src/core/server/runtimeOwnershipIdentityRepair.js';
 import {
   claimRuntimeScope,
+  RuntimeScopeOwnedError,
   type RuntimeScopeOwnership,
   verifyRuntimeScopeOwnership,
 } from '@src/core/server/runtimeScopeOwnership.js';
@@ -50,6 +53,9 @@ import { GlobalOptions } from '@src/globalOptions.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
+import type { EventFields } from '@src/observability/events/normalize.js';
+import { beginProductStartup } from '@src/productTelemetry/index.js';
+import type { CommandCompletion } from '@src/productTelemetry/producer.js';
 import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
 import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
@@ -57,6 +63,7 @@ import { InsecureFilePermissionsError } from '@src/utils/filePermissions.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
 
 export interface ServeOptions {
+  'product-telemetry-test-suppressed'?: boolean;
   config?: string;
   'config-dir'?: string;
   /** Lifecycle action: report the scoped runtime's state and exit. */
@@ -319,6 +326,7 @@ export function setupGracefulShutdown(
       }
 
       await finishRuntimeTelemetry();
+      // Best-effort by contract: a cleanup failure must not block process exit.
       runtimeOwnership?.release();
 
       logger.info('serve.server.shutdown.complete.fad6a0b9');
@@ -338,7 +346,19 @@ export function setupGracefulShutdown(
  * Start the server using the specified transport.
  */
 export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
+  configureProductTelemetryBootstrap(parsedArgv);
   let runtimeOwnership: RuntimeScopeOwnership | undefined;
+  let loggerConfigured = false;
+  let startup: CommandCompletion | undefined;
+  if (
+    !parsedArgv.status &&
+    !parsedArgv.stop &&
+    !parsedArgv['cooperative-bootstrap'] &&
+    !parsedArgv['background-bootstrap'] &&
+    !parsedArgv['runtime-owner-claim-id']
+  ) {
+    startup = beginProductStartup('serve');
+  }
   try {
     let cooperativeLaunch: RuntimeLaunchBootstrap | undefined;
     const cooperative = parsedArgv['cooperative-bootstrap']
@@ -360,6 +380,10 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         'background-bootstrap': false,
         'runtime-owner-claim-id': cooperativeLaunch.claimId,
       };
+    }
+    configureProductTelemetryBootstrap(parsedArgv);
+    if (parsedArgv['cooperative-bootstrap'] === 'worker' || parsedArgv['runtime-owner-claim-id']) {
+      startup = beginProductStartup('runtime_start');
     }
     const { configFilePath, runtimeScope } = resolveServeConfigPaths(parsedArgv);
 
@@ -383,6 +407,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     if (parsedArgv.restart && !parsedArgv['background-bootstrap']) {
       const { restartCooperativeRuntime } = await import('@src/commands/serve/cooperativeRuntime.js');
       await restartCooperativeRuntime(parsedArgv);
+      startup?.finish('success');
       return;
     }
 
@@ -391,6 +416,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     if (parsedArgv.background && !parsedArgv['background-bootstrap']) {
       const { launchCooperativeRuntime } = await import('@src/commands/serve/cooperativeRuntime.js');
       await launchCooperativeRuntime(parsedArgv);
+      startup?.finish('success');
       return;
     }
 
@@ -464,6 +490,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       },
       effectiveTransport,
     );
+    loggerConfigured = true;
     if (deprecatedLoggingKeys.length > 0) {
       logger.warn('serve.deprecation.warning.config.keys.are.deprecated.use.the.structured.logging.b.600bd41d');
     }
@@ -688,6 +715,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         const transport = new StdioServerTransport();
         const filterConfig = await resolveStdioFilterConfig(parsedArgv);
         if (!filterConfig) {
+          startup?.finish('failure');
           runtimeOwnership?.release();
           return;
         }
@@ -707,6 +735,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
           }
         }
 
+        startup?.finish('success');
         logger.info('serve.server.started.with.stdio.transport.ea94ea8d');
         break;
       }
@@ -718,15 +747,27 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       case 'http': {
         // Use HTTP/SSE transport
         expressServer = new ExpressServer(serverManager, loadingManager, asyncOrchestrator, customTemplate);
-        expressServer.start(
-          cooperativeLaunch ? () => cooperative!.acknowledgeCooperativeWorker(cooperativeLaunch!) : undefined,
-        );
+        expressServer.start((error) => {
+          if (error) {
+            startup?.finish('failure');
+            return;
+          }
+          if (cooperativeLaunch) cooperative!.acknowledgeCooperativeWorker(cooperativeLaunch);
+          startup?.finish('success');
+        });
 
         // Write PID file for proxy auto-discovery
         const serverUrl = serverConfigManager.getUrl();
         writePidFile(runtimeScope, {
           pid: process.pid,
           ...(cooperativeLaunch ? { ownerClaimId: cooperativeLaunch.claimId } : {}),
+          // Reuse the claim's single evidence read; never probe a second time.
+          ...(runtimeOwnership?.record.processIdentity
+            ? { processIdentity: runtimeOwnership.record.processIdentity }
+            : {}),
+          ...(runtimeOwnership?.record.identityEvidence
+            ? { identityEvidence: runtimeOwnership.record.identityEvidence }
+            : {}),
           url: `${serverUrl}/mcp`,
           port: effectivePort,
           host: effectiveHost,
@@ -742,9 +783,20 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         // Register cleanup handlers
         registerPidFileCleanup(runtimeScope);
 
+        // A degraded record is safe (held while this PID lives) and repairs
+        // itself once the OS probe succeeds; it never blocks startup.
+        if (runtimeOwnership?.record.identityEvidence) {
+          scheduleRuntimeOwnershipIdentityRepair({
+            runtimeScope,
+            pid: runtimeOwnership.record.pid,
+            claimId: runtimeOwnership.record.claimId,
+          });
+        }
+
         break;
       }
       default:
+        startup?.finish('failure');
         logger.error('serve.invalid.transport.1860e43c');
         process.exit(1);
     }
@@ -784,10 +836,63 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     });
   } catch (_error) {
     await finishRuntimeTelemetry(true);
+    startup?.finish('failure');
+    // Best-effort by contract: never suppress the diagnostics below.
     runtimeOwnership?.release();
-    if (parsedArgv.background || parsedArgv.restart)
-      process.stderr.write(`Error: ${describeServeLifecycleFailure(_error)}\n`);
-    logger.error('serve.server.error.a68bf449', { error: _error });
+    const failure = describeServeLifecycleFailure(_error);
+    if (parsedArgv.status || parsedArgv.stop) {
+      process.stderr.write('Error: Serve command failed. See the configured log for bounded failure facts.\n');
+      logger.error('serve.command.failed', { error: _error });
+    } else {
+      process.stderr.write(`Error: ${failure}\n`);
+      if (_error instanceof RuntimeScopeOwnedError && _error.unknownEntries?.length) {
+        process.stderr.write(
+          `Unknown ownership entries: ${_error.unknownEntries.join(', ')}. ` +
+            'Confirm no runtime uses this scope, then remove only those entries.\n',
+        );
+      }
+      logger.error('serve.server.error.a68bf449', { error: _error });
+    }
+    const claimFailure = runtimeClaimFailureFields(_error);
+    if (claimFailure) logger.error('serve.runtime-claim.failed', claimFailure);
+    // The file transport is attached only after configuration loads; a claim
+    // failure or any earlier failure still needs one bounded line on disk.
+    if (!loggerConfigured && typeof parsedArgv['log-file'] === 'string') {
+      try {
+        fs.appendFileSync(
+          parsedArgv['log-file'],
+          `${new Date().toISOString()} [ERROR] ${failure}${formatUnknownEntries(_error)}\n`,
+          { mode: 0o600 },
+        );
+      } catch {
+        // Last-resort diagnostics must never replace the original failure.
+      }
+    }
     process.exit(1);
   }
+}
+
+function runtimeClaimFailureFields(error: unknown): EventFields<'serve.runtime-claim.failed'> | undefined {
+  if (!(error instanceof RuntimeScopeOwnedError)) return undefined;
+  const evidenceStatus = error.owner?.processIdentity
+    ? 'available'
+    : error.owner?.identityEvidence
+      ? 'unavailable'
+      : 'unknown';
+  return {
+    error,
+    ownership_reason: error.reason,
+    evidence_status: evidenceStatus,
+    ...(error.owner?.identityEvidence
+      ? {
+          acquisition_code: error.owner.identityEvidence.code,
+          elapsed_ms: error.owner.identityEvidence.elapsedMs,
+        }
+      : {}),
+  };
+}
+
+function formatUnknownEntries(error: unknown): string {
+  if (!(error instanceof RuntimeScopeOwnedError) || !error.unknownEntries?.length) return '';
+  return ` (unknown entries: ${error.unknownEntries.join(', ')})`;
 }

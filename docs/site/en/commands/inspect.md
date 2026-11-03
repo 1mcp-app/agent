@@ -17,6 +17,8 @@ head:
 
 Inspect servers or tools from a running 1MCP `serve` instance.
 
+Reuse known tool schemas within the session, including across projects, when the tool contract is unchanged. Keep project-specific instructions, readiness, authorization, and target selection current. Refresh server and tool inspection when information is missing, capabilities change, preparation completes, or relevant failures occur. Never automatically replay failed tool calls.
+
 ## Synopsis
 
 ```bash
@@ -25,7 +27,7 @@ npx -y @1mcp/agent inspect [target] [options]
 
 ## Description
 
-The `inspect` command is the discovery and schema step in the CLI workflow. Use it after [`instructions`](./instructions.md) and before [`run`](./run.md).
+The `inspect` command is the discovery and schema step in the CLI workflow. Use it before [`run`](/commands/run) when server or tool information is missing or needs refreshing.
 
 Depending on the target, `inspect` can:
 
@@ -35,15 +37,27 @@ Depending on the target, `inspect` can:
 
 When supported, `inspect` uses the authenticated `/api/v1/inspect` endpoint first and falls back to the MCP protocol when needed. It reports startup states for configured static servers before the first capability snapshot; use [`wait`](/commands/wait) when a script must wait for `connected` with `available: true`.
 
-This is the command that turns the broad inventory from `instructions` into a scoped view. First inspect one server, then inspect one tool, and only then move to execution.
+This is the command that turns the broad inventory from `instructions` into a scoped view. Inspect the server and tool only when their inventory, applicable instructions, capabilities, or schema is missing or needs refreshing. Otherwise, use the known schema while keeping project-specific context current.
+
+Bare `1mcp inspect` returns the current server inventory without starting template backends, refreshing capabilities, or requesting tool lists. Counts come only from current, complete metadata for the visible connections. Text and TOON show `unknown` when a count is unavailable; JSON keeps a numeric `toolCount` and adds `toolCountKnown: false`. An unknown count is not evidence of zero tools. Use `inspect <server>` when you need its current tool inventory. Timeouts and connection failures are reported separately from an unsupported inspect endpoint.
 
 ## Targets
 
 - **Omit target** - List all servers exposed by the running 1MCP instance
-- **`<server>`** - List tools for one server
+- **`<server>`** - List tools for one server; initialize only that template when needed
 - **`<server>/<tool>`** - Inspect a single tool schema
 
+Read a server manual with `1mcp instructions <server>`. Ordinary `inspect` output does not include instruction blocks.
+
 ## Options
+
+### Project selection and ownership
+
+- **`--project <path-or-label>`** — Select a checkout or a project-set member.
+- **`--project-set <file>`** — Load a saved project set.
+- **`--project-owner <file>`** — Override automatic owner lookup with this caller’s own bootstrap credential when required.
+
+See [Project and owner options](/guide/project-checkouts#project-and-owner-options) for shared rules. Supported Codex sessions use their verified owner and assigned project automatically. Claude and hosts without automatic owner lookup must supply their own bootstrap `--project-owner <own-file>`. Keep explicit target overrides consistent across related calls.
 
 ### Connection and Filtering
 
@@ -76,12 +90,12 @@ When the provider or tool is unknown, search the visible inventory before exact 
 1mcp inspect --search 'read a file' --include-descriptions
 1mcp inspect --search read --show-descriptions --format json
 # Read the selected server's applicable instructions, then inspect and invoke.
-1mcp inspect filesystem
+1mcp instructions filesystem
 1mcp inspect filesystem/read_file
 1mcp run filesystem/read_file --args '{"path":"README.md"}'
 ```
 
-If the target is already known, inspect it directly. Reuse current startup instructions supplied by hooks; search does not replace applicable server instructions or exact schema inspection.
+When inspection is needed and the target is already known, inspect it directly. Reuse current startup instructions supplied by hooks; search does not replace applicable server instructions or exact schema inspection.
 
 - **`--search <query>`** searches all visible servers, or only the specified server. Matching is case-insensitive literal substring matching against `server/tool` references.
 - **`--glob`** opts into whole-reference matching with only `*` (zero or more characters) and `?` (one character) as wildcards. Quote patterns to avoid shell expansion; all other punctuation remains literal.

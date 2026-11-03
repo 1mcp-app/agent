@@ -3,6 +3,7 @@ import { formatTimestamp } from '@src/domains/registry/formatters/commonFormatte
 import { GetRegistryStatusArgs } from '@src/domains/registry/mcpToolSchemas.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Arguments, Argv } from 'yargs';
@@ -98,7 +99,7 @@ export async function registryStatusCommand(argv: RegistryStatusCommandArgs): Pr
   } catch (error) {
     logger.error('status.registry.status.command.failed.284cbbf2', { error: error });
     printer.error(`Error getting registry status: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
+    exitProductCommand(1);
   } finally {
     // Cleanup resources to ensure process exits
     cleanupRegistryHandler();

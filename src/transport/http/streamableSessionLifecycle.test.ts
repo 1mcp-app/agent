@@ -85,6 +85,63 @@ describe('StreamableSessionLifecycle', () => {
     });
   });
 
+  it('rejects a different grant before accessing an active session', async () => {
+    const transport = createMockTransport('owned-session');
+    serverManager.getTransport.mockReturnValue(transport);
+    sessionRepository.getSessionData.mockReturnValue({
+      authorizationBinding: { clientId: 'owner', resource: 'http://localhost:3050/', scopes: ['tag:files'] },
+    });
+
+    const result = await lifecycle.resolveExistingSession('owned-session', {
+      clientId: 'other',
+      resource: 'http://localhost:3050/',
+      scopes: ['tag:search'],
+    });
+
+    expect(result.status).toBe(StreamableSessionStatus.Missing);
+    expect(sessionRepository.updateAccess).not.toHaveBeenCalled();
+    expect(serverManager.connectTransport).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { clientId: 'other', resource: 'http://localhost:3050/', scopes: ['tag:files'] },
+    { clientId: 'owner', resource: 'https://other.example/', scopes: ['tag:files'] },
+    { clientId: 'owner', resource: 'http://localhost:3050/', scopes: [] },
+    { clientId: 'owner', resource: 'http://localhost:3050/', scopes: ['tag:files', 'tag:search'] },
+    null,
+  ])('rejects changed or missing authorization on direct restoration: %j', async (binding) => {
+    sessionRepository.getSessionData.mockReturnValue({
+      authorizationBinding: { clientId: 'owner', resource: 'http://localhost:3050/', scopes: ['tag:files'] },
+      initializeResponse: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        serverInfo: { name: 'test', version: '1' },
+      },
+    });
+    const result = await lifecycle.restoreSession('owned-session', binding);
+    expect(result).toEqual({ transport: null, errorType: StreamableSessionRestoreErrorType.NotFound });
+    expect(serverManager.connectTransport).not.toHaveBeenCalled();
+    expect(sessionRepository.get).not.toHaveBeenCalled();
+    expect(sessionRepository.updateAccess).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    undefined,
+    {},
+    { clientId: 'owner', resource: 'invalid', scopes: ['tag:files'] },
+    { clientId: 'owner', resource: 'http://localhost:3050/', scopes: 'tag:files' },
+  ])('rejects missing or malformed persisted bindings without touching the active transport: %j', async (stored) => {
+    serverManager.getTransport.mockReturnValue(createMockTransport('owned-session'));
+    sessionRepository.getSessionData.mockReturnValue({ authorizationBinding: stored });
+    const result = await lifecycle.resolveExistingSession('owned-session', {
+      clientId: 'owner',
+      resource: 'http://localhost:3050/',
+      scopes: ['tag:files'],
+    });
+    expect(result.status).toBe(StreamableSessionStatus.Missing);
+    expect(sessionRepository.updateAccess).not.toHaveBeenCalled();
+  });
+
   it('returns an active session and records access when a streamable transport is already connected', async () => {
     const transport = createMockTransport('active-session');
     serverManager.getTransport.mockReturnValue(transport);

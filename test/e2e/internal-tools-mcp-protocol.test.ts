@@ -12,6 +12,8 @@ import { resolve } from 'path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { createTestProcessEnvironment } from '../../scripts/test-process-environment.mjs';
+
 // Simple MCP client implementation for testing
 class SimpleMcpClient {
   private process: ChildProcess;
@@ -21,7 +23,7 @@ class SimpleMcpClient {
 
   constructor(config: { command: string; args: string[]; env?: Record<string, string> }) {
     this.process = spawn(config.command, config.args, {
-      env: { ...process.env, ...config.env },
+      env: createTestProcessEnvironment(config.env),
     });
 
     this.process.stdout?.on('data', (data) => {

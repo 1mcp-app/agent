@@ -67,6 +67,8 @@ The setup examples were tested on macOS 26.6.2 arm64 with Node.js 26.4.0, CodeGr
 
 ## See also
 
+For a workflow across repositories and Git worktrees, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
+
 - [Backend preparation](/guide/backend-preparation) — current support, supplied recipes, and preparation progress.
 - [Project checkouts](/guide/project-checkouts) — target selection and authorization.
 - [mcp install](/commands/mcp/install) — registry installation.

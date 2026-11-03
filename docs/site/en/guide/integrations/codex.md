@@ -35,9 +35,10 @@ CLI mode is the 1MCP workflow for instruction, discovery, and invocation without
 1mcp cli-setup --codex
 ```
 
-The command installs the 1MCP Codex bootstrap files and prints the required Codex `config.toml` hook and sandbox change. Apply the printed snippet before starting a new Codex session. Keep the session workflow explicit:
+The command installs the 1MCP Codex bootstrap files and prints the required Codex `config.toml` hook and sandbox change. Apply the printed snippet before starting a new Codex session. Enable and trust the hooks, then verify that startup delivers guidance and a private owner credential. The AI agent uses the following flow with automatic owner and assigned-project lookup. Hosts without supported automatic lookup add their own bootstrap `--project-owner <own-file>`. Use explicit project selectors only to override the assigned default:
 
 ```bash
+# Only if current target guidance is missing or needs refreshing.
 1mcp instructions
 1mcp inspect <server>
 1mcp inspect <server>/<tool>
@@ -95,6 +96,6 @@ curl http://localhost:3050/health
 1mcp mcp status
 ```
 
-For direct HTTP or proxy mode, start a new Codex session and inspect the configured MCP server. For CLI mode, run `1mcp instructions` and follow the returned server and tool inspection path. If the runtime uses authentication, configure the appropriate MCP client authentication for the endpoint; proxy and CLI mode do not bypass that runtime policy.
+For direct HTTP or proxy mode, start a new Codex session and inspect the configured MCP server. For CLI mode, verify that startup delivered guidance and an owner credential, then ask the agent to inspect and call a tool. Fetch `instructions` only if guidance is missing or needs refreshing. For multiple checkouts, follow [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions). If the runtime uses authentication, configure the appropriate MCP client authentication for the endpoint; proxy and CLI mode do not bypass that runtime policy.
 
 Related guides: [CLI Mode](/guide/integrations/cli-mode), [Proxy Command](/commands/proxy), and [Authentication](/guide/advanced/authentication).

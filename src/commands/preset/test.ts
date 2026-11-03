@@ -2,6 +2,7 @@ import { initializeConfigContext } from '@src/commands/shared/baseConfigUtils.js
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
 import printer from '@src/utils/ui/printer.js';
 
@@ -41,7 +42,7 @@ export async function testCommand(argv: TestArguments): Promise<void> {
   } catch (error) {
     logger.error('test.preset.test.command.failed.aa4ea1b8', { error: error });
     printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 

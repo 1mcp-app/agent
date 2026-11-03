@@ -215,6 +215,22 @@ describe('TransportFactory', () => {
       );
     });
 
+    it('invalidates OAuth credential identity when either explicit compatibility setting changes', () => {
+      const fingerprints: string[] = [];
+      for (const oauth of [
+        {},
+        { insecureAllowIncompleteMetadata: true },
+        { privateNetworkOrigins: ['https://private.example'] },
+      ]) {
+        const backend: MCPServerParams = { type: 'http', url: 'https://private.example/mcp', oauth };
+        vi.mocked(transportConfigSchema.parse).mockReturnValueOnce(backend);
+        createTransports({ backend });
+        const providerConfig = vi.mocked(SDKOAuthClientProvider).mock.calls.at(-1)![1];
+        fingerprints.push(providerConfig.authority!.configuration);
+      }
+      expect(new Set(fingerprints).size).toBe(3);
+    });
+
     it('should create OAuth providers for HTTP-based transports', () => {
       const config: Record<string, MCPServerParams> = {
         'sse-server': {
@@ -223,6 +239,8 @@ describe('TransportFactory', () => {
           protocolVersion: 'legacy',
           oauth: {
             clientId: 'test-client-id',
+            insecureAllowIncompleteMetadata: true,
+            privateNetworkOrigins: ['https://private.example'],
           },
         },
         'http-server': {
@@ -244,6 +262,8 @@ describe('TransportFactory', () => {
           autoRegister: true,
           redirectUrl: 'http://localhost:3000/oauth/callback/sse-server',
           clientId: 'test-client-id',
+          insecureAllowIncompleteMetadata: true,
+          privateNetworkOrigins: ['https://private.example'],
           legacy: true,
           authority: expect.objectContaining({
             owner: expect.any(String),

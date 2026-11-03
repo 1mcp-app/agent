@@ -318,7 +318,12 @@ export class ConnectionManager {
     };
 
     const connectionId = sessionId as LegacyConnectionId;
-    const adapter = new LegacySdkServerAdapter(connectionId, server, transport);
+    const adapter = new LegacySdkServerAdapter(
+      connectionId,
+      server,
+      transport,
+      opts.requestOnly || opts.canonicalSchemaProjection,
+    );
     const configSnapshot = snapshotInboundConfig(opts, mergedContext);
     const serverInfo: LegacyInboundConnection = {
       connectionId,

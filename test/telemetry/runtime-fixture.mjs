@@ -11,6 +11,8 @@ import { promisify } from 'node:util';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
+import { createTestProcessEnvironment, isolatedTestEnvironment } from '../../scripts/test-process-environment.mjs';
+
 export async function waitUntil(predicate, message, timeoutMs = 10000, intervalMs = 50) {
   const deadline = Date.now() + timeoutMs;
   while (!(await predicate())) {
@@ -55,19 +57,22 @@ export async function startRuntime({
       },
     }),
   );
-  const env = {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !key.startsWith('OTEL_') && !key.startsWith('ONE_MCP_')),
-    ),
-    OTEL_TRACES_EXPORTER: 'otlp',
-    OTEL_METRICS_EXPORTER: 'otlp',
-    OTEL_LOGS_EXPORTER: 'none',
-    OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
-    OTEL_TRACES_SAMPLER: 'always_on',
-    OTEL_BSP_SCHEDULE_DELAY: '10',
-    OTEL_METRIC_EXPORT_INTERVAL: '5000',
-    ...extra,
-  };
+  const isolated = isolatedTestEnvironment(
+    Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('OTEL_'))),
+  );
+  const env = createTestProcessEnvironment(
+    {
+      OTEL_TRACES_EXPORTER: 'otlp',
+      OTEL_METRICS_EXPORTER: 'otlp',
+      OTEL_LOGS_EXPORTER: 'none',
+      OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
+      OTEL_TRACES_SAMPLER: 'always_on',
+      OTEL_BSP_SCHEDULE_DELAY: '10',
+      OTEL_METRIC_EXPORT_INTERVAL: '5000',
+      ...extra,
+    },
+    isolated.env,
+  );
   if (probe) {
     env.TELEMETRY_ACCEPTANCE_PROBE = probe;
     env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ''} --import=${pathToFileURL(resolve('scripts/telemetry/runtime-probe.mjs')).href}`;
@@ -80,10 +85,10 @@ export async function startRuntime({
         [...prefix, ...args, '--config', config, '--config-dir', directory],
         {
           cwd: directory,
-          env,
           timeout: 10000,
           maxBuffer: 1024 * 1024,
           ...options,
+          env: createTestProcessEnvironment(options.env, env),
         },
       );
     } catch (error) {
@@ -118,7 +123,11 @@ export async function startRuntime({
         child.kill('SIGKILL');
         await waitUntil(exited, 'Runtime could not be reaped', 2000);
       }
-      await rm(directory, { recursive: true, force: true });
+      try {
+        await rm(directory, { recursive: true, force: true });
+      } finally {
+        isolated.cleanup();
+      }
     }
   }
   try {
@@ -155,7 +164,7 @@ export async function startRuntime({
         '--log-file',
         log,
       ],
-      { cwd: directory, env, stdio: ['ignore', 'ignore', 'pipe'] },
+      { cwd: directory, env: createTestProcessEnvironment({}, env), stdio: ['ignore', 'ignore', 'pipe'] },
     );
     let spawnError;
     child.once('error', (error) => {

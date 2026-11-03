@@ -15,6 +15,8 @@ head:
 
 如果你还没有跑通第一次安装或上手流程，先看[快速入门](/zh/guide/quick-start)。
 
+客户端启动钩子通过 `bootstrap` 交付运行时指引。仅在缺少指引或需要刷新时单独运行 `instructions`。检出目录选择和调用方凭证见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。
+
 ## 快速参考
 
 ### 主要命令
@@ -25,12 +27,15 @@ head:
 - **`inspect`** - 列出已暴露的服务器或查看工具 schema
 - **`run`** - 通过运行中的 1MCP 服务器调用工具
 - **`cli-setup`** - 安装 Codex 或 Claude 的引导 hooks 和启动文档
+- **`project`** - 准备后端，释放绑定，排空、检查或恢复检出目录准入
 - **`auth`** - 管理受保护服务器的认证配置
 - **`target`** - 管理已验证的 Runtime Target Context
 - **`admin`** - 管理 Runtime Target Context 的 CLI Admin 会话
 - **`app`** - 管理桌面应用程序 MCP 配置
 - **`mcp`** - 管理 MCP 服务器配置
 - **`preset`** - 管理用于动态过滤的服务器预设
+
+- **[`telemetry`](/zh/commands/telemetry)** - 查看、开启、关闭或重置本地产品使用采集
 
 ### 全局选项
 
@@ -63,7 +68,7 @@ npx -y @1mcp/agent inspect --help
 
 ### CLI 工作流命令
 
-当你希望 agent 或终端会话通过运行中的 `1mcp serve` 实例发现并调用工具时，请按以下命令顺序使用：
+独立终端会话可按以下命令通过运行中的 `1mcp serve` 实例发现并调用工具。使用钩子的智能体会话应复用 bootstrap 交付的指引，仅在缺少指引或需要刷新时运行 `instructions`。使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。
 
 ```bash
 npx -y @1mcp/agent instructions
@@ -76,7 +81,8 @@ npx -y @1mcp/agent run context7/query-docs --args '{"libraryId":"/mongodb/docs",
 - **[inspect](/zh/commands/inspect)** - 发现工具并查看 schema
 - **[run](/zh/commands/run)** - 执行工具调用
 - **[wait](/zh/commands/wait)** - 等待已配置静态服务器连接且可用
-- **[prepare](/zh/commands/prepare)** - 检查就绪状态并管理检出目录的准备任务
+- **[project prepare](/zh/commands/project/prepare)** - 检查就绪状态并管理检出目录的准备任务
+- **[project 生命周期](/zh/commands/project/)** - 释放调用方绑定、检查阻塞项、排空和恢复检出目录准入
 - **[cli-setup](/zh/commands/cli-setup)** - 安装 Codex 或 Claude 的引导文件
 - **[auth](/zh/commands/auth)** - 管理受保护服务器的认证配置
 

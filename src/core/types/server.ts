@@ -55,6 +55,7 @@ export interface InboundConnectionConfig extends TemplateConfig {
   readonly canonicalSchemaProjection?: boolean;
   readonly presetName?: string;
   readonly context?: {
+    owner?: import('@src/core/context/projectOwner.js').ProjectOwnerCredential;
     project?: ContextNamespace;
     projectSet?: ProjectSet;
     user?: UserContext;

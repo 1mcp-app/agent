@@ -57,7 +57,7 @@ service:
 
 ## 检查结果
 
-在 Collector 中确认收到 `service.name=1mcp`（或配置的服务名）的追踪和指标。默认追踪批次延迟为 5 秒，指标间隔为 60 秒，因此启动后不会立即出现全部信号。`1mcp serve status` 和已认证的 Admin Runtime Health 提供只读遥测状态；公共 readiness 不由遥测决定。
+在 Collector 中确认收到 `service.name=1mcp`（或配置的服务名）的追踪和指标。默认追踪批次延迟为 5 秒，指标间隔为 60 秒，因此启动后不会立即出现全部信号。`1mcp serve --status` 和已认证的 Admin Runtime Health 提供只读遥测状态；公共 readiness 不由遥测决定。
 
 | 状态                   | 含义                                             |
 | ---------------------- | ------------------------------------------------ |

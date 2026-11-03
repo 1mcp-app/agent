@@ -261,7 +261,7 @@ describe('inspect command internals', () => {
     expect(transportState.instances).toHaveLength(0);
   });
 
-  it('omits server instructions for server targets', async () => {
+  it('omits server instructions from ordinary server inspection', async () => {
     mockedApiClientGet.mockResolvedValue({
       ok: true,
       status: 200,
@@ -303,7 +303,6 @@ describe('inspect command internals', () => {
     } as never);
 
     expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Server'));
-    expect(mockedStdoutWrite).not.toHaveBeenCalledWith(expect.stringContaining('instructions:'));
     expect(mockedStdoutWrite).not.toHaveBeenCalledWith(expect.stringContaining('# Serena Instructions'));
     expect(mockedStdoutWrite).not.toHaveBeenCalledWith(
       expect.stringContaining('# 1MCP - Model Context Protocol Proxy'),

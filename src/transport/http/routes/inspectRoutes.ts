@@ -4,6 +4,10 @@ import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregato
 import { CapabilityCursorCapacityError } from '@src/core/capabilities/capabilityPagination.js';
 import { createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import { readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
+import {
+  isConfiguredToolSnapshotComplete,
+  readConfiguredToolSnapshot,
+} from '@src/core/capabilities/configuredToolSnapshot.js';
 import { InspectCursorError } from '@src/core/capabilities/inspectPagination.js';
 import { inspectSearchOptionsSchema, searchInspectTools } from '@src/core/capabilities/inspectSearch.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
@@ -43,7 +47,7 @@ import {
   summarizeToolSchema,
   type ToolSummary,
 } from './inspectHelpers.js';
-import { ensureRequestContextInitialized } from './inspectRequestContext.js';
+import { ensureRequestContextInitialized, registerHttpRequestContext } from './inspectRequestContext.js';
 
 export {
   buildFilterConfig,
@@ -92,6 +96,48 @@ function isLoadTrackedStaticServer(declaredServers: DeclaredServers, serverName:
   return Boolean(declaredServers.staticServers[serverName] && !declaredServers.staticServers[serverName].disabled);
 }
 
+interface ServerSummaryOptions {
+  includeTemplateInstances?: boolean;
+  bindingId?: string;
+  projectContext?: ContextData;
+  projectPolicies?: readonly InboundConnectionConfig[];
+}
+
+function selectSummaryConnections(
+  filteredConnections: FilteredConnections,
+  serverConfigs: ServerConfigMap,
+  options: ServerSummaryOptions,
+): FilteredConnections {
+  const includeTemplateInstances = options.includeTemplateInstances ?? true;
+  return new Map(
+    Array.from(filteredConnections.entries()).filter(([name]) => {
+      if (!includeTemplateInstances && name.includes(':')) return false;
+      const cleanName = name.includes(':') ? name.split(':')[0] : name;
+      return isProjectBackendVisible(serverConfigs[cleanName], options.projectContext, options.projectPolicies ?? []);
+    }),
+  );
+}
+
+/** Instruction delivery reads scoped metadata without requesting backend capabilities. */
+export function buildInstructionServerSummaries(
+  filteredConnections: FilteredConnections,
+  serverRegistry: ServerRegistry,
+  instructionAggregator: ReturnType<ServerManager['getInstructionAggregator']>,
+  declaredServers: DeclaredServers,
+  filterConfig: ReturnType<typeof buildFilterConfig>,
+  options: ServerSummaryOptions = {},
+): ServerSummary[] {
+  const connections = selectSummaryConnections(filteredConnections, getServerTargetConfigs(declaredServers), options);
+  return summarizeServerState(
+    connections,
+    serverRegistry,
+    instructionAggregator,
+    declaredServers,
+    filterConfig,
+    options,
+  );
+}
+
 export async function buildServerSummaries(
   filteredConnections: FilteredConnections,
   toolRegistry: ToolRegistry | undefined,
@@ -100,22 +146,10 @@ export async function buildServerSummaries(
   instructionAggregator: ReturnType<ServerManager['getInstructionAggregator']>,
   declaredServers: ReturnType<ConfigManager['loadDeclaredServerConfigs']>,
   filterConfig: ReturnType<typeof buildFilterConfig>,
-  options: {
-    includeTemplateInstances?: boolean;
-    bindingId?: string;
-    projectContext?: ContextData;
-    projectPolicies?: readonly InboundConnectionConfig[];
-  } = {},
+  options: ServerSummaryOptions = {},
 ): Promise<ServerSummary[]> {
   const serverConfigs = getServerTargetConfigs(declaredServers);
-  const includeTemplateInstances = options.includeTemplateInstances ?? true;
-  const summaryConnections = new Map(
-    Array.from(filteredConnections.entries()).filter(([name]) => {
-      if (!includeTemplateInstances && name.includes(':')) return false;
-      const cleanName = name.includes(':') ? name.split(':')[0] : name;
-      return isProjectBackendVisible(serverConfigs[cleanName], options.projectContext, options.projectPolicies ?? []);
-    }),
-  );
+  const summaryConnections = selectSummaryConnections(filteredConnections, serverConfigs, options);
   let toolCountByServer: Record<string, number> = {};
 
   if (toolRegistry && !options.bindingId) {
@@ -147,10 +181,68 @@ export async function buildServerSummaries(
     );
   }
 
+  return summarizeServerState(
+    summaryConnections,
+    serverRegistry,
+    instructionAggregator,
+    declaredServers,
+    filterConfig,
+    options,
+    toolCountByServer,
+  );
+}
+
+/** Inventory observes existing scoped metadata; it never starts or queries a backend. */
+export function buildCachedServerSummaries(
+  filteredConnections: FilteredConnections,
+  toolRegistry: ToolRegistry | undefined,
+  serverRegistry: ServerRegistry,
+  instructionAggregator: ReturnType<ServerManager['getInstructionAggregator']>,
+  declaredServers: DeclaredServers,
+  filterConfig: ReturnType<typeof buildFilterConfig>,
+  options: ServerSummaryOptions = {},
+): ServerSummary[] {
+  const configs = getServerTargetConfigs(declaredServers);
+  const connections = selectSummaryConnections(filteredConnections, configs, options);
+  const counts: Record<string, number> = {};
+  // A registry without backend identity or with partial listing metadata cannot prove a count.
+  if (toolRegistry?.isCurrent() && !toolRegistry.getListingMeta()) {
+    const captured = toolRegistry.getConnections();
+    for (const [key, connection] of connections) {
+      if (captured?.get(key) !== connection) continue;
+      const name = key.includes(':') ? key.split(':')[0] : key;
+      if (!isConfiguredToolSnapshotComplete(connection)) continue;
+      const tools = readConfiguredToolSnapshot(connection);
+      if (!tools) continue;
+      const count = filterDisabledTools([...tools], configs, name).length;
+      counts[name] = Math.max(counts[name] ?? 0, count);
+    }
+  }
+  return summarizeServerState(
+    connections,
+    serverRegistry,
+    instructionAggregator,
+    declaredServers,
+    filterConfig,
+    options,
+    counts,
+  );
+}
+
+function summarizeServerState(
+  summaryConnections: FilteredConnections,
+  serverRegistry: ServerRegistry,
+  instructionAggregator: ReturnType<ServerManager['getInstructionAggregator']>,
+  declaredServers: DeclaredServers,
+  filterConfig: ReturnType<typeof buildFilterConfig>,
+  options: ServerSummaryOptions,
+  toolCountByServer?: Record<string, number>,
+): ServerSummary[] {
+  const serverConfigs = getServerTargetConfigs(declaredServers);
   const serverMap = new Map<string, { toolCount: number; hasInstructions: boolean }>();
   for (const [name] of summaryConnections) {
     const cleanName = name.includes(':') ? name.split(':')[0] : name;
-    const toolCount = toolCountByServer[cleanName] ?? toolCountByServer[name] ?? 0;
+    const toolCount = toolCountByServer?.[cleanName] ?? toolCountByServer?.[name] ?? 0;
     const hasInstructions = instructionAggregator?.hasInstructions(cleanName) ?? false;
     const existing = serverMap.get(cleanName);
     if (existing) {
@@ -206,6 +298,7 @@ export async function buildServerSummaries(
       available: state.available,
       loadTracked: isLoadTrackedStaticServer(declaredServers, cleanName),
       toolCount: info.toolCount,
+      ...(toolCountByServer?.[cleanName] !== undefined ? {} : { toolCountKnown: false }),
       hasInstructions: info.hasInstructions,
     });
   }
@@ -299,7 +392,14 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const serverConfigs = getServerTargetConfigs(declaredServers);
 
       if (query.data.search !== undefined) {
-        const requestSessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+        const serverTarget = targetRaw?.trim() || undefined;
+        const requestSessionId = await ensureRequestContextInitialized(
+          serverManager,
+          req,
+          res,
+          filterConfig,
+          serverTarget,
+        );
         const connections = serverManager.getClients();
         const filtered = FilteringService.getFilteredConnections(connections, filterConfig);
         const registry = serverManager.getServerRegistry();
@@ -310,7 +410,6 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         ]);
         const sources: Array<{ server: string; status: string; available: boolean }> = [];
         const candidates: Array<[string, string]> = [];
-        const serverTarget = targetRaw?.trim() || undefined;
         for (const name of [...names].sort()) {
           if (serverTarget && name !== serverTarget) continue;
           const config = serverConfigs[name];
@@ -398,7 +497,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
 
       // No target: list all filtered servers
       if (!targetRaw) {
-        const bindingId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+        const bindingId = await registerHttpRequestContext(serverManager, req, res, filterConfig);
         const templateManager = serverManager.getTemplateServerManager?.();
         const projectContext = bindingId ? templateManager?.getBindingContext?.(bindingId) : undefined;
         const scopedConnections = createConnectionResolver(
@@ -408,10 +507,9 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         const filteredConnections = FilteringService.getFilteredConnections(scopedConnections, filterConfig);
         const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 
-        const servers = await buildServerSummaries(
+        const servers = buildCachedServerSummaries(
           filteredConnections,
-          lazyOrchestrator?.getToolRegistry(),
-          lazyOrchestrator?.getCapabilityAggregator(),
+          lazyOrchestrator?.peekToolRegistry(),
           serverManager.getServerRegistry(),
           instructionAggregator,
           declaredServers,
@@ -424,12 +522,19 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           },
         );
 
-        const serverInstructions = Object.fromEntries(
-          servers.flatMap((server) => {
-            const instructions = instructionAggregator?.getServerInstructions(server.server);
-            return instructions ? [[server.server, instructions]] : [];
-          }),
-        );
+        const serverInstructions: Record<string, string> = {};
+        for (const server of servers) {
+          const connection = resolveConnectionByServerName(filteredConnections, server.server);
+          const outboundKey = [...filteredConnections].find(([, candidate]) => candidate === connection)?.[0];
+          let instructions: string | undefined;
+          if (outboundKey) {
+            instructions = instructionAggregator?.getEffectiveServerInstructions(outboundKey, server.server);
+          } else if (server.type !== 'template') {
+            instructions = instructionAggregator?.getEffectiveServerInstructions(server.server, server.server);
+          }
+          server.hasInstructions = Boolean(instructions);
+          if (instructions) serverInstructions[server.server] = instructions;
+        }
 
         const payload: InspectServersPayload = {
           kind: 'servers',
@@ -440,7 +545,18 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         return;
       }
 
-      const requestSessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+      const target = parseTarget(targetRaw);
+      if (!target) {
+        res.status(400).json({ error: 'Invalid target format. Use <server> or <server>/<tool>.' });
+        return;
+      }
+      const requestSessionId = await ensureRequestContextInitialized(
+        serverManager,
+        req,
+        res,
+        filterConfig,
+        target.serverName,
+      );
       const templateManager = serverManager.getTemplateServerManager?.();
       const projectContext = requestSessionId ? templateManager?.getBindingContext?.(requestSessionId) : undefined;
       const projectPolicies = requestSessionId ? (templateManager?.getBindingPolicies?.(requestSessionId) ?? []) : [];
@@ -483,11 +599,6 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
               : undefined,
         });
       };
-      const target = parseTarget(targetRaw);
-      if (!target) {
-        res.status(400).json({ error: 'Invalid target format. Use <server> or <server>/<tool>.' });
-        return;
-      }
       if (!isProjectBackendVisible(serverConfigs[target.serverName], projectContext, projectPolicies)) {
         res.status(404).json({ error: `Server not available for this Project Selection: ${target.serverName}` });
         return;
@@ -598,7 +709,13 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         loadingInfo,
       );
       const type = adapter?.type ?? (declaredTemplateConfig ? 'template' : 'external');
-      const instructions = instructionAggregator?.getServerInstructions(serverName) ?? null;
+      const outboundKey = [...filteredConnections].find(([, candidate]) => candidate === connection)?.[0];
+      let instructions: string | null = null;
+      if (outboundKey) {
+        instructions = instructionAggregator?.getEffectiveServerInstructions(outboundKey, serverName) ?? null;
+      } else if (type !== 'template') {
+        instructions = instructionAggregator?.getEffectiveServerInstructions(serverName, serverName) ?? null;
+      }
       const loadTracked = isLoadTrackedStaticServer(declaredServers, serverName);
 
       // Static startup targets remain inspectable before the first atomic

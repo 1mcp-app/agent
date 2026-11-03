@@ -7,6 +7,7 @@ import {
   getBackendPreparationCoordinator,
   PreparationAuthorizationChangedError,
 } from '@src/application/backendPreparationCoordinator.js';
+import { getVerifiedProjectOwner } from '@src/application/projectLifecycle.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import { requireProjectTarget } from '@src/domains/project-selection/projectSelection.js';
@@ -95,6 +96,7 @@ export function createPreparationHandler(
         authorization.runtimeScopeId,
         auth ? [auth.clientId, auth.token, [...auth.grantedScopes].sort(), [...auth.grantedTags].sort()] : undefined,
         filterConfig,
+        getVerifiedProjectOwner(authorization.context)?.ownerId,
       );
       const coordinator = ports.coordinator?.() ?? getBackendPreparationCoordinator(serverManager);
       const grant = await coordinator.resolveGrant({

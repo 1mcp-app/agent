@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import { dirname, join } from 'path';
 
+import { createTestProcessEnvironment } from '../../../scripts/test-process-environment.mjs';
 import { CommandTestEnvironment } from './CommandTestEnvironment.js';
 
 export interface CommandExecutionOptions {
@@ -224,11 +225,11 @@ export class CliTestRunner {
     const timeout = options.timeout || 10000; // 10 second default timeout
 
     return new Promise((resolve) => {
-      const env = {
+      const env = createTestProcessEnvironment({
         ...process.env,
         ...this.environment.getEnvironmentVariables(),
         ...options.envOverrides,
-      };
+      });
 
       const child = spawn('node', [this.cliPath, ...args], {
         env,
@@ -402,11 +403,11 @@ export class CliTestRunner {
     }
 
     return new Promise((resolve) => {
-      const env = {
+      const env = createTestProcessEnvironment({
         ...process.env,
         ...this.environment.getEnvironmentVariables(),
         ...envOverrides, // Override with custom env vars
-      };
+      });
 
       const child = spawn('node', [this.cliPath, ...args], {
         env,

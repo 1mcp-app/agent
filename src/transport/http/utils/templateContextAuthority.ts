@@ -94,6 +94,7 @@ export function authorizeRequestTemplateContext(
 export function redactContextForAudit(context: ContextData): Record<string, unknown> {
   return {
     ...context,
+    ...(context.owner ? { owner: '[REDACTED]' } : {}),
     project: {
       ...context.project,
       custom: redactRecord(context.project.custom),

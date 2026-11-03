@@ -1,3 +1,7 @@
+import {
+  type ProjectSelectionOptions,
+  withProjectSelectionOptions,
+} from '@src/commands/shared/projectSelectionOptions.js';
 import { GlobalOptions, withGlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
@@ -9,7 +13,7 @@ import type { Argv } from 'yargs';
  * 1MCP HTTP server instance. Auto-discovers the server using PID file or port scanning.
  */
 
-export interface ProxyOptions extends GlobalOptions {
+export interface ProxyOptions extends GlobalOptions, ProjectSelectionOptions {
   url?: string;
   context?: string;
   timeout?: number;
@@ -26,7 +30,7 @@ export function setupProxyCommand(yargs: Argv): Argv {
     'proxy',
     'Connect STDIO clients to an HTTP server',
     (yargs) => {
-      return yargs
+      return withProjectSelectionOptions(yargs)
         .option('url', {
           alias: 'u',
           describe: 'Override auto-detected 1MCP server URL',

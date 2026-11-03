@@ -7,15 +7,19 @@ description: 使用 inspect 命令列出服务器、检查服务器工具，并�
 
 检查运行中的 1MCP `serve` 实例所暴露的服务器和工具。
 
+工具契约未变化时，可在当前会话内复用已知的工具参数结构，包括跨项目调用。项目专属指令、就绪状态、授权和目标选择仍需保持有效。信息缺失、能力变化、准备完成或发生相关失败时，应重新检查服务器和工具。不得自动重放失败的工具调用。
+
 ## 概要
 
 ```bash
 npx -y @1mcp/agent inspect [target] [选项]
 ```
 
+不指定目标的 `1mcp inspect` 直接返回当前服务器清单，不启动模板后端、不刷新能力，也不请求工具列表。工具数量仅来自当前可见连接的有效、完整元数据。数量未知时，文本和 TOON 显示 `unknown`；JSON 保留数值字段 `toolCount`，并返回 `toolCountKnown: false`。未知不表示零个工具。需要查询某个服务器的当前工具清单时，使用 `inspect <server>`。请求超时和连接失败会单独报告，不再误报为服务器不支持检查端点。
+
 ## 描述
 
-`inspect` 是 CLI 工作流中的发现和 schema 查看步骤。通常在 [`instructions`](./instructions.md) 之后、[`run`](./run.md) 之前使用。
+`inspect` 是 CLI 工作流中的发现和 schema 查看步骤。服务器或工具信息缺失或需要刷新时，在 [`run`](/zh/commands/run) 之前使用。
 
 根据 target 的不同，`inspect` 可以：
 
@@ -25,15 +29,25 @@ npx -y @1mcp/agent inspect [target] [选项]
 
 支持时，`inspect` 会优先使用已认证的 `/api/v1/inspect` 端点，否则回退到 MCP 协议。它会在首个能力快照发布前报告已配置静态服务器的启动状态；脚本需要等待 `connected` 且 `available: true` 时请使用 [`wait`](/zh/commands/wait)。
 
-它的核心作用，是把 `instructions` 提供的全局清单进一步收窄成一个 server，或者一个具体 tool 的 schema。先检查 server，再检查 tool，最后才进入执行。
+它的核心作用，是把 `instructions` 提供的全局清单进一步收窄成一个 server，或者一个具体 tool 的 schema。仅在清单、适用指令、能力或工具参数结构缺失或需要刷新时检查服务器和工具；否则复用已知参数结构，并保持项目专属上下文有效。
 
 ## Target 形式
 
 - **省略 target** - 列出运行中的 1MCP 实例暴露的所有服务器
-- **`<server>`** - 列出某个服务器的工具
+- **`<server>`** - 列出某个服务器的工具；需要初始化时，仅启动所选模板
 - **`<server>/<tool>`** - 查看单个工具的 schema
 
+使用 `1mcp instructions <server>` 阅读服务器指令。普通 `inspect` 输出不包含指令块。
+
 ## 选项
+
+### 项目选择与所有者
+
+- **`--project <path-or-label>`** — 选择检出目录或项目集合成员。
+- **`--project-set <file>`** — 加载保存的项目集合。
+- **`--project-owner <file>`** — 需要时使用当前调用方自己的 bootstrap 凭证，覆盖自动所有者查找。
+
+共用规则见[项目与所有者选项](/zh/guide/project-checkouts#项目与所有者选项)。受支持的 Codex 会话自动使用已验证所有者和分配项目。Claude 和不支持自动查找所有者的宿主需提供自己的 bootstrap `--project-owner <own-file>`。相关调用应保持显式目标覆盖一致。
 
 ### 连接与过滤
 
@@ -66,12 +80,12 @@ npx -y @1mcp/agent inspect [target] [选项]
 1mcp inspect --search 'read a file' --include-descriptions
 1mcp inspect --search read --show-descriptions --format json
 # 阅读所选服务器的适用指令，然后查看 schema 并调用。
-1mcp inspect filesystem
+1mcp instructions filesystem
 1mcp inspect filesystem/read_file
 1mcp run filesystem/read_file --args '{"path":"README.md"}'
 ```
 
-已知目标时直接检查即可。复用 hooks 已提供的当前启动指令；搜索不能替代适用的服务器指令或确切工具的 schema 检查。
+需要检查且目标已知时，可跳过搜索并直接检查。复用 hooks 已提供的当前启动指令；搜索不能替代适用的服务器指令或确切工具的 schema 检查。
 
 - **`--search <query>`** 搜索所有可见服务器，或指定服务器。默认对 `server/tool` 引用执行不区分大小写的字面子串匹配。
 - **`--glob`** 显式启用整段匹配，仅支持 `*`（任意数量字符）与 `?`（单个字符）通配符。请给模式加引号，避免 shell 展开；其他标点仍按字面匹配。

@@ -211,6 +211,36 @@ describe('requestContextPreparation', () => {
     expect(deps.registerTemplateAdapter).not.toHaveBeenCalled();
   });
 
+  it('starts only the selected template and leaves an unrelated backend untouched', async () => {
+    deps.loadRenderedTemplates = vi.fn().mockResolvedValue({
+      selected: templateConfig,
+      unrelated: { ...templateConfig, args: ['slow-server.js'] },
+    });
+
+    const result = await prepareRequestContext({ deps, context, filterConfig: {}, serverName: 'selected' });
+
+    expect(result).toMatchObject({ templateNames: ['selected'], createdTemplateNames: ['selected'] });
+    expect(deps.refreshCapabilities).not.toHaveBeenCalled();
+    expect(deps.registerTemplateAdapter).toHaveBeenCalledExactlyOnceWith('selected', templateConfig);
+    expect(deps.createTemplateBasedServers).toHaveBeenCalledWith(
+      createProjectBindingId('derived-session', context),
+      expect.anything(),
+      expect.anything(),
+      { mcpTemplates: { selected: templateConfig } },
+      expect.any(Map),
+      {},
+      'ephemeral',
+    );
+  });
+
+  it('does not start templates when the selected server is static', async () => {
+    const result = await prepareRequestContext({ deps, context, filterConfig: {}, serverName: 'static' });
+
+    expect(result).toMatchObject({ templateNames: [], createdTemplateNames: [] });
+    expect(deps.createTemplateBasedServers).not.toHaveBeenCalled();
+    expect(deps.refreshCapabilities).not.toHaveBeenCalled();
+  });
+
   it('defensively excludes rendered-disabled templates from preparation', async () => {
     deps.loadRenderedTemplates = vi.fn().mockResolvedValue({
       disabled: { ...templateConfig, disabled: true },

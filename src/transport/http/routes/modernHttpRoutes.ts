@@ -70,6 +70,7 @@ import {
 import type { GatewayInteractionRequest } from '@src/gateway/ports/outboundEraAdapter.js';
 import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { withRequestProgress } from '@src/sdk/contracts/requestProgress.js';
+import { withHttpProjectAdmission } from '@src/transport/http/middlewares/projectAdmission.js';
 import {
   type AuthInfo,
   getAuthInfo,
@@ -99,6 +100,7 @@ import {
   watchModernInteractionBinding,
   withModernInteractionBinding,
 } from './modernInteractionBinding.js';
+import { observeModernProduct } from './modernProductTelemetry.js';
 import {
   cancelModernSubscription,
   closeModernSubscriptions,
@@ -479,7 +481,7 @@ export function setupModernHttpRoutes(
 
   router.get(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, rejectUnsupportedTransportMethod);
   router.delete(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, rejectUnsupportedTransportMethod);
-  router.post(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, async (req: Request, res: Response) => {
+  const handleProjectPost = withHttpProjectAdmission(serverManager, async (req: Request, res: Response) => {
     const disconnect = bindDisconnectAbort(req, res);
     const responseComplete = new Promise<void>((resolve) => {
       const complete = () => {
@@ -610,7 +612,7 @@ export function setupModernHttpRoutes(
               overloaded.setRequestHandler('tools/call', async () => {
                 throw requestCapacityError();
               });
-              return overloaded;
+              return observeModernProduct(overloaded);
             }
             activeModernToolHeaderAdmissions++;
             ownsHeaderAdmission = true;
@@ -642,7 +644,7 @@ export function setupModernHttpRoutes(
                   { capabilities: { tools: {} } },
                 );
                 invalid.setRequestHandler('tools/call', async () => schemaInputErrorResult());
-                return invalid;
+                return observeModernProduct(invalid);
               }
 
               if (preparation.kind === 'blocked') {
@@ -651,7 +653,7 @@ export function setupModernHttpRoutes(
                   { capabilities: { tools: {} } },
                 );
                 pending.setRequestHandler('tools/call', async () => preparation.result as never);
-                return pending;
+                return observeModernProduct(pending);
               }
               if (preparation.kind === 'ready' && !(await preparation.revalidate())) {
                 const changed = new Server(
@@ -661,7 +663,7 @@ export function setupModernHttpRoutes(
                 changed.setRequestHandler('tools/call', async () => {
                   throw new ProtocolError(-32602, 'Preparation authorization changed');
                 });
-                return changed;
+                return observeModernProduct(changed);
               }
             }
           }
@@ -908,7 +910,7 @@ export function setupModernHttpRoutes(
               ),
             );
           }
-          return product;
+          return observeModernProduct(product);
         },
         { legacy: 'reject', responseMode },
       );
@@ -962,4 +964,5 @@ export function setupModernHttpRoutes(
       disconnect.cleanup();
     }
   });
+  router.post(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, handleProjectPost);
 }

@@ -1,14 +1,28 @@
 import type { GlobalOptions } from '@src/globalOptions.js';
+import { finishProductCommand, runProductCommand } from '@src/productTelemetry/commandScope.js';
 
-export async function runCliCommand<T extends GlobalOptions & { json?: boolean; format?: string }>(
-  argv: T,
-  fn: (argv: T) => Promise<void>,
-): Promise<void> {
-  const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
-  configureGlobalLogger(argv, 'stdio');
+import { productCommandFamily } from './productCommandFamily.js';
+
+export async function runCliCommand<
+  T extends GlobalOptions & { json?: boolean; format?: string; _?: readonly (string | number)[] },
+>(argv: T, fn: (argv: T) => Promise<void>, productCommand?: 'inspect'): Promise<void> {
+  const family = productCommand ?? productCommandFamily(Array.isArray(argv._) ? argv._[0] : undefined);
+  const execute = async () => {
+    const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
+    configureGlobalLogger(argv, 'stdio');
+    await presentCommandResult(argv, fn);
+  };
+  if (family) return runProductCommand(family, execute);
+  return execute();
+}
+
+async function presentCommandResult<
+  T extends GlobalOptions & { json?: boolean; format?: string; _?: readonly (string | number)[] },
+>(argv: T, fn: (argv: T) => Promise<void>): Promise<void> {
   try {
     await fn(argv);
   } catch (error) {
+    finishProductCommand(1);
     const message = error instanceof Error ? error.message : String(error);
     const exitCode = exitCodeForError(error);
     if (hasJsonOutput(argv)) {

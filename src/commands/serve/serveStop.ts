@@ -15,6 +15,7 @@ import {
   getPidFilePath,
   isProcessAlive,
   PidFileReadError,
+  pidRecordMatchesGeneration,
   readPidFile,
   type ServerPidInfo,
 } from '@src/core/server/pidFileManager.js';
@@ -127,8 +128,32 @@ function cleanupSupervisorLaunchConfig(configDir: string, expectedSupervisorPid:
   return cleanupBackgroundLaunchConfig(configDir, owner.claimId, { removeStaleGeneration: true });
 }
 
-function runtimeMetadataMatches(info: ServerPidInfo | null, pid: number | null, identity?: ProcessIdentity): boolean {
-  return !info || (info.pid === pid && JSON.stringify(info.processIdentity) === JSON.stringify(identity));
+/** Supervisor state only proves a conflict when it carries contrasting evidence. */
+function runtimeMetadataConflicts(info: ServerPidInfo | null, pid: number | null, identity?: ProcessIdentity): boolean {
+  if (!info) return false;
+  if (info.pid !== pid) return true;
+  // Identity repair can add birth evidence to the same runtime generation
+  // while the stop is in flight, so an absent expected identity is unknown
+  // evidence — not proof that the record was replaced.
+  return identity !== undefined && JSON.stringify(info.processIdentity) !== JSON.stringify(identity);
+}
+
+/**
+ * Verify the final record against the generation observed before termination.
+ * Without that snapshot, only a known identity can prove the record still
+ * belongs to the stopped runtime; a numeric-PID match alone must not authorize
+ * deleting metadata a replacement may have written.
+ */
+function runtimeMetadataMatches(
+  info: ServerPidInfo | null,
+  pid: number | null,
+  identity: ProcessIdentity | undefined,
+  generation: ServerPidInfo | null,
+): boolean {
+  if (!info) return true;
+  if (info.pid !== pid) return false;
+  if (generation) return pidRecordMatchesGeneration(info, generation);
+  return identity !== undefined && JSON.stringify(info.processIdentity) === JSON.stringify(identity);
 }
 
 function bootstrapSupervisorState(supervisorPid: number): BackgroundSupervisorState {
@@ -258,7 +283,7 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
         initialInfo = readInfo(configDir);
         if (
           supervisorState.runtimePid !== null &&
-          !runtimeMetadataMatches(initialInfo, supervisorState.runtimePid, supervisorState.runtimeIdentity)
+          runtimeMetadataConflicts(initialInfo, supervisorState.runtimePid, supervisorState.runtimeIdentity)
         ) {
           throw new Error('runtime PID metadata conflicts with supervisor state');
         }
@@ -278,8 +303,14 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
       const workerPid = supervisorState.runtimePid ?? initialInfo?.pid ?? null;
       const workerIdentity =
         supervisorState.runtimePid === null ? initialInfo?.processIdentity : supervisorState.runtimeIdentity;
+      // Pre-termination generation of the worker record. Identity is mutable
+      // evidence within a generation; PID, claim, and start time are not.
+      let runtimeGeneration = workerPid !== null && initialInfo?.pid === workerPid ? initialInfo : null;
       const workerStatus = workerPid === null ? 'dead' : inspectIdentity(workerPid, workerIdentity);
-      if (supervisorStatus === 'unknown' || workerStatus === 'unknown') {
+      // A provably absent pair is the cooperative recovery case, not a normal
+      // live stop; both dead statuses must share the stale-pair cleanup path.
+      const cooperativeDeadPair = owner.cooperative === true && supervisorStatus === 'dead' && workerStatus === 'dead';
+      if (supervisorStatus === 'unknown' || workerStatus === 'unknown' || cooperativeDeadPair) {
         if (
           !owner.processIdentity &&
           !supervisorState.supervisorIdentity &&
@@ -368,6 +399,7 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
           const finalState = readSupervisorState(configDir);
           if (finalState?.supervisorPid === supervisorState.supervisorPid) {
             if (finalState.runtimePid !== null) {
+              if (finalState.runtimePid !== runtimePid) runtimeGeneration = null;
               runtimePid = finalState.runtimePid;
               runtimeIdentity = finalState.runtimeIdentity;
             }
@@ -387,6 +419,7 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
           const recoveredInfo = readInfo(configDir);
           runtimePid = recoveredInfo?.pid ?? null;
           runtimeIdentity = recoveredInfo?.processIdentity;
+          runtimeGeneration = recoveredInfo;
         } catch (error) {
           failStop(
             `supervisor stopped, but its runtime PID could not be recovered in Runtime Scope ${configDir}: ${errorMessage(error)}`,
@@ -408,7 +441,7 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
 
       try {
         const finalInfo = readInfo(configDir);
-        if (!runtimeMetadataMatches(finalInfo, runtimePid, runtimeIdentity)) {
+        if (!runtimeMetadataMatches(finalInfo, runtimePid, runtimeIdentity, runtimeGeneration)) {
           throw new Error('runtime PID metadata changed to a different process incarnation');
         }
         if (runtimePid !== null) {

@@ -17,8 +17,8 @@ import logger from '@src/logger/logger.js';
 import type { Request, RequestHandler, Response } from 'express';
 
 import { buildFilterConfig } from './inspectHelpers.js';
-import { ensureRequestContextInitialized } from './inspectRequestContext.js';
-import { buildServerSummaries } from './inspectRoutes.js';
+import { registerHttpRequestContext } from './inspectRequestContext.js';
+import { buildInstructionServerSummaries } from './inspectRoutes.js';
 
 export function createInstructionsHandler(serverManager: ServerManager): RequestHandler {
   return async (req: Request, res: Response): Promise<void> => {
@@ -30,7 +30,7 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
       }
 
       const filterConfig = buildFilterConfig(res);
-      const sessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+      const sessionId = await registerHttpRequestContext(serverManager, req, res, filterConfig);
 
       const configManager = ConfigManager.getInstance();
       const declaredServers = configManager.loadDeclaredServerConfigs();
@@ -41,10 +41,8 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
         serverManager.getTemplateServerManager(),
       ).filterForSession(sessionId);
       const filteredConnections = FilteringService.getFilteredConnections(sessionConnections, filterConfig);
-      const summaries = await buildServerSummaries(
+      const summaries = await buildInstructionServerSummaries(
         filteredConnections,
-        serverManager.getLazyLoadingOrchestrator()?.getToolRegistry(),
-        serverManager.getLazyLoadingOrchestrator()?.getCapabilityAggregator(),
         serverManager.getServerRegistry(),
         activeAggregator,
         declaredServers,
@@ -81,7 +79,7 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
         metadata[outboundKey] = createRenderMetadata(
           summary,
           target,
-          activeAggregator.getServerInstructions(summary.server),
+          activeAggregator.getEffectiveServerInstructions(outboundKey, summary.server),
           runtimeConfiguration,
           false,
         );
@@ -154,7 +152,7 @@ function inferTarget(
 }
 
 function createRenderMetadata(
-  summary: Awaited<ReturnType<typeof buildServerSummaries>>[number],
+  summary: Awaited<ReturnType<typeof buildInstructionServerSummaries>>[number],
   target: ConfiguredServerInstructionTarget,
   upstreamInstructions: string | undefined,
   runtimeConfiguration: ReturnType<ConfigManager['getRuntimeInstructionConfiguration']>,
@@ -168,6 +166,7 @@ function createRenderMetadata(
     available: summary.available,
     loadTracked: summary.loadTracked,
     toolCount: summary.toolCount,
+    toolCountKnown: summary.toolCountKnown,
     hasInstructions: presentation.hasInstructions,
     note: presentation.note,
     summary: { ...summary, hasInstructions: presentation.hasInstructions },
@@ -177,7 +176,7 @@ function createRenderMetadata(
 }
 
 function resolveInstructionPresentation(
-  summary: Awaited<ReturnType<typeof buildServerSummaries>>[number],
+  summary: Awaited<ReturnType<typeof buildInstructionServerSummaries>>[number],
   target: ConfiguredServerInstructionTarget,
   upstreamInstructions: string | undefined,
   runtimeConfiguration: ReturnType<ConfigManager['getRuntimeInstructionConfiguration']>,
@@ -192,7 +191,7 @@ function resolveInstructionPresentation(
   const note = hasInstructions
     ? undefined
     : summary.type === 'template' && !summary.available
-      ? '(unavailable: template server could not be initialized with the current context)'
+      ? '(unavailable: template server is not initialized for this context; inspect the selected server before use)'
       : !summary.available
         ? '(unavailable: server is not currently connected)'
         : '(none provided)';
@@ -201,7 +200,7 @@ function resolveInstructionPresentation(
 }
 
 function createFormattingPayload(
-  summaries: Awaited<ReturnType<typeof buildServerSummaries>>,
+  summaries: Awaited<ReturnType<typeof buildInstructionServerSummaries>>,
   declaredServers: ReturnType<ConfigManager['loadDeclaredServerConfigs']>,
   presentations: ReadonlyMap<string, ReturnType<typeof resolveInstructionPresentation>>,
   activeAggregator: NonNullable<ReturnType<ServerManager['getInstructionAggregator']>>,
@@ -214,7 +213,7 @@ function createFormattingPayload(
       resolveInstructionPresentation(
         summary,
         target,
-        activeAggregator.getServerInstructions(summary.server),
+        target.source === 'mcpTemplates' ? undefined : activeAggregator.getServerInstructions(summary.server),
         runtimeConfiguration,
       );
     return {

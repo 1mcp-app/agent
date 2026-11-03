@@ -4,6 +4,8 @@ import { closeSync, openSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
+import { createTestProcessEnvironment } from '../../scripts/test-process-environment.mjs';
+
 function within(promise, timeoutMs) {
   let timer;
   return Promise.race([
@@ -23,9 +25,12 @@ export async function startModernBackend({ toolCount = 0, stderrPath } = {}) {
   try {
     child = fork(fileURLToPath(import.meta.url), ['--worker', String(toolCount)], {
       execArgv: [],
-      env: Object.fromEntries(
-        Object.entries(process.env).filter(
-          ([key]) => key !== 'NODE_OPTIONS' && !key.startsWith('OTEL_') && !key.startsWith('ONE_MCP_'),
+      env: createTestProcessEnvironment(
+        {},
+        Object.fromEntries(
+          Object.entries(process.env).filter(
+            ([key]) => key !== 'NODE_OPTIONS' && !key.startsWith('OTEL_') && !key.startsWith('ONE_MCP_'),
+          ),
         ),
       ),
       stdio: ['ignore', 'ignore', fd, 'ipc'],

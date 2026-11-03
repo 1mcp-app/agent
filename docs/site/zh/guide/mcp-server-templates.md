@@ -682,6 +682,8 @@ cleanupInterval = 30000
 
 ## 另请参阅
 
+跨仓库和 Git worktree 的完整流程见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
+
 - **[模板语法参考](/zh/reference/mcp-templates/syntax)** - 完整的语法和辅助函数参考
 - **[自定义指令模板](/zh/guide/custom-instructions-template)** - 自定义 LLM 指令（不同功能）
 - **[上下文收集](/zh/guide/advanced/server-filtering)** - 如何收集上下文

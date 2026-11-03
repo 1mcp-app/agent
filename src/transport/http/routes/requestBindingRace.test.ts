@@ -6,6 +6,9 @@ import { join } from 'node:path';
 
 import * as authority from '@src/transport/http/utils/templateContextAuthority.js';
 import { ConfigManager } from '@src/config/configManager.js';
+import { publishConfiguredToolSnapshot } from '@src/core/capabilities/configuredToolSnapshot.js';
+import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
+import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { authorizeTemplateContext } from '@src/core/context/templateContextTrust.js';
 import { prepareRequestContext } from '@src/core/server/requestContextPreparation.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
@@ -20,24 +23,36 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createRequestContextPreparationDependencies,
   ensureRequestContextInitialized,
+  registerHttpRequestContext,
 } from './inspectRequestContext.js';
-import { buildServerSummaries, createInspectHandler, createServersHandler } from './inspectRoutes.js';
+import {
+  buildInstructionServerSummaries,
+  buildServerSummaries,
+  createInspectHandler,
+  createServersHandler,
+} from './inspectRoutes.js';
 import { setupModernHttpRoutes } from './modernHttpRoutes.js';
 import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
+import { createToolInvocationsHandler } from './toolRoutes.js';
 
 describe('HTTP project binding lifetime and inspect admission', () => {
   let directory: string;
   let templates: TemplateServerManager;
   let manager: ServerManager;
   let load: ReturnType<typeof vi.spyOn>;
-  const clients = new Map();
-  const instructions = { hasInstructions: () => false, getServerInstructions: () => undefined };
+  let clients = new Map();
+  const instructions = {
+    hasInstructions: () => false,
+    getServerInstructions: () => undefined,
+    getEffectiveServerInstructions: () => undefined,
+  };
   const registry = { getServerNames: () => [], get: () => undefined, has: () => true };
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), '1mcp-binding-race-'));
     templates = new TemplateServerManager();
-    clients.clear();
+    // Runtime catalog caches are keyed by this map; each test needs a fresh runtime identity.
+    clients = new Map();
     manager = {
       getTemplateServerManager: () => templates,
       getClients: () => clients,
@@ -105,6 +120,47 @@ describe('HTTP project binding lifetime and inspect admission', () => {
     expect(load).toHaveBeenCalledOnce();
   });
 
+  it('registers current checkout policy without rendering or starting backends', async () => {
+    await writeFile(join(directory, '.1mcprc'), JSON.stringify({ tags: ['frontend'] }));
+    load.mockRejectedValue(new Error('Backend initialization must not delay instructions'));
+    const start = vi.spyOn(templates, 'createTemplateBasedServers');
+    const binding = await registerHttpRequestContext(
+      manager,
+      {
+        query: { context: Buffer.from(JSON.stringify(context())).toString('base64url') },
+        headers: {},
+      } as unknown as express.Request,
+      { setHeader: vi.fn() } as unknown as express.Response,
+      {},
+    );
+
+    expect(binding).toBeDefined();
+    expect(templates.getBindingContext(binding!)).toMatchObject({ project: { path: directory } });
+    expect(templates.getBindingPolicies(binding!)).toEqual([expect.objectContaining({ tags: ['frontend'] })]);
+    expect(load).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('rejects a binding removed during instruction registration', async () => {
+    const register = templates.registerBindingContext.bind(templates);
+    vi.spyOn(templates, 'registerBindingContext').mockImplementation(async (...args) => {
+      const id = await register(...args);
+      await templates.cleanupTemplateServers(args[1].sessionId!, clients, {});
+      return id;
+    });
+    await expect(
+      registerHttpRequestContext(
+        manager,
+        {
+          query: { context: Buffer.from(JSON.stringify(context())).toString('base64url') },
+          headers: {},
+        } as unknown as express.Request,
+        { setHeader: vi.fn() } as unknown as express.Response,
+        {},
+      ),
+    ).rejects.toThrow('Project binding is no longer available');
+  });
+
   it.each(['2024-11-05', '2025-11-25', '2026-07-28'])(
     'rejects a binding removed during preparation before %s transport dispatch',
     async (protocolVersion) => {
@@ -170,7 +226,16 @@ describe('HTTP project binding lifetime and inspect admission', () => {
   );
 
   it.each(['inspect', 'servers'] as const)('rejects removed bindings before %s backend inventory', async (route) => {
-    removeBindingDuringPreparation();
+    if (route === 'inspect') {
+      const register = templates.registerBindingContext.bind(templates);
+      vi.spyOn(templates, 'registerBindingContext').mockImplementation(async (...args) => {
+        const id = await register(...args);
+        await templates.cleanupTemplateServers(args[1].sessionId!, clients, {});
+        return id;
+      });
+    } else {
+      removeBindingDuringPreparation();
+    }
     const connection = createMockOutboundConnection({ name: 'backend' });
     clients.set('backend', connection);
     const instance = express();
@@ -179,7 +244,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
       .get('/inspect')
       .query({ context: Buffer.from(JSON.stringify(context())).toString('base64url') });
     expect(response.status, JSON.stringify(response.body)).toBe(500);
-    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledTimes(route === 'inspect' ? 0 : 1);
     expect(connection.adapter.request).not.toHaveBeenCalled();
   });
 
@@ -209,6 +274,38 @@ describe('HTTP project binding lifetime and inspect admission', () => {
     );
     expect(summaries.map((entry) => entry.server)).toEqual(['allowed']);
     expect(allowed.adapter.request).toHaveBeenCalledOnce();
+    expect(denied.adapter.request).not.toHaveBeenCalled();
+  });
+
+  it('applies current policy to instruction summaries without querying any backend', () => {
+    const allowed = createMockOutboundConnection({ name: 'allowed' });
+    const denied = createMockOutboundConnection({ name: 'denied' });
+    const summaries = buildInstructionServerSummaries(
+      new Map([
+        ['allowed', allowed],
+        ['denied', denied],
+      ]),
+      registry as never,
+      instructions as never,
+      {
+        staticServers: {
+          allowed: { command: 'node', tags: ['frontend'], projectTarget: { mode: 'single' } },
+          denied: { command: 'node', tags: ['backend'], projectTarget: { mode: 'single' } },
+        },
+        templateServers: {},
+        errors: [],
+      },
+      {},
+      {
+        bindingId: 'selected',
+        projectContext: context(),
+        projectPolicies: [{ tags: ['frontend'], tagFilterMode: 'simple-or' }],
+      },
+    );
+
+    expect(summaries).toMatchObject([{ server: 'allowed', toolCountKnown: false }]);
+    expect(summaries).toHaveLength(1);
+    expect(allowed.adapter.request).not.toHaveBeenCalled();
     expect(denied.adapter.request).not.toHaveBeenCalled();
   });
 
@@ -251,6 +348,29 @@ describe('HTTP project binding lifetime and inspect admission', () => {
     const sibling = createMockOutboundConnection({ name: 'symbols' });
     clients.set('symbols:selected', selected);
     clients.set('symbols:sibling', sibling);
+    publishConfiguredToolSnapshot(selected, [{ name: 'frontend_symbol', inputSchema: { type: 'object' } }]);
+    publishConfiguredToolSnapshot(sibling, [
+      { name: 'private_symbol', inputSchema: { type: 'object' } },
+      { name: 'private_second', inputSchema: { type: 'object' } },
+    ]);
+    const cached = ToolRegistry.fromToolsWithServer([
+      {
+        server: 'symbols',
+        connectionKey: 'symbols:selected',
+        tool: { name: 'frontend_symbol', inputSchema: { type: 'object' } },
+      },
+      {
+        server: 'symbols',
+        connectionKey: 'symbols:sibling',
+        tool: { name: 'private_symbol', inputSchema: { type: 'object' } },
+      },
+      {
+        server: 'symbols',
+        connectionKey: 'symbols:sibling',
+        tool: { name: 'private_second', inputSchema: { type: 'object' } },
+      },
+    ]).withConnections(new Map(clients));
+    vi.spyOn(manager, 'getLazyLoadingOrchestrator').mockReturnValue({ peekToolRegistry: () => cached } as never);
     vi.spyOn(templates, 'getAllRenderedHashesForSession').mockReturnValue(new Map([['symbols', 'selected']]));
     vi.mocked(ConfigManager.getInstance().loadDeclaredServerConfigs).mockReturnValue({
       staticServers: {},
@@ -266,7 +386,61 @@ describe('HTTP project binding lifetime and inspect admission', () => {
       .query({ context: Buffer.from(JSON.stringify(context())).toString('base64url') });
     expect(response.status).toBe(200);
     expect(response.body.servers).toMatchObject([{ server: 'symbols', toolCount: 1, available: true }]);
-    expect(selected.adapter.request).toHaveBeenCalledOnce();
+    expect(selected.adapter.request).not.toHaveBeenCalled();
     expect(sibling.adapter.request).not.toHaveBeenCalled();
   });
+  it.each([
+    [false, 'bound'],
+    [true, 'bound'],
+    [false, 'removed'],
+    [true, 'removed'],
+    [false, 'header-only'],
+    [true, 'header-only'],
+  ] as const)(
+    'rechecks invocation binding without rejecting header-only sessions (lazy=%s, mode=%s)',
+    async (lazy, mode) => {
+      const callTool = vi.fn(async () => ({ content: [{ type: 'text', text: 'called' }] }));
+      clients.set(
+        'shared',
+        createMockOutboundConnection({
+          name: 'shared',
+          capabilities: { tools: {} },
+          adapter: {
+            request: vi.fn(async ({ method }) => {
+              if (method === 'tools/list') {
+                if (mode === 'removed') {
+                  expect(templates.getBindingContexts().size).toBe(1);
+                  const boundContext = [...templates.getBindingContexts().values()][0];
+                  await templates.cleanupTemplateServers(boundContext.sessionId!, clients, {});
+                  expect(templates.getBindingContexts().size).toBe(0);
+                }
+                return { tools: [{ name: 'call', inputSchema: { type: 'object' } }] };
+              }
+              return callTool();
+            }),
+          },
+        }),
+      );
+      if (lazy)
+        vi.spyOn(manager, 'getLazyLoadingOrchestrator').mockReturnValue({
+          getToolRegistry: () => ToolRegistry.fromToolsWithServer([]),
+          getSchemaCache: () => new SchemaCache({ maxEntries: 10 }),
+          callMetaTool: vi.fn(),
+        } as never);
+      const app = express();
+      app.use(express.json());
+      app.post('/invoke', createToolInvocationsHandler(manager));
+      let invocation = request(app).post('/invoke').set('mcp-session-id', 'session-a');
+      if (mode !== 'header-only')
+        invocation = invocation.query({ context: Buffer.from(JSON.stringify(context())).toString('base64url') });
+      const response = await invocation.send({ tool: 'shared/call', args: {} });
+      if (mode === 'removed') {
+        expect(response.status, JSON.stringify(response.body)).toBe(503);
+        expect(callTool).not.toHaveBeenCalled();
+      } else {
+        expect(response.status, JSON.stringify(response.body)).toBe(200);
+        expect(callTool).toHaveBeenCalledOnce();
+      }
+    },
+  );
 });

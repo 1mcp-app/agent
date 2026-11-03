@@ -6,6 +6,7 @@ import DurationSequencer from './test/e2e/setup/duration-sequencer.js';
 export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
+    setupFiles: ['test/unit-utils/isolateProcessEnvironment.ts'],
     environment: 'node',
     include: ['test/e2e/**/*.test.ts'],
     globals: true,
@@ -35,6 +36,9 @@ export default defineConfig({
 
     // Environment variables for E2E tests
     env: {
+      // Test subprocesses must never discover a live host session's credential.
+      CODEX_SESSION_ID: '',
+      CODEX_THREAD_ID: '',
       NODE_ENV: 'test',
       LOG_LEVEL: 'warn', // Reduce log noise during tests
     },

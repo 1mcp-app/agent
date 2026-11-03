@@ -13,6 +13,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 import { test } from 'vitest';
 
+import { createTestProcessEnvironment } from '../../scripts/test-process-environment.mjs';
 import { createCollector } from './fake-collector.mjs';
 import { assertPrivatePayloads } from './privacy-corpus.mjs';
 
@@ -75,7 +76,7 @@ test.each(['sse', 'stdio', 'legacy-proxy', 'modern-proxy'])(
       if (mode !== 'stdio') {
         // Proxy tests isolate proxy spans by disabling export in its upstream runtime.
         runtime = spawn(process.execPath, serveArgs, {
-          env: { ...env, OTEL_TRACES_EXPORTER: mode === 'sse' ? 'otlp' : 'none' },
+          env: createTestProcessEnvironment({ OTEL_TRACES_EXPORTER: mode === 'sse' ? 'otlp' : 'none' }, env),
           cwd: directory,
           stdio: ['ignore', 'ignore', 'pipe'],
         });
@@ -115,7 +116,7 @@ test.each(['sse', 'stdio', 'legacy-proxy', 'modern-proxy'])(
                       '--log-level',
                       'error',
                     ],
-              env,
+              env: createTestProcessEnvironment({}, env),
               cwd: directory,
               stderr: 'pipe',
             });

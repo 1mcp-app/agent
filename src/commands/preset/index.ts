@@ -1,4 +1,5 @@
 import { withGlobalOptions } from '@src/globalOptions.js';
+import { runProductCommand } from '@src/productTelemetry/commandScope.js';
 
 import type { Argv } from 'yargs';
 
@@ -34,8 +35,10 @@ export function setupPresetCommands(yargs: Argv): Argv {
           describe: 'Edit existing preset interactively',
           builder: buildEditCommand,
           handler: async (argv) => {
-            const { editCommand } = await import('./edit.js');
-            await editCommand(argv as EditArguments);
+            return runProductCommand('preset', async () => {
+              const { editCommand } = await import('./edit.js');
+              await editCommand(argv as EditArguments);
+            });
           },
         })
         .command({
@@ -43,8 +46,10 @@ export function setupPresetCommands(yargs: Argv): Argv {
           describe: 'Create preset with filter expression',
           builder: buildCreateCommand,
           handler: async (argv) => {
-            const { createCommand } = await import('./create.js');
-            await createCommand(argv as CreateArguments);
+            return runProductCommand('preset', async () => {
+              const { createCommand } = await import('./create.js');
+              await createCommand(argv as CreateArguments);
+            });
           },
         })
         .command({
@@ -52,8 +57,10 @@ export function setupPresetCommands(yargs: Argv): Argv {
           describe: 'Show detailed information about a preset',
           builder: buildShowCommand,
           handler: async (argv) => {
-            const { showCommand } = await import('./show.js');
-            await showCommand(argv as ShowArguments);
+            return runProductCommand('preset', async () => {
+              const { showCommand } = await import('./show.js');
+              await showCommand(argv as ShowArguments);
+            });
           },
         })
         .command({
@@ -61,8 +68,10 @@ export function setupPresetCommands(yargs: Argv): Argv {
           describe: 'List all available presets',
           builder: buildListCommand,
           handler: async (argv) => {
-            const { listCommand } = await import('./list.js');
-            await listCommand(argv as ListArguments);
+            return runProductCommand('preset', async () => {
+              const { listCommand } = await import('./list.js');
+              await listCommand(argv as ListArguments);
+            });
           },
         })
         .command({
@@ -70,8 +79,10 @@ export function setupPresetCommands(yargs: Argv): Argv {
           describe: 'Generate URL for existing preset',
           builder: buildUrlCommand,
           handler: async (argv) => {
-            const { urlCommand } = await import('./url.js');
-            await urlCommand(argv as UrlArguments);
+            return runProductCommand('preset', async () => {
+              const { urlCommand } = await import('./url.js');
+              await urlCommand(argv as UrlArguments);
+            });
           },
         })
         .command({
@@ -79,8 +90,10 @@ export function setupPresetCommands(yargs: Argv): Argv {
           describe: 'Delete an existing preset',
           builder: buildDeleteCommand,
           handler: async (argv) => {
-            const { deleteCommand } = await import('./delete.js');
-            await deleteCommand(argv as DeleteArguments);
+            return runProductCommand('preset', async () => {
+              const { deleteCommand } = await import('./delete.js');
+              await deleteCommand(argv as DeleteArguments);
+            });
           },
         })
         .command({
@@ -88,8 +101,10 @@ export function setupPresetCommands(yargs: Argv): Argv {
           describe: 'Test preset against current server configuration',
           builder: buildTestCommand,
           handler: async (argv) => {
-            const { testCommand } = await import('./test.js');
-            await testCommand(argv as TestArguments);
+            return runProductCommand('preset', async () => {
+              const { testCommand } = await import('./test.js');
+              await testCommand(argv as TestArguments);
+            });
           },
         })
         .demandCommand(0, 'Use --help for available commands')
@@ -105,9 +120,11 @@ export function setupPresetCommands(yargs: Argv): Argv {
         );
     },
     async (argv) => {
-      // Smart interactive mode when no subcommand is provided
-      const { interactiveCommand } = await import('./interactive.js');
-      await interactiveCommand(argv as InteractiveArguments);
+      return runProductCommand('preset', async () => {
+        // Smart interactive mode when no subcommand is provided
+        const { interactiveCommand } = await import('./interactive.js');
+        await interactiveCommand(argv as InteractiveArguments);
+      });
     },
   );
 }

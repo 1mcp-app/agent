@@ -230,6 +230,16 @@ describe('InstructionAggregator', () => {
     });
   });
 
+  it('never borrows a sibling manual for a template instance with no instructions', () => {
+    aggregator.setInstructions({ source: 'mcpTemplates', name: 'shared' }, undefined, 'shared:own');
+    aggregator.setInstructions({ source: 'mcpTemplates', name: 'shared' }, 'FOREIGN_MANUAL', 'shared:foreign');
+    expect(aggregator.getEffectiveServerInstructions('shared:own', 'shared')).toBeUndefined();
+    const connections = new Map([['shared:own', { name: 'shared', status: 'connected' } as any]]);
+    expect(aggregator.renderInstructions('cli', { tagFilterMode: 'none' }, connections)).not.toContain(
+      'FOREIGN_MANUAL',
+    );
+  });
+
   describe('removeServer', () => {
     it('preserves name-level instructions while another same-name instance remains', () => {
       aggregator.setInstructions({ source: 'mcpTemplates', name: 'shared' }, 'First instance', 'shared:first');

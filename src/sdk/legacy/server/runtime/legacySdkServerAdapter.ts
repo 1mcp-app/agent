@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { InboundConnectionAdapter } from '@src/core/types/server.js';
+import { ownData } from '@src/observability/privacy/fields.js';
 import {
   getTelemetryStatus,
   recordTelemetryDrop,
@@ -10,6 +11,14 @@ import {
 import { runWithProtocolTelemetryOutcome, runWithTelemetryEras } from '@src/observability/telemetryOperation.js';
 import { telemetryResultOutcome } from '@src/observability/telemetryOutcome.js';
 import { injectTraceContext, stripBaggage, withMcpTraceContext } from '@src/observability/tracing/context.js';
+import { beginProductOperation } from '@src/productTelemetry/index.js';
+import {
+  productClientFamily,
+  productOperationName,
+  productOperationOutcome,
+  type ProductTransport,
+} from '@src/productTelemetry/operation.js';
+import type { CommandCompletion } from '@src/productTelemetry/producer.js';
 import { type JsonObject, toJsonValue } from '@src/sdk/contracts/jsonValue.js';
 import type {
   LegacyConnectionId,
@@ -19,8 +28,10 @@ import type {
 import { OneMcpProtocolError } from '@src/sdk/contracts/oneMcpProtocolError.js';
 import type { Server } from '@src/sdk/legacy/server/index.js';
 import { SSEServerTransport } from '@src/sdk/legacy/server/sse.js';
+import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@src/sdk/legacy/server/streamableHttp.js';
 import type { Transport } from '@src/sdk/legacy/shared/transport.js';
+import type { JSONRPCRequest } from '@src/sdk/legacy/types.js';
 
 interface LegacyServerHandles {
   readonly server: Server;
@@ -44,6 +55,7 @@ function toProtocolError(error: unknown): OneMcpProtocolError {
 export class LegacySdkServerAdapter implements InboundConnectionAdapter {
   private lifecycleState: LegacySdkLifecycleState = 'idle';
   private readonly admittedInteractions = new Set<string | number>();
+  private readonly productOperations = new Map<string | number, CommandCompletion>();
   private retiring = false;
   private subscriptionDelivery?: (notification: LegacySdkNotification) => void;
   private closePromise?: Promise<void>;
@@ -55,6 +67,7 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
     public readonly connectionId: LegacyConnectionId,
     server: Server,
     transport: Transport,
+    private readonly requestOnly = false,
   ) {
     serverHandles.set(this, { server, transport });
   }
@@ -156,8 +169,29 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
       entry.operation.end(outcome);
       entry.finish();
     };
+    const kind = productTransport(transport);
+    const finishOperation = (id: string | number, outcome: 'success' | 'failure') => {
+      const completion = this.productOperations.get(id);
+      this.productOperations.delete(id);
+      completion?.finish(outcome);
+    };
+    const admitOperation = (message: JSONRPCRequest) => {
+      if (this.requestOnly) return;
+      if (kind === 'none') return;
+      if (this.productOperations.has(message.id)) return;
+      if (this.productOperations.size >= 256) return;
+      const info =
+        message.method === 'initialize'
+          ? ownData(message.params, 'clientInfo')
+          : getHandles(this).server.getClientVersion?.();
+      this.productOperations.set(
+        message.id,
+        beginProductOperation(productOperationName(message.method), kind, productClientFamily(info)),
+      );
+    };
     transport.onclose = () => {
       for (const id of pending.keys()) finish(id, 'aborted');
+      for (const id of this.productOperations.keys()) finishOperation(id, 'failure');
       this.admittedInteractions.clear();
       this.lifecycleState = 'stopped';
       this.resolveDrain?.();
@@ -190,6 +224,7 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
           return;
         }
         if (interaction) this.admittedInteractions.add(message.id);
+        admitOperation(message);
       }
       if (
         tracing &&
@@ -237,6 +272,7 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
       if ('method' in message && message.method === 'notifications/cancelled') {
         const id = message.params?.requestId;
         if (typeof id === 'string' || typeof id === 'number') {
+          finishOperation(id, 'failure');
           this.admittedInteractions.delete(id);
           finish(id, 'cancelled');
         }
@@ -255,9 +291,13 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
         await send(outgoing, options);
         if ('id' in message && !('method' in message) && message.id !== undefined && message.id !== null) {
           finish(message.id, pending.get(message.id)?.outcome.outcome ?? telemetryResultOutcome(message));
+          finishOperation(message.id, productOperationOutcome(message));
         }
       } catch (error) {
-        if ('id' in message && message.id !== undefined && message.id !== null) finish(message.id, 'transport-error');
+        if ('id' in message && !('method' in message) && message.id !== undefined && message.id !== null)
+          finish(message.id, 'transport-error');
+        if ('id' in message && !('method' in message) && message.id !== undefined)
+          finishOperation(message.id, 'failure');
         throw error;
       } finally {
         if ('id' in message && !('method' in message) && message.id !== undefined) {
@@ -300,4 +340,11 @@ export function installLegacyRequestTracing(server: Server): void {
         withMcpTraceContext(request.params, async () => handler(request, extra), extra.signal),
       );
     });
+}
+
+function productTransport(transport: Transport): ProductTransport {
+  if (transport instanceof StdioServerTransport) return 'stdio';
+  if (transport instanceof SSEServerTransport) return 'sse';
+  if (transport instanceof StreamableHTTPServerTransport) return 'http';
+  return 'none';
 }

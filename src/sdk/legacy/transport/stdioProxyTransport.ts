@@ -30,6 +30,7 @@ const modernClientInfoSchema = z.object({ name: z.string(), version: z.string(),
 export interface StdioProxyTransportOptions {
   onclose?: () => Promise<void>;
   serverUrl: string;
+  onClosed?: () => Promise<void>;
   bearerToken?: string;
   preset?: string;
   filter?: string;
@@ -58,8 +59,11 @@ function generateMcpSessionId(): string {
  */
 export class StdioProxyTransport {
   private readonly pendingTelemetry = {
-    upstream: new Map<string | number, ReturnType<typeof startTelemetryOperation>[]>(),
-    downstream: new Map<string | number, ReturnType<typeof startTelemetryOperation>[]>(),
+    upstream: new Map<string | number, { method: string; operations: ReturnType<typeof startTelemetryOperation>[] }>(),
+    downstream: new Map<
+      string | number,
+      { method: string; operations: ReturnType<typeof startTelemetryOperation>[] }
+    >(),
   };
   private stdioTransport: StdioServerTransport;
   private httpTransport: StreamableHTTPClientTransport;
@@ -111,11 +115,10 @@ export class StdioProxyTransport {
     logger.info('stdioProxyTransport.proxy.connecting.with.meta.field.approach.7b806ac5');
 
     // Create HTTP transport with custom fetch that dynamically injects User-Agent
-    // Note: sessionId is passed as a parameter, SDK will handle adding it to headers
+    // A fresh context ID is not an existing transport session; let initialize establish it.
     const trustedFetch = this.createDynamicHeaderFetch();
     this.httpTransport = new StreamableHTTPClientTransport(this.serverUrl, {
       fetch: createSseWireLimitedFetch(trustedFetch, () => this.httpTransport),
-      sessionId: this.context.sessionId,
     });
     registerSseWireLimitOwner(this.httpTransport, trustedFetch);
   }
@@ -263,10 +266,20 @@ export class StdioProxyTransport {
   }
 
   private failTelemetry(message: JSONRPCMessage, direction: 'upstream' | 'downstream'): void {
+    if ('method' in message && message.method === 'notifications/subscriptions/acknowledged') {
+      const id = message.params?._meta?.['io.modelcontextprotocol/subscriptionId'];
+      if (typeof id !== 'string' && typeof id !== 'number') return;
+      const replies = this.pendingTelemetry[direction === 'upstream' ? 'downstream' : 'upstream'];
+      const pending = replies.get(id);
+      if (pending?.method !== 'subscriptions/listen') return;
+      for (const operation of pending.operations) operation.end('transport-error');
+      replies.delete(id);
+      return;
+    }
     if (!('id' in message) || message.id === null || message.id === undefined) return;
     const requests =
       this.pendingTelemetry['method' in message ? direction : direction === 'upstream' ? 'downstream' : 'upstream'];
-    for (const operation of requests.get(message.id) ?? []) operation.end('transport-error');
+    for (const operation of requests.get(message.id)?.operations ?? []) operation.end('transport-error');
     requests.delete(message.id);
   }
 
@@ -293,7 +306,7 @@ export class StdioProxyTransport {
     if ('method' in message && message.method === 'notifications/cancelled') {
       const cancelled = message.params?.requestId;
       if (typeof cancelled === 'string' || typeof cancelled === 'number') {
-        for (const operation of requests.get(cancelled) ?? []) operation.end('cancelled');
+        for (const operation of requests.get(cancelled)?.operations ?? []) operation.end('cancelled');
         requests.delete(cancelled);
       }
     }
@@ -307,7 +320,7 @@ export class StdioProxyTransport {
         remoteParams: message.params,
       });
       const phases = [server];
-      requests.set(id, phases);
+      requests.set(id, { method: message.method, operations: phases });
       try {
         await server.run(async () => {
           const boundary = startTelemetryOperation({ ...options, kind: 'internal', phase: 'proxy-forward' });
@@ -334,8 +347,18 @@ export class StdioProxyTransport {
       recordTelemetryDrop('metrics');
     }
     await withMcpTraceContext('params' in message ? message.params : undefined, forward);
+    if ('method' in message && message.method === 'notifications/subscriptions/acknowledged') {
+      const subscriptionId = message.params?._meta?.['io.modelcontextprotocol/subscriptionId'];
+      if (typeof subscriptionId === 'string' || typeof subscriptionId === 'number') {
+        const pending = replies.get(subscriptionId);
+        if (pending?.method === 'subscriptions/listen') {
+          for (const operation of pending.operations) operation.end('success');
+          replies.delete(subscriptionId);
+        }
+      }
+    }
     if (!('method' in message) && id !== undefined && id !== null) {
-      for (const operation of replies.get(id) ?? []) operation.end(telemetryResultOutcome(message));
+      for (const operation of replies.get(id)?.operations ?? []) operation.end(telemetryResultOutcome(message));
       replies.delete(id);
     }
   }
@@ -477,6 +500,10 @@ export class StdioProxyTransport {
       // Merge headers: preserve existing headers, add/update User-Agent
       const headers = new Headers(init?.headers);
       headers.set('User-Agent', currentUserAgent);
+      // Modern requests have no initialize handshake to establish the signed logical session.
+      if (this.downstreamPin?.era === 'modern' && this.context.sessionId) {
+        headers.set('mcp-session-id', this.context.sessionId);
+      }
       if (this.options.bearerToken) {
         headers.set('Authorization', `Bearer ${this.options.bearerToken}`);
       }
@@ -554,7 +581,7 @@ export class StdioProxyTransport {
     this.isConnected = false;
     this.closePromise = (async () => {
       for (const requests of Object.values(this.pendingTelemetry)) {
-        for (const operations of requests.values()) {
+        for (const { operations } of requests.values()) {
           for (const operation of operations) operation.end('aborted');
         }
         requests.clear();
@@ -575,6 +602,7 @@ export class StdioProxyTransport {
       for (const outcome of outcomes) {
         if (outcome.status === 'rejected') logger.error('stdioProxyTransport.error.closing.stdio.proxy.7c69038d');
       }
+      if (outcomes.every((outcome) => outcome.status === 'fulfilled')) await this.options.onClosed?.();
       logger.info('stdioProxyTransport.stdio.proxy.closed.abcc8556');
       await this.options.onclose?.();
     })();

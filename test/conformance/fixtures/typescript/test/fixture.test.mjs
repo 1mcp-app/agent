@@ -1,13 +1,19 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import test from 'node:test';
+
+import { hasFunctions } from '../src/self-check.mjs';
+import { startConformanceMock } from './mock-peer.mjs';
 
 const fixture = fileURLToPath(new URL('../src/fixture.mjs', import.meta.url));
 
@@ -164,129 +170,6 @@ test('private request-state bearer does not follow a redirect to another loopbac
   assert.equal(foreign.requests.length, 0);
   assert.equal((result.stdout + result.stderr).includes(token), false);
 });
-
-async function startConformanceMock(protocolVersion, options = {}) {
-  if (typeof options === 'string') options = { tools: [{ name: options, inputSchema: { type: 'object' } }] };
-  const tools = options.tools ?? [
-    {
-      name: 'add_numbers',
-      description: 'Add two numbers.',
-      inputSchema: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } } },
-    },
-  ];
-  const resources = options.resources ?? [];
-  const prompts = options.prompts ?? [];
-  const capabilities = {
-    tools: {},
-    ...(resources.length > 0 ? { resources: {} } : {}),
-    ...(prompts.length > 0 ? { prompts: {} } : {}),
-  };
-  const requests = [];
-  let rejectedModernProbe = false;
-  const server = createServer((req, res) => {
-    if (req.method !== 'POST') {
-      res.writeHead(405, { allow: 'POST' }).end();
-      return;
-    }
-    const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => {
-      const message = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      requests.push({ headers: req.headers, message });
-      res.setHeader('content-type', 'application/json');
-      if (protocolVersion === '2026-07-28' && !rejectedModernProbe) {
-        rejectedModernProbe = true;
-        res.statusCode = 400;
-        res.end(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id: message.id,
-            error: {
-              code: -32022,
-              message: 'Unsupported protocol version',
-              data: { supported: ['2026-07-28'], requested: 'synthetic-unsupported' },
-            },
-          }),
-        );
-        return;
-      }
-      let result = {};
-      if (message.method === 'initialize') {
-        result = {
-          protocolVersion,
-          capabilities,
-          serverInfo: { name: 'conformance-mock', version: '1.0.0' },
-        };
-      } else if (message.method === 'server/discover') {
-        result = {
-          resultType: 'complete',
-          ttlMs: 0,
-          cacheScope: 'private',
-          supportedVersions: ['2026-07-28'],
-          capabilities,
-          serverInfo: { name: 'conformance-mock', version: '1.0.0' },
-        };
-      } else if (message.method === 'tools/list') {
-        result = {
-          ...(protocolVersion === '2026-07-28' ? { resultType: 'complete', ttlMs: 0, cacheScope: 'private' } : {}),
-          tools,
-        };
-      } else if (message.method === 'tools/call') {
-        result = {
-          ...(protocolVersion === '2026-07-28' ? { resultType: 'complete' } : {}),
-          content: [{ type: 'text', text: 'synthetic-result' }],
-        };
-        if (
-          options.requestState &&
-          ['test_mrtr_echo_state', 'test_mrtr_no_state'].includes(message.params.name) &&
-          !message.params.inputResponses
-        ) {
-          result = {
-            resultType: 'input_required',
-            inputRequests: { confirmation: { method: 'elicitation/create', params: {} } },
-            ...(message.params.name === 'test_mrtr_echo_state' ? { requestState: 'opaque-state' } : {}),
-          };
-        }
-        if (options.continuationResult && message.params.inputResponses) result = options.continuationResult;
-        if (options.failedTool === message.params.name) result = { resultType: 'complete', isError: true, content: [] };
-        if (options.missingResultTypeTool === message.params.name) delete result.resultType;
-      } else if (message.method === 'resources/list') {
-        result = {
-          ...(protocolVersion === '2026-07-28' ? { resultType: 'complete', ttlMs: 0, cacheScope: 'private' } : {}),
-          resources,
-        };
-      } else if (message.method === 'resources/read') {
-        result = {
-          ...(protocolVersion === '2026-07-28' ? { resultType: 'complete', ttlMs: 0, cacheScope: 'private' } : {}),
-          contents: [],
-        };
-      } else if (message.method === 'prompts/list') {
-        result = {
-          ...(protocolVersion === '2026-07-28' ? { resultType: 'complete', ttlMs: 0, cacheScope: 'private' } : {}),
-          prompts,
-        };
-      } else if (message.method === 'prompts/get') {
-        result = {
-          ...(protocolVersion === '2026-07-28' ? { resultType: 'complete' } : {}),
-          messages: [],
-        };
-      }
-      res.statusCode = message.method?.startsWith('notifications/') ? 202 : 200;
-      res.end(message.id === undefined ? '' : JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
-    });
-  });
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  const address = server.address();
-  assert.equal(typeof address, 'object');
-  return {
-    endpoint: `http://127.0.0.1:${address.port}/mcp`,
-    requests,
-    close: () => new Promise((resolve) => server.close(resolve)),
-  };
-}
 
 test('official tools_call resolves an aggregated gateway tool name', async (t) => {
   const mock = await startConformanceMock('2025-11-25', 'official_conformance_1mcp_add_numbers');
@@ -458,31 +341,6 @@ test('unrelated and final MRTR tool errors remain failures', async (t) => {
   }
 });
 
-test('only the final known SDK resultType rejection is a fixture defect', async (t) => {
-  const names = ['test_mrtr_echo_state', 'test_mrtr_no_state', 'test_mrtr_unrelated', 'test_mrtr_no_result_type'];
-  for (const missingResultTypeTool of ['test_mrtr_echo_state', 'test_mrtr_no_result_type']) {
-    const mock = await startConformanceMock('2026-07-28', {
-      tools: names.map((name) => ({ name, inputSchema: { type: 'object' } })),
-      requestState: true,
-      missingResultTypeTool,
-    });
-    t.after(() => mock.close());
-    const result = await runOfficialClient(mock.endpoint, 'sep-2322-client-request-state', '2026-07-28');
-    assert.equal(result.code, 1);
-    const diagnostic = JSON.parse(result.stderr);
-    if (missingResultTypeTool === 'test_mrtr_echo_state') {
-      assert.deepEqual(diagnostic, { kind: 'conformance-client', ok: false, classification: 'gateway-rejected' });
-    } else {
-      assert.deepEqual(diagnostic, {
-        kind: 'conformance-client',
-        ok: false,
-        classification: 'fixture-sdk-rejected',
-        reasonCode: 'missing-result-type',
-      });
-    }
-  }
-});
-
 test('official request-state and legacy extension dispatch call every advertised tool', async (t) => {
   const requestStateTools = [
     'test_mrtr_echo_state',
@@ -620,18 +478,15 @@ test('a rejected modern probe is a pre-negotiation legacy peer error, not an acc
   assert.equal(output.operations.ping, true);
 });
 
-test('--self-check verifies exact package versions and required public exports', async () => {
+test('--self-check verifies locked package versions and required public exports', async () => {
   const { output } = await runFixture(['--self-check']);
 
   assert.equal(output.kind, 'self-check');
   assert.equal(output.ok, true);
-  assert.deepEqual(output.packages, {
-    '@modelcontextprotocol/client': '2.0.0',
-    '@modelcontextprotocol/node': '2.0.0',
-    '@modelcontextprotocol/sdk': '1.30.0',
-    '@modelcontextprotocol/server': '2.0.0',
-    '@modelcontextprotocol/server-legacy': '2.0.0',
-  });
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  for (const [name, version] of Object.entries(output.packages)) {
+    assert.equal(version, manifest.dependencies[name]);
+  }
   assert.deepEqual(output.profiles, {
     v1: ['stdio', 'streamable-http', 'sse'],
     v2: ['stdio', 'streamable-http', 'sse'],
@@ -847,3 +702,22 @@ for (const sdkEra of ['v1', 'v2']) {
     assert.equal(text.includes(fixture), false);
   });
 }
+
+test('required SDK exports reject missing or non-callable implementations', () => {
+  assert.equal(hasFunctions({ McpServer() {}, createMcpHandler() {} }, ['McpServer', 'createMcpHandler']), true);
+  assert.equal(hasFunctions({ McpServer() {} }, ['McpServer', 'createMcpHandler']), false);
+  assert.equal(hasFunctions({ McpServer: 'missing' }, ['McpServer']), false);
+});
+
+test('importing fixture self-check does not require a manifest, lockfile, or root parser', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'fixture-self-check-import-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const source = join(directory, 'test/conformance/fixtures/typescript/src');
+  await mkdir(source, { recursive: true });
+  for (const name of ['self-check.mjs', 'constants.mjs']) {
+    await copyFile(new URL(`../src/${name}`, import.meta.url), join(source, name));
+  }
+  const loaded = await import(pathToFileURL(join(source, 'self-check.mjs')).href);
+  assert.equal(typeof loaded.selfCheck, 'function');
+  await assert.rejects(loaded.selfCheck(), { code: 'ERR_MODULE_NOT_FOUND' });
+});

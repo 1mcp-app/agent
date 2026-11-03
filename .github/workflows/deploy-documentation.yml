@@ -8,6 +8,7 @@ on:
     paths:
       - 'docs/site/**'
       - '.github/workflows/deploy-documentation.yml'
+      - '.github/actions/setup-node-pnpm/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'scripts/validate-docs-seo.mjs'
@@ -41,20 +42,8 @@ jobs:
         with:
           fetch-depth: 0 # Not needed if lastUpdated is not enabled
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          registry-url: https://registry.npmjs.org
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
 
       - name: Setup Pages
         uses: actions/configure-pages@v6

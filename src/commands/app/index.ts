@@ -1,4 +1,5 @@
 import { withGlobalOptions } from '@src/globalOptions.js';
+import { runProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
@@ -31,8 +32,10 @@ export function setupAppCommands(yargs: Argv): Argv {
           describe: 'Consolidate MCP servers from desktop applications into 1mcp',
           builder: buildConsolidateCommand,
           handler: async (argv) => {
-            const { consolidateCommand } = await import('./consolidate.js');
-            await consolidateCommand(argv);
+            return runProductCommand('config', async () => {
+              const { consolidateCommand } = await import('./consolidate.js');
+              await consolidateCommand(argv);
+            });
           },
         })
         .command({
@@ -40,8 +43,10 @@ export function setupAppCommands(yargs: Argv): Argv {
           describe: 'Restore desktop applications to pre-consolidation state',
           builder: buildRestoreCommand,
           handler: async (argv) => {
-            const { restoreCommand } = await import('./restore.js');
-            await restoreCommand(argv);
+            return runProductCommand('config', async () => {
+              const { restoreCommand } = await import('./restore.js');
+              await restoreCommand(argv);
+            });
           },
         })
         .command({
@@ -49,8 +54,10 @@ export function setupAppCommands(yargs: Argv): Argv {
           describe: 'List supported desktop applications',
           builder: buildListCommand,
           handler: async (argv) => {
-            const { listCommand } = await import('./list.js');
-            await listCommand(argv);
+            return runProductCommand('config', async () => {
+              const { listCommand } = await import('./list.js');
+              await listCommand(argv);
+            });
           },
         })
         .command({
@@ -58,8 +65,10 @@ export function setupAppCommands(yargs: Argv): Argv {
           describe: 'Discover installed apps with MCP configurations',
           builder: buildDiscoverCommand,
           handler: async (argv) => {
-            const { discoverCommand } = await import('./discover.js');
-            await discoverCommand(argv);
+            return runProductCommand('config', async () => {
+              const { discoverCommand } = await import('./discover.js');
+              await discoverCommand(argv);
+            });
           },
         })
         .command({
@@ -67,8 +76,10 @@ export function setupAppCommands(yargs: Argv): Argv {
           describe: 'Show current status of app configurations',
           builder: buildStatusCommand,
           handler: async (argv) => {
-            const { statusCommand } = await import('./status.js');
-            await statusCommand(argv);
+            return runProductCommand('config', async () => {
+              const { statusCommand } = await import('./status.js');
+              await statusCommand(argv);
+            });
           },
         })
         .command({
@@ -76,8 +87,10 @@ export function setupAppCommands(yargs: Argv): Argv {
           describe: 'List all available backups',
           builder: buildBackupsCommand,
           handler: async (argv) => {
-            const { backupsCommand } = await import('./backups.js');
-            await backupsCommand(argv);
+            return runProductCommand('config', async () => {
+              const { backupsCommand } = await import('./backups.js');
+              await backupsCommand(argv);
+            });
           },
         })
         .demandCommand(1, 'You must specify a subcommand')
@@ -86,9 +99,11 @@ export function setupAppCommands(yargs: Argv): Argv {
         .epilogue('Run 1mcp app <command> --help for configuration, discovery, and backup options.');
     },
     () => {
-      // This handler runs when 'app' is called without a subcommand
-      printer.info('Please specify a subcommand. Use --help for available commands.');
-      process.exit(1);
+      return runProductCommand('config', async () => {
+        // This handler runs when 'app' is called without a subcommand
+        printer.info('Please specify a subcommand. Use --help for available commands.');
+        process.exit(1);
+      });
     },
   );
 }

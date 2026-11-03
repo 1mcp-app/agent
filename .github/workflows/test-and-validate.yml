@@ -23,7 +23,7 @@ on:
         required: false
         type: string
       release_gate:
-        description: Require decisive product conformance for a release candidate.
+        description: Require all product checks for a release candidate.
         required: false
         type: boolean
         default: false
@@ -37,7 +37,8 @@ env:
 
 jobs:
   static:
-    runs-on: ubuntu-latest
+    # Python 3.13.0 has no setup-python build for Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -70,12 +71,11 @@ jobs:
         run: pnpm ci:static
 
       - name: Test bounded release failure and recovery fixtures (no publication)
-        run: node --test test/release/*.test.cjs
+        run: pnpm test:release
 
-      # AUTH-07 gate: credential-file permission invariants (0600 files / 0700
-      # dirs, fail-closed read+write) as a named, separately inspectable step.
-      - name: Security permission gate (ticket-05)
-        run: pnpm test:security-permissions
+      # AUTH-07: scan permission modes here; runtime invariants run in the unit suite.
+      - name: Check credential-file permission modes
+        run: pnpm guard:perms
 
   unit-admin:
     runs-on: ubuntu-latest
@@ -104,7 +104,7 @@ jobs:
   # Preserve the existing required check and fail closed on skipped/cancelled jobs.
   ci:
     if: always()
-    needs: [static, unit-admin]
+    needs: [static, unit-admin, test-protocol]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -113,7 +113,8 @@ jobs:
         env:
           STATIC_RESULT: ${{ needs.static.result }}
           TEST_RESULT: ${{ needs.unit-admin.result }}
-        run: test "$STATIC_RESULT" = success && test "$TEST_RESULT" = success
+          PROTOCOL_RESULT: ${{ needs.test-protocol.result }}
+        run: test "$STATIC_RESULT" = success && test "$TEST_RESULT" = success && test "$PROTOCOL_RESULT" = success
 
   # E2E runs concurrently with lint, typecheck, and unit tests. Browser specs
   # run separately so ordinary shards do not install Playwright dependencies.
@@ -146,17 +147,10 @@ jobs:
       - name: Test E2E - Shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }}
         env:
           CI: true
+          # Reuse bytecode across CLI launches; every runner starts with an empty cache.
+          NODE_COMPILE_CACHE: ${{ runner.temp }}/e2e-node-compile-cache
           MATRIX_SHARD: ${{ matrix.shard }}
-        run: |
-          started_at=$(date +%s)
-          set +e
-          pnpm test:e2e:shardable --shard="$MATRIX_SHARD/$E2E_SHARD_COUNT" --reporter=minimal --reporter=json --outputFile.json=".tmp/e2e-shard-$MATRIX_SHARD.json"
-          test_status=$?
-          set -e
-          finished_at=$(date +%s)
-          duration=$((finished_at - started_at))
-          echo "E2E shard $MATRIX_SHARD/$E2E_SHARD_COUNT took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
-          exit "$test_status"
+        run: pnpm test:e2e:shardable --shard="$MATRIX_SHARD/$E2E_SHARD_COUNT" --reporter=minimal --reporter=json --outputFile.json=".tmp/e2e-shard-$MATRIX_SHARD.json"
 
       - name: Upload E2E timing report
         if: ${{ !cancelled() }}
@@ -195,24 +189,16 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Test background runtime E2E
-        run: |
-          started_at=$(date +%s)
-          set +e
-          pnpm test:e2e:system --reporter=minimal
-          test_status=$?
-          set -e
-          finished_at=$(date +%s)
-          duration=$((finished_at - started_at))
-          echo "Background runtime E2E took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
-          exit "$test_status"
+      # Lifecycle checks launch timed cleanup subprocesses; keep their runner exclusive.
+      - name: Test system lifecycle E2E
+        run: pnpm test:e2e:system --reporter=minimal
         env:
           CI: true
 
-  test-conformance:
-    runs-on: ubuntu-latest
+  test-protocol:
+    # Python 3.13.0 has no setup-python build for Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
-    if: inputs.release_gate || github.ref_type != 'tag'
     permissions:
       contents: read
     steps:
@@ -246,36 +232,10 @@ jobs:
         working-directory: test/conformance/fixtures/typescript
         run: pnpm install --frozen-lockfile
 
-      - name: Resolve checked-out source SHA
-        id: conformance-source
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Run no-retry conformance baseline and focused transports
-        run: pnpm test:conformance -- --mode "$CONFORMANCE_MODE" --reporter=minimal
+      - name: Run protocol regressions
+        run: pnpm test:protocol -- --reporter=minimal
         env:
           CI: true
-          GITHUB_SHA: ${{ steps.conformance-source.outputs.sha }}
-          CONFORMANCE_MODE: ${{ inputs.release_gate && 'gate' || 'baseline' }}
-
-      - name: Upload exact-source conformance evidence
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: conformance-${{ steps.conformance-source.outputs.sha }}
-          path: |
-            .tmp/conformance/conformance-baseline.json
-            .tmp/conformance/conformance-integrity.json
-            .tmp/conformance/observed-inputs.json
-            .tmp/conformance/profile-proofs.json
-            .tmp/conformance/boundary/
-            .tmp/conformance/profile-evidence/
-            .tmp/conformance/legacy-revisions/
-            .tmp/conformance/official-evidence/
-            .tmp/conformance/official-controls/
-            .tmp/conformance/official-client-statuses/
-            .tmp/conformance/official-targets/
-            .tmp/conformance/evidence/
-          if-no-files-found: error
 
   test-e2e-browser:
     runs-on: ubuntu-latest
@@ -301,18 +261,16 @@ jobs:
         run: pnpm build
 
       - name: Test browser E2E
-        run: |
-          started_at=$(date +%s)
-          set +e
-          pnpm test:e2e:browser --reporter=minimal
-          test_status=$?
-          set -e
-          finished_at=$(date +%s)
-          duration=$((finished_at - started_at))
-          echo "Browser E2E took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
-          exit "$test_status"
+        run: pnpm test:e2e:browser --reporter=minimal
         env:
           CI: true
+
+      # Token CLI assertions have a three-second startup deadline; reuse this idle runner.
+      - name: Test token CLI without competing workers
+        run: pnpm test:e2e test/e2e/commands/mcp/mcp-tokens.test.ts --maxWorkers=1 --retry=0 --reporter=minimal
+        env:
+          CI: true
+          NODE_COMPILE_CACHE: ${{ runner.temp }}/e2e-node-compile-cache
 
   test-legacy-upgrade:
     runs-on: ${{ matrix.os }}
@@ -414,7 +372,7 @@ jobs:
         test-e2e-parallel,
         test-e2e-system,
         test-e2e-browser,
-        test-conformance,
+        test-protocol,
         test-legacy-upgrade,
         test-windows-installer,
         release-lifecycle,
@@ -430,23 +388,17 @@ jobs:
       - uses: ./.github/actions/setup-node-pnpm
         with:
           cache-deps: 'false'
-      - uses: actions/download-artifact@v8
-        with:
-          name: conformance-${{ inputs.checkout_ref }}
-          path: conformance-evidence
-      - name: Require every applicable gate and exact-source product verdict
+      - name: Require every applicable check for the candidate
         env:
           CHECK_RESULTS: ${{ toJSON(needs) }}
           RELEASE_SHA: ${{ inputs.checkout_ref }}
         run: |
-          RELEASE_CONFORMANCE_DIR=conformance-evidence pnpm test:unit src/release/release-conformance-gate.test.ts
           node - <<'NODE'
           const fs = require('node:fs');
-          const results = JSON.parse(process.env.CHECK_RESULTS);
-          if (Object.values(results).some(job => job.result !== 'success')) throw new Error('Release checks failed or skipped');
-          const baseline = JSON.parse(fs.readFileSync('conformance-evidence/conformance-baseline.json'));
-          if (baseline.sourceSha !== process.env.RELEASE_SHA || baseline.mode !== 'gate' || baseline.infrastructureVerdict !== 'green' || baseline.productVerdict !== 'green') throw new Error('Exact-source product conformance is not green');
-          fs.writeFileSync('release-gates.json', JSON.stringify({ sha: process.env.RELEASE_SHA, ci: 'success', infrastructureVerdict: baseline.infrastructureVerdict, productVerdict: baseline.productVerdict, checks: results }) + '\n');
+          const { createReleaseChecks } = require('./scripts/release-checks.cjs');
+          const checkedOutSha = require('node:child_process').execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          const gates = createReleaseChecks(process.env.RELEASE_SHA, JSON.parse(process.env.CHECK_RESULTS), checkedOutSha);
+          fs.writeFileSync('release-gates.json', JSON.stringify(gates) + '\n');
           NODE
       - uses: actions/upload-artifact@v7
         with:

@@ -3,6 +3,8 @@ import type { TemplateContextProof } from '@src/core/context/templateContextTrus
 import { CONTEXT_HEADERS, encodeContextValue } from '@src/transport/http/utils/contextExtractor.js';
 import type { ContextData } from '@src/types/context.js';
 
+export const DEFAULT_API_TIMEOUT_MS = 10_000;
+
 export interface ApiClientOptions {
   baseUrl: string;
   bearerToken?: string;
@@ -17,6 +19,7 @@ export interface ApiResponse<T> {
   status: number;
   data?: T;
   error?: string;
+  timedOut?: boolean;
   sessionId?: string;
 }
 
@@ -36,7 +39,7 @@ export class ApiClient {
   constructor(options: ApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.bearerToken = options.bearerToken;
-    this.timeout = options.timeout ?? 10_000;
+    this.timeout = options.timeout ?? DEFAULT_API_TIMEOUT_MS;
     this.sessionId = options.sessionId;
     this.context = options.context;
     this.contextProof = options.contextProof;
@@ -102,7 +105,6 @@ export class ApiClient {
         signal: controller.signal,
       });
 
-      clearTimeout(timer);
       const sessionId = response.headers.get('mcp-session-id') ?? undefined;
 
       let data: T | undefined;
@@ -127,7 +129,8 @@ export class ApiClient {
               error = `HTTP ${response.status}`;
             }
           }
-        } catch {
+        } catch (cause) {
+          if (controller.signal.aborted) throw cause;
           error = `HTTP ${response.status}: invalid JSON response`;
         }
       } else if (!response.ok) {
@@ -136,11 +139,12 @@ export class ApiClient {
 
       return { ok: response.ok, status: response.status, data, error, sessionId };
     } catch (err) {
-      clearTimeout(timer);
-      if (err instanceof Error && err.name === 'AbortError') {
-        return { ok: false, status: 0, error: `Request timed out after ${timeout}ms` };
+      if (controller.signal.aborted) {
+        return { ok: false, status: 0, error: `Request timed out after ${timeout}ms`, timedOut: true };
       }
       return { ok: false, status: 0, error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      clearTimeout(timer);
     }
   }
 }

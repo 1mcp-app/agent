@@ -72,15 +72,15 @@ node build/index.js serve --config "$DEMO/config/mcp.json" --config-dir "$DEMO/c
 In the second terminal, inspect and initialize the first checkout:
 
 ```bash
-node build/index.js preparation inspect fixture --operation source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
-node build/index.js prepare fixture --operation source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
+node build/index.js project prepare inspect fixture --operation source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
+node build/index.js project prepare fixture --operation source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
 ```
 
 The cold fixture initially advertises no tools, so this example uses the preparation control to initialize it. Copy `status.id` from the job response, then wait and query:
 
 ```bash
 JOB_ID='replace-with-status.id'
-node build/index.js preparation wait fixture "$JOB_ID" --wait-ms 5000 --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
+node build/index.js project prepare wait fixture "$JOB_ID" --wait-ms 5000 --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
 node build/index.js inspect fixture/source --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp
 node build/index.js run fixture/source --args '{}' --project "$DEMO/first" --config-dir "$DEMO/config" --url http://localhost:3059/mcp --format json
 ```
@@ -152,7 +152,9 @@ Add preparation metadata to an existing server definition. Use executable paths 
         "0": { "state": "ready" },
         "2": { "state": "required", "action": "initialize", "instructions": "Initialize the selected checkout." },
         "3": { "state": "required", "action": "sync", "instructions": "Synchronize changed source." },
-        "4": { "state": "conflict", "instructions": "Reconcile the existing writer before retrying." }
+        "4": { "state": "conflict", "instructions": "Reconcile the existing writer before retrying." },
+        "20": { "state": "unknown", "reason": "probe_failed", "instructions": "Inspect the native configuration before retrying." },
+        "21": { "state": "unsupported", "instructions": "Verify backend compatibility before updating this recipe." }
       },
       "actions": {
         "initialize": {
@@ -168,6 +170,8 @@ Add preparation metadata to an existing server definition. Use executable paths 
 ```
 
 Replace these example wrapper paths with installed integration scripts. A probe must establish freshness and coverage for this checkout and operation, including dirty source. Unmapped exits and timeouts produce unknown readiness; logs are bounded diagnostics. An integration that cannot establish freshness should report unknown rather than ready. `affectedTools` accepts explicit upstream names or `"all"`; other tools retain their ordinary behavior. A gated backend with no integration reports unsupported preparation.
+
+For a known compatibility failure, map its exit code to `unsupported`. For an inconclusive probe, map it to `unknown` with `reason: "probe_failed"`. Both return the operator-authored `instructions` (1–4,096 characters) without adding stdout or stderr, scheduling an action, or replaying the tool. Other unknown reasons, such as caller cancellation and inspection timeout, are reserved for runtime observations. Unmapped exits still remain unknown; never map a probe error to `ready` just to unblock tools. These mappings require a runtime version that supports them; older runtimes reject the definition instead of silently enabling tools.
 
 Each action may explicitly define `successExitCodes` (default `[0]`) and `transientExitCodes`. The mappings must not overlap. Only explicitly transient failures can retry automatically, within `transientRetryLimit` and the job deadline. `allowedActions` grants runtime authority. Rebuilds, dependency installation, and paid services require explicit `rebuild`, `install`, or `paid` permission; project preferences cannot add them.
 
@@ -190,13 +194,13 @@ For inline commands and named definitions without explicit runtime setup activat
 Preparation controls remain accessible even if initial tool discovery is empty:
 
 ```bash
-1mcp prepare inspect source-search --project /work/frontend --operation lookup --format json
-1mcp prepare source-search --project /work/frontend --operation lookup --format json
+1mcp project prepare inspect source-search --project /work/frontend --operation lookup --format json
+1mcp project prepare source-search --project /work/frontend --operation lookup --format json
 OPERATION_ID='replace-with-returned-job-id'
-1mcp prepare status source-search "$OPERATION_ID" --project /work/frontend
-1mcp prepare wait source-search "$OPERATION_ID" --project /work/frontend --wait-ms 5000
-1mcp prepare cancel source-search "$OPERATION_ID" --project /work/frontend
-1mcp prepare retry source-search "$OPERATION_ID" --project /work/frontend
+1mcp project prepare status source-search "$OPERATION_ID" --project /work/frontend
+1mcp project prepare wait source-search "$OPERATION_ID" --project /work/frontend --wait-ms 5000
+1mcp project prepare cancel source-search "$OPERATION_ID" --project /work/frontend
+1mcp project prepare retry source-search "$OPERATION_ID" --project /work/frontend
 ```
 
 `inspect` reads readiness and current job state, action, elapsed time, and available progress. It does not schedule preparation, repair state, or retry failed jobs. Handles are bound to the authenticated owner, target, operation, and effective configuration. Controls using an ID recover its operation automatically; an explicitly conflicting operation is rejected.

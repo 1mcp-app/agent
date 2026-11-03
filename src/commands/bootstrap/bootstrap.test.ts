@@ -3,6 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 
+import * as runtimeBootstrap from '@src/config/runtimeBootstrap.js';
+import { temporaryProjectOwnerStorage } from '@src/commands/shared/projectOwnerStorage.js';
+import {
+  createHookProjectOwner,
+  readProjectOwnerAssignment,
+  readProjectOwnerTargets,
+  recordProjectOwnerSelection,
+} from '@src/commands/shared/projectOwnerStore.js';
 import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -17,8 +25,94 @@ import {
   renderBootstrapContext,
   runInstructionsProcess,
 } from './bootstrap.js';
+import { bootstrapOwner } from './bootstrapOwnership.js';
 
 describe('worker bootstrap client contracts', () => {
+  it('records a manual worker assignment from its private thread locator without an owner flag', async () => {
+    const storage = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-thread-only-'));
+    const file = await bootstrapOwner(
+      { client: 'codex', event: 'SubagentStart', 'config-dir': storage },
+      JSON.stringify({ hook_event_name: 'SubagentStart', session_id: 'parent', agent_id: 'child' }),
+    );
+    const entry = path.join(storage, 'instructions.mjs');
+    await fs.writeFile(entry, "process.stdout.write('runtime instructions')");
+    const previousEntry = process.argv[1];
+    const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(Readable.from([]) as typeof process.stdin);
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    vi.stubEnv('CODEX_THREAD_ID', 'child');
+    vi.stubEnv('CODEX_SESSION_ID', '');
+    try {
+      process.argv[1] = entry;
+      await bootstrapCommand({ client: 'codex', event: 'SubagentStart', 'config-dir': storage, project: [storage] });
+      expect((await readProjectOwnerAssignment(file))?.project).toEqual([storage]);
+    } finally {
+      process.argv[1] = previousEntry;
+      stdin.mockRestore();
+      stdout.mockRestore();
+      vi.unstubAllEnvs();
+      await fs.rm(storage, { recursive: true, force: true });
+      await fs.rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
+    }
+  });
+
+  it('runs SessionEnd cleanup once with the immutable native-set selector', async () => {
+    const storage = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-selection-'));
+    const owner = await createHookProjectOwner(storage, { client: 'codex', sessionId: 'parent' });
+    await recordProjectOwnerSelection(owner, { 'config-dir': storage, context: 'local', runtimeScopeId: 'scope-a' }, [
+      { label: 'a', path: '/selected/a' },
+      { label: 'b', path: '/selected/b' },
+    ]);
+    const target = (await readProjectOwnerTargets(owner))[0];
+    const output = path.join(storage, 'args.json');
+    const runner = path.join(storage, 'runner.cjs');
+    await fs.writeFile(
+      runner,
+      `require('node:fs').writeFileSync(${JSON.stringify(output)}, JSON.stringify(process.argv.slice(2)), { mode: 0o600 });`,
+      { mode: 0o600 },
+    );
+    const previousEntry = process.argv[1];
+    const stdin = vi
+      .spyOn(process, 'stdin', 'get')
+      .mockReturnValue(
+        Readable.from([
+          JSON.stringify({ hook_event_name: 'SessionEnd', session_id: 'parent' }),
+        ]) as typeof process.stdin,
+      );
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    try {
+      process.argv[1] = runner;
+      await bootstrapCommand({ client: 'codex', event: 'SessionEnd', 'config-dir': storage });
+      const args = JSON.parse(await fs.readFile(output, 'utf8')) as string[];
+      expect(args).toContain(`--project-set=${target['project-set']}`);
+      expect(args.filter((arg) => arg.startsWith('--project='))).toEqual([]);
+      expect(args).toContain('--expected-runtime-scope=scope-a');
+    } finally {
+      process.argv[1] = previousEntry;
+      stdin.mockRestore();
+      stdout.mockRestore();
+      await fs.rm(storage, { recursive: true, force: true });
+      await fs.rm(temporaryProjectOwnerStorage(storage), { recursive: true, force: true });
+    }
+  });
+  it('emits sanitized SessionEnd failure diagnostics on stderr for clients that discard JSON', async () => {
+    const stdin = vi
+      .spyOn(process, 'stdin', 'get')
+      .mockReturnValue(Readable.from(['{"hook_event_name":"SessionEnd"}']) as typeof process.stdin);
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const previousExitCode = process.exitCode;
+    try {
+      await bootstrapCommand({ client: 'claude', event: 'SessionEnd' });
+      expect(process.exitCode).toBe(1);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('Ownership cleanup coverage gap'));
+      expect(JSON.parse(String(stdout.mock.calls[0][0]))).toHaveProperty('systemMessage');
+    } finally {
+      process.exitCode = previousExitCode;
+      stdin.mockRestore();
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
+  });
   it.each([
     ['codex', 'SessionStart'],
     ['codex', 'SubagentStart'],
@@ -40,8 +134,8 @@ describe('worker bootstrap client contracts', () => {
             return instructions;
           },
         );
-        expect(output).toContain('1mcp prepare inspect <backend>');
-        expect(output).toContain('1mcp prepare start <backend>');
+        expect(output).toContain('1mcp project prepare inspect <backend>');
+        expect(output).toContain('1mcp project prepare start <backend>');
         expect(output).toContain('never executes or replays the original tool call');
         expect(output).toContain('do not run `1mcp instructions` again');
         if (scenario === 'unavailable') {
@@ -75,8 +169,8 @@ describe('worker bootstrap client contracts', () => {
     expect(output).not.toContain('/parent');
     expect(output).not.toContain('/invented');
     expect(output).toContain('inspect <server>/<tool>');
-    expect(output).toContain('1mcp prepare inspect <backend>');
-    expect(output).toContain('assigned --project/--project-set');
+    expect(output).toContain('1mcp project prepare inspect <backend>');
+    expect(output).toContain('the assigned session project is the default');
   });
 
   it.each(['codex', 'claude'] as const)('emits a documented %s additionalContext envelope', async (client) => {
@@ -124,10 +218,10 @@ describe('worker bootstrap client contracts', () => {
         if (inputKind === 'tty' || inputKind === 'empty-open-pipe') {
           expect(context).toContain('Explicit Worker Project Assignment: ["/worker"]');
           expect(context).toContain('Verified instructions for explicit worker');
-          expect(context).not.toContain('could not be verified');
+          expect(context).not.toContain('[invalid_hook_input]');
           expect(await fs.readFile(invoked, 'utf8')).toBe('invoked');
         } else {
-          expect(context).toContain('could not be verified');
+          expect(context).toContain('[invalid_hook_input]');
           expect(context).not.toContain('Verified instructions for explicit worker');
           await expect(fs.access(invoked)).rejects.toThrow();
         }
@@ -217,13 +311,19 @@ describe('worker bootstrap client contracts', () => {
     const instructions = 'Server instructions: 工具 🚀\n'.repeat(2000) + 'END OF INSTRUCTIONS';
     const project = `/${Array(16).fill('"'.repeat(250)).join('/')}`;
     await fs.writeFile(entry, `process.stdout.write(${JSON.stringify(instructions)});`);
-    const input = Readable.from([JSON.stringify({ hook_event_name: event })]);
+    const input = Readable.from([
+      JSON.stringify({
+        hook_event_name: event,
+        session_id: 'test-session',
+        ...(event === 'SubagentStart' ? { agent_id: 'test-worker' } : {}),
+      }),
+    ]);
     const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(input as typeof process.stdin);
     const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const previousEntry = process.argv[1];
     process.argv[1] = entry;
     try {
-      await bootstrapCommand({ client, event, project: [project] });
+      await bootstrapCommand({ client, event, project: [project], 'config-dir': directory });
       expect(stdout).toHaveBeenCalledTimes(1);
       const envelope = JSON.parse(String(stdout.mock.calls[0][0]));
       expect(envelope.hookSpecificOutput.hookEventName).toBe(event);
@@ -231,6 +331,7 @@ describe('worker bootstrap client contracts', () => {
       expect(context).toContain(instructions);
       expect(context).toContain(`Explicit Worker Project Assignment: ${JSON.stringify([project])}`);
       expect(context.split('=== PRESET ADVISORY FOR THE AGENT ===')).toHaveLength(2);
+      expect(context).toContain('--project-owner');
       expect(context).not.toContain('coverage gap');
     } finally {
       process.argv[1] = previousEntry;
@@ -301,7 +402,7 @@ describe('worker bootstrap client contracts', () => {
       input,
       render,
     );
-    expect(output).toContain('Bootstrap coverage gap');
+    expect(output).toContain('Bootstrap coverage gap [invalid_hook_input]');
     expect(render).not.toHaveBeenCalled();
   });
 
@@ -310,7 +411,7 @@ describe('worker bootstrap client contracts', () => {
     for (const selection of [{ project: ['relative'] }, { project: ['/worker', '/other'] }]) {
       expect(
         await renderBootstrapContext({ client: 'codex', event: 'SubagentStart', ...selection }, '', render),
-      ).toContain('coverage gap');
+      ).toContain('Bootstrap coverage gap [invalid_assignment]');
     }
     expect(render).not.toHaveBeenCalled();
   });
@@ -320,7 +421,7 @@ describe('worker bootstrap client contracts', () => {
     const failed = await renderBootstrapContext(options, '', async () => {
       throw new Error('private secret');
     });
-    expect(failed).toContain('coverage gap');
+    expect(failed).toContain('Bootstrap coverage gap [instructions_failed]');
     expect(failed).not.toContain('private secret');
   });
 
@@ -349,6 +450,50 @@ describe('worker bootstrap client contracts', () => {
 });
 
 describe('owned instructions subprocess', () => {
+  it('suppresses implementation-child adoption without forwarding a telemetry override', async () => {
+    const environment = vi.spyOn(runtimeBootstrap, 'getRuntimeParentEnvironment').mockReturnValue({
+      ...getRuntimeParentEnvironment(),
+      ONE_MCP_PRODUCT_TELEMETRY: 'true',
+    });
+    try {
+      const args = buildInstructionsArguments({
+        client: 'codex',
+        event: 'SubagentStart',
+        project: ['/synthetic'],
+        'product-telemetry': true,
+      });
+      expect(args.some((arg) => arg.includes('product-telemetry'))).toBe(false);
+      const output = await runInstructionsProcess(process.execPath, [
+        '-e',
+        'process.stdout.write(JSON.stringify({enabled:process.env.ONE_MCP_PRODUCT_TELEMETRY,args:process.argv.slice(1)}))',
+        ...args,
+      ]);
+      expect(JSON.parse(output)).toEqual({ enabled: 'false', args });
+    } finally {
+      environment.mockRestore();
+    }
+  });
+
+  it.each([
+    ['instructions_timeout', 'setInterval(() => {}, 1000)'],
+    ['instructions_failed', 'process.stderr.write("private secret"); process.exit(2)'],
+    ['instructions_empty', ''],
+    ['instructions_unavailable', null],
+  ])('renders a safe recovery category for %s', async (reason, source) => {
+    const output = await renderBootstrapContext(
+      { client: 'codex', event: 'SubagentStart', project: ['/selected'] },
+      '',
+      () =>
+        source === null
+          ? runInstructionsProcess('/nonexistent/1mcp-bootstrap-fixture', [])
+          : runInstructionsProcess(process.execPath, ['-e', source], reason === 'instructions_timeout' ? 100 : 5000),
+    );
+    expect(output).toContain(`Bootstrap coverage gap [${reason}]`);
+    expect(output).toContain('same assignment, runtime and filters');
+    expect(output).toContain('Explicit Worker Project Assignment: ["/selected"]');
+    expect(output).not.toContain('private secret');
+  });
+
   it('keeps every forwarded flaglike value inside its option when parsed by yargs', async () => {
     const values = {
       client: 'codex' as const,
@@ -446,4 +591,48 @@ describe('owned instructions subprocess', () => {
     expect(Buffer.byteLength(instructions)).toBeGreaterThan(32 * 1024);
     expect(output).toBe(instructions);
   });
+});
+
+it('preserves successful instructions when another caller holds the owner lock', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-busy-owner-'));
+  try {
+    const owner = await createHookProjectOwner(directory, { client: 'codex', sessionId: 'busy' });
+    await fs.mkdir(`${owner}.lock`, { mode: 0o700 });
+    await expect(
+      runInstructionsProcess(process.execPath, ['-e', "process.stdout.write('ready instructions')"], 5000, owner),
+    ).resolves.toBe('ready instructions');
+    expect((await fs.stat(`${owner}.lock`)).isDirectory()).toBe(true);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+it('preserves successful instructions and uncertain records when reconciliation fails', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-invalid-lease-'));
+  try {
+    const owner = await createHookProjectOwner(directory, { client: 'codex', sessionId: 'invalid' });
+    await fs.mkdir(`${owner}.calls`, { mode: 0o700 });
+    const lease = path.join(`${owner}.calls`, `${'a'.repeat(32)}.json`);
+    await fs.writeFile(lease, 'invalid lease', { mode: 0o600 });
+    await expect(
+      runInstructionsProcess(process.execPath, ['-e', "process.stdout.write('ready instructions')"], 5000, owner),
+    ).resolves.toBe('ready instructions');
+    expect(await fs.readFile(lease, 'utf8')).toBe('invalid lease');
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+it('preserves the timeout result when another caller holds the owner lock', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-timeout-busy-owner-'));
+  try {
+    const owner = await createHookProjectOwner(directory, { client: 'codex', sessionId: 'busy-timeout' });
+    await fs.mkdir(`${owner}.lock`, { mode: 0o700 });
+    await expect(
+      runInstructionsProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], 100, owner),
+    ).rejects.toThrow('deadline');
+    expect((await fs.stat(`${owner}.lock`)).isDirectory()).toBe(true);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });

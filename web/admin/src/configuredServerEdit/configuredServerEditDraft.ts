@@ -42,6 +42,20 @@ export function buildPreviewEdit(
       else if (root === 'enabled') edit.enabled = Boolean(value);
       else if (root === 'tags') edit.tags = stringArray(value);
       else if (root === 'transport' && field.fieldPath.length > 1) {
+        if (field.fieldPath.length === 2 && field.fieldPath[1] === 'oauth') {
+          const previous = objectRecord(initialFieldDraft[key]);
+          const current = objectRecord(value);
+          const patch = Object.fromEntries(
+            Object.entries(current).filter(
+              ([name, entry]) => stableDisplayValue(entry) !== stableDisplayValue(previous[name]),
+            ),
+          );
+          for (const name of ['autoRegister', 'scopes', 'insecureAllowIncompleteMetadata', 'privateNetworkOrigins']) {
+            if (Object.hasOwn(previous, name) && !Object.hasOwn(current, name)) patch[name] = null;
+          }
+          transport.oauth = patch;
+          continue;
+        }
         setNestedDraftValue(transport, field.fieldPath.slice(1), value);
       } else if (root) setNestedDraftValue(edit, field.fieldPath, value);
     }

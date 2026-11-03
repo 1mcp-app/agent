@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createCollector } from '../../test/telemetry/fake-collector.mjs';
 import { startModernBackend } from '../../test/telemetry/modern-backend-process.mjs';
+import { createTestProcessEnvironment, isolatedTestEnvironment } from '../test-process-environment.mjs';
 
 const plan = JSON.parse(await readFile(new URL('./workload.json', import.meta.url)));
 const input = process.argv[2];
@@ -53,10 +54,11 @@ async function run(mode, round) {
   const config = settings.modes[mode];
   const temporary = await mkdtemp(join(tmpdir(), '1mcp-perf-'));
   const probe = join(temporary, 'probe.jsonl');
+  const isolated = isolatedTestEnvironment(
+    Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('OTEL_'))),
+  );
   const env = {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !key.startsWith('OTEL_') && !key.startsWith('ONE_MCP_')),
-    ),
+    ...isolated.env,
     ...config.env,
     TELEMETRY_ACCEPTANCE_PROBE: probe,
   };
@@ -86,7 +88,11 @@ async function run(mode, round) {
     }
     const stderr = openSync(`${output}.${round}.${mode}.runtime.stderr.log`, 'w', 0o600);
     try {
-      child = spawn(config.command[0], args, { env, cwd: temporary, stdio: ['ignore', 'ignore', stderr] });
+      child = spawn(config.command[0], args, {
+        env: createTestProcessEnvironment({}, env),
+        cwd: temporary,
+        stdio: ['ignore', 'ignore', stderr],
+      });
     } finally {
       closeSync(stderr);
     }
@@ -180,7 +186,11 @@ async function run(mode, round) {
       try {
         await backend?.close();
       } finally {
-        await rm(temporary, { recursive: true, force: true });
+        try {
+          await rm(temporary, { recursive: true, force: true });
+        } finally {
+          isolated.cleanup();
+        }
       }
     }
   }

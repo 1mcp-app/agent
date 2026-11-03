@@ -1,6 +1,7 @@
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import { GlobalOptions, globalOptions, withGlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { runProductCommand } from '@src/productTelemetry/commandScope.js';
 import { helpWidth, styleHelp } from '@src/utils/cli/help.js';
 import { normalizeCliArgv, normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
@@ -15,13 +16,14 @@ import { setupCliSetupCommand } from './commands/cliSetup/index.js';
 import { setupInspectCommand } from './commands/inspect/index.js';
 import { setupInstructionsCommand } from './commands/instructions/index.js';
 import { setupMcpCommands } from './commands/mcp/index.js';
-import { setupPreparationCommands } from './commands/preparation/index.js';
 import { setupPresetCommands } from './commands/preset/index.js';
+import { setupProjectCommands } from './commands/project/index.js';
 import { setupProxyCommand } from './commands/proxy/index.js';
 import { setupRegistryCommands } from './commands/registry/index.js';
 import { setupRunCommand } from './commands/run/index.js';
 import { serverOptions, setupServeCommand } from './commands/serve/index.js';
 import { setupTargetCommands } from './commands/target/index.js';
+import { setupTelemetryCommands } from './commands/telemetry/index.js';
 import { setupWaitCommand } from './commands/wait/index.js';
 import { configureGlobalLogger } from './logger/configureGlobalLogger.js';
 
@@ -59,6 +61,10 @@ yargsInstance = yargsInstance
       // Default command - redirect to serve command
       configureGlobalLogger(argv as GlobalOptions, argv.transport);
       const { serveCommand } = await import('./commands/serve/serve.js');
+      if (argv.status || argv.stop) {
+        await runProductCommand('serve', () => serveCommand(argv as Parameters<typeof serveCommand>[0]));
+        return;
+      }
       await serveCommand(argv as Parameters<typeof serveCommand>[0]);
     },
   )
@@ -78,7 +84,7 @@ yargsInstance = setupCliSetupCommand(yargsInstance);
 yargsInstance = setupInstructionsCommand(yargsInstance);
 yargsInstance = setupMcpCommands(yargsInstance);
 yargsInstance = setupPresetCommands(yargsInstance);
-yargsInstance = setupPreparationCommands(yargsInstance);
+yargsInstance = setupProjectCommands(yargsInstance);
 yargsInstance = setupServeCommand(yargsInstance);
 yargsInstance = setupProxyCommand(yargsInstance);
 yargsInstance = setupInspectCommand(yargsInstance);
@@ -86,6 +92,7 @@ yargsInstance = setupRunCommand(yargsInstance);
 yargsInstance = setupWaitCommand(yargsInstance);
 yargsInstance = setupRegistryCommands(yargsInstance);
 yargsInstance = setupTargetCommands(yargsInstance);
+yargsInstance = setupTelemetryCommands(yargsInstance);
 
 /**
  * Check for conflicting global options (options specified both before and after the command)
@@ -107,14 +114,14 @@ function checkGlobalOptionConflicts(argv: string[]): void {
       arg === 'instructions' ||
       arg === 'mcp' ||
       arg === 'preset' ||
-      arg === 'prepare' ||
-      arg === 'preparation' ||
+      arg === 'project' ||
       arg === 'serve' ||
       arg === 'proxy' ||
       arg === 'inspect' ||
       arg === 'run' ||
       arg === 'wait' ||
-      arg === 'target',
+      arg === 'target' ||
+      arg === 'telemetry',
   );
 
   if (commandIndex === -1) return;

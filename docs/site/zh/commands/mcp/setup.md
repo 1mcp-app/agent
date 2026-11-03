@@ -67,6 +67,8 @@ setup 是生成服务器配置的便捷入口。若要定制或共享自动准�
 
 ## 另请参阅
 
+跨仓库和 Git worktree 的完整流程见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
+
 - [后端准备](/zh/guide/backend-preparation) — 当前支持范围、已有配方和准备进度。
 - [项目副本](/zh/guide/project-checkouts) — 目标选择与授权。
 - [mcp install](/zh/commands/mcp/install) — 注册表安装。

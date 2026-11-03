@@ -2,6 +2,7 @@ import os from 'node:os';
 import { join } from 'node:path';
 
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
+import { SCHEMA_LIMITS } from '@src/core/validation/schemaPolicy.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -38,11 +39,14 @@ const transportState = vi.hoisted(() => ({
   callResult: {
     content: [{ type: 'text', text: 'ok' }],
   },
+  callError: undefined as { code: number; message: string } | undefined,
   sessionIdOnInitialize: 'fresh-session',
   throw404OnMethod: undefined as string | undefined,
+  ignoreMethod: undefined as string | undefined,
   toolName: 'runner_1mcp_echo_args',
   instances: [] as Array<{
     initialSessionId?: string;
+    closed: boolean;
     sentMessages: Array<{ method?: string; params?: Record<string, unknown> }>;
   }>,
 }));
@@ -73,7 +77,11 @@ const mockedTransport = vi.hoisted(() => {
 
     async start(): Promise<void> {}
 
-    async close(): Promise<void> {}
+    closed = false;
+
+    async close(): Promise<void> {
+      this.closed = true;
+    }
 
     setProtocolVersion(_version: string): void {}
 
@@ -83,6 +91,8 @@ const mockedTransport = vi.hoisted(() => {
       if (message.method && transportState.throw404OnMethod === message.method && this.sessionId) {
         throw new MockStreamableHTTPError(404, 'Session not found');
       }
+
+      if (message.method === transportState.ignoreMethod) return;
 
       if (message.id === undefined || !message.method) {
         return;
@@ -123,7 +133,7 @@ const mockedTransport = vi.hoisted(() => {
           this.onmessage?.({
             jsonrpc: '2.0',
             id: message.id,
-            result: transportState.callResult,
+            ...(transportState.callError ? { error: transportState.callError } : { result: transportState.callResult }),
           });
           break;
         default:
@@ -162,8 +172,10 @@ describe('run command internals', () => {
     transportState.callResult = {
       content: [{ type: 'text', text: 'ok' }],
     };
+    transportState.callError = undefined;
     transportState.sessionIdOnInitialize = 'fresh-session';
     transportState.throw404OnMethod = undefined;
+    transportState.ignoreMethod = undefined;
     transportState.toolName = 'runner_1mcp_echo_args';
     transportState.instances = [];
     mockedResolveProjectContext.mockReset();
@@ -177,6 +189,115 @@ describe('run command internals', () => {
   });
 
   describe('invokeTool', () => {
+    it('delivers accepted large results through the MCP fallback', async () => {
+      transportState.callResult = { content: [{ type: 'text', text: 'x'.repeat(1_000_001) }] };
+      const response = await invokeTool({
+        serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+        displayToolName: 'runner/echo_args',
+        qualifiedToolName: 'runner_1mcp_echo_args',
+        explicitArgs: '{}',
+        resolveTool: false,
+      });
+      expect(response.rawResponse).toMatchObject({ result: transportState.callResult });
+      expect(transportState.instances[0].closed).toBe(true);
+    });
+
+    it.each([-1, 0, 1])('enforces the serialized result byte budget at offset %s without replay', async (offset) => {
+      const overhead = Buffer.byteLength(JSON.stringify({ content: [{ type: 'text', text: '' }] }));
+      transportState.callResult = {
+        content: [{ type: 'text', text: 'x'.repeat(SCHEMA_LIMITS.outputBytes - overhead + offset) }],
+      };
+      const response = await invokeTool({
+        serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+        displayToolName: 'runner/echo_args',
+        qualifiedToolName: 'runner_1mcp_echo_args',
+        explicitArgs: '{}',
+        resolveTool: false,
+      });
+      if (offset <= 0) expect(response.rawResponse).toHaveProperty('result', transportState.callResult);
+      else
+        expect('error' in response.rawResponse ? response.rawResponse.error : undefined).toMatchObject({
+          code: -32000,
+          message: 'schema_budget_exceeded',
+          data: { 'app.1mcp/failure': { kind: 'protocol', code: 'schema_budget_exceeded' } },
+        });
+      expect(response.retryWithFreshSession).toBe(false);
+      expect(transportState.instances).toHaveLength(1);
+      expect(transportState.instances[0].sentMessages.filter(({ method }) => method === 'tools/call')).toHaveLength(1);
+      expect(transportState.instances[0].closed).toBe(true);
+    });
+
+    it.each([
+      ['界'.repeat(1_000_001), true],
+      ['界'.repeat(1_400_000), false],
+      ['\n'.repeat(2_100_000), false],
+    ])('measures Unicode and escaping in serialized UTF-8 bytes (%#)', async (text, accepted) => {
+      transportState.callResult = { content: [{ type: 'text', text }] };
+      const response = await invokeTool({
+        serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+        displayToolName: 'runner/echo_args',
+        qualifiedToolName: 'runner_1mcp_echo_args',
+        explicitArgs: '{}',
+        resolveTool: false,
+      });
+      if (accepted) expect(response.rawResponse).toHaveProperty('result', transportState.callResult);
+      else expect(response.rawResponse).toHaveProperty('error.message', 'schema_budget_exceeded');
+      expect(response.retryWithFreshSession).toBe(false);
+      expect(transportState.instances[0].sentMessages.filter(({ method }) => method === 'tools/call')).toHaveLength(1);
+    });
+
+    it('preserves protocol errors instead of applying the successful-result byte budget', async () => {
+      transportState.callError = { code: -32005, message: 'x'.repeat(4 * 1024 * 1024 + 1) };
+      const response = await invokeTool({
+        serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+        displayToolName: 'runner/echo_args',
+        qualifiedToolName: 'runner_1mcp_echo_args',
+        explicitArgs: '{}',
+        resolveTool: false,
+      });
+      expect(response.rawResponse).toHaveProperty('error', transportState.callError);
+      expect(response.retryWithFreshSession).toBe(false);
+    });
+
+    it('does not convert malformed result errors into size failures', async () => {
+      transportState.callResult = { content: [{ type: 'text', text: '\ud800' }] };
+      await expect(
+        invokeTool({
+          serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+          displayToolName: 'runner/echo_args',
+          qualifiedToolName: 'runner_1mcp_echo_args',
+          explicitArgs: '{}',
+          resolveTool: false,
+        }),
+      ).rejects.toMatchObject({ code: 'schema_invalid' });
+      expect(transportState.instances[0].closed).toBe(true);
+      expect(transportState.instances[0].sentMessages.filter(({ method }) => method === 'tools/call')).toHaveLength(1);
+    });
+
+    it('reports an uncertain execution deadline without replaying the MCP call', async () => {
+      transportState.ignoreMethod = 'tools/call';
+      const response = await invokeTool({
+        serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+        displayToolName: 'runner/echo_args',
+        qualifiedToolName: 'runner_1mcp_echo_args',
+        explicitArgs: '{"message":"hello"}',
+        resolveTool: false,
+        timeoutMs: 20,
+      });
+      expect(response.retryWithFreshSession).toBe(false);
+      expect(response.rawResponse).toMatchObject({
+        error: {
+          message: expect.stringContaining('The tool may still be running'),
+          data: { 'app.1mcp/failure': { kind: 'deadline-exceeded', code: 'cli_tool_execution_timeout' } },
+        },
+      });
+      expect(transportState.instances).toHaveLength(1);
+      expect(
+        transportState.instances[0].sentMessages.filter((message) => message.method === 'tools/call'),
+      ).toHaveLength(1);
+      expect(transportState.instances[0].closed).toBe(true);
+    });
+
     it('initializes a fresh session before calling the tool', async () => {
       const initializeContext = {
         project: { name: 'agent', path: '/tmp/agent' },

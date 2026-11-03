@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Config Change Owns Mutation, Backup, and Reload Observation
 
 Config mutation should be handled as a **Config Change**: one workflow that persists the requested change, creates and prunes backups when required, validates before writing, serializes concurrent writers, and reports the observable reload outcome for the matching **Runtime Scope**. We chose this over keeping file writes, backup policy, and reload hints scattered across CLI helpers and internal-tool adapters because callers need truthful structured facts, especially when a CLI command mutates config used by a separate **Aggregated Runtime**.

@@ -267,3 +267,5 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{}}' | node build/index.js
 - [配置深入指南](/zh/guide/essentials/configuration) - 详细设置选项
 - [架构参考](/zh/reference/architecture) - 系统设计和模式
 - [贡献指南](https://github.com/1mcp-app/agent/blob/main/CONTRIBUTING.md) - 如何贡献
+
+修改 MCP 协议行为或 SDK 依赖后，请运行 `pnpm test:protocol`。准备步骤和保留的测试覆盖范围见[协议回归测试说明](https://github.com/1mcp-app/agent/blob/main/docs/development/protocol-regressions.md)。

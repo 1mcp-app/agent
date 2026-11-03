@@ -1,186 +1,57 @@
 # AGENTS.md
 
-## Repository Information
+1MCP aggregates MCP servers behind one endpoint. Repository: `1mcp-app/agent`; public docs: <https://docs.1mcp.app>.
 
-- Repository URL: https://github.com/1mcp-app/agent
-- Documentation: https://docs.1mcp.app
+## Start with the relevant context
 
-## Development Commands
+- Before exploring a domain, read [docs/agents/domain.md](docs/agents/domain.md), use the vocabulary in `GLOSSARY.md` when present, and consult the relevant decisions in `docs/adr/`.
+- Before editing anything under `docs/`, read [docs/AGENTS.md](docs/AGENTS.md). It defines public URL preservation, bilingual changes, development-note placement, and site verification.
+- For issue or PRD work, read [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md); for triage labels, read [docs/agents/triage-labels.md](docs/agents/triage-labels.md).
+- For setup and development workflows, consult [the development guide](docs/site/en/guide/development.md). Use `.node-version` and the `packageManager` field in `package.json` for toolchain versions; `package.json` scripts and `.github/workflows/` define executable checks.
 
-```bash
-# Setup
-pnpm install
-cp .env.example .env  # Required for development
+## Scope and completion
 
-# Build & Run
-pnpm build            # Build the project
-pnpm dev              # Development with auto-rebuild
-pnpm watch            # Watch mode for development
+- Preserve existing staged and unstaged changes. Carry the authorized task through implementation, verification, and requested delivery; keep commits, pushes, PR creation, merge, and deployment within the user's authorization.
+- Resolve routine, reversible choices from current source and repository conventions. Ask when an unresolved decision materially changes behavior, compatibility, scope, or external effects; continue independent authorized work while it is unresolved.
+- Report the changed behavior, checks actually run, and unresolved failures or coverage gaps. Local validation, hosted CI, and deployment are separate results. “Verify” and “confirm” require evidence, not a human approval checkpoint unless explicitly requested.
 
-# Quality Checks (run before committing)
-pnpm lint && pnpm typecheck && pnpm build && pnpm test:unit
+## Development and verification
 
-# Testing
-pnpm test:unit                              # Run all unit tests
-pnpm test:unit src/config/mcpConfigManager.test.ts  # Run single test file
-pnpm test:unit -t "ServerManager"           # Run tests matching name pattern (-t = --testNamePattern)
-pnpm test:unit:watch                        # Watch mode
-pnpm test:unit:coverage                     # With coverage
-pnpm test:e2e                               # E2E tests (sequential, with fixtures)
-pnpm test:e2e:watch                         # E2E watch mode
+Run commands from the repository root. Install dependencies with `pnpm install`. `pnpm dev` starts the development watcher and creates `.env` from `.env.example` if absent; preserve any existing `.env`.
 
-# Debug
-pnpm inspector                              # MCP Inspector
+| Task                                        | Command / rule                                                                               |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Build                                       | `pnpm build`                                                                                 |
+| Focused source tests                        | `pnpm test:unit <path/to/file.test.ts>`; source tests are co-located                         |
+| Admin UI                                    | `pnpm test:admin` and `pnpm typecheck:admin`                                                 |
+| Required before committing                  | `pnpm check`                                                                                 |
+| Documentation changes                       | `pnpm docs:build`                                                                            |
+| Process, HTTP, browser, or protocol changes | Build first, then choose the relevant E2E lane from [test/e2e/README.md](test/e2e/README.md) |
 
-# Documentation
-pnpm docs:dev         # Start VitePress dev server
-pnpm docs:build       # Build documentation (run after doc changes)
+`pnpm check` runs static/build checks, source and Admin tests, release tests, and the permission guard. It does not include the docs build, E2E, or protocol regression suite. For MCP protocol or SDK dependency changes, run `pnpm test:protocol` after installing the TypeScript and Python peer fixtures as described in [protocol regression testing](docs/development/protocol-regressions.md). Select additional checks for the affected behavior from `package.json` and the relevant CI workflow; diagnose failures rather than waiving a gate.
 
-# Binary
-pnpm sea:build        # Create SEA bundle
-pnpm sea:binary       # Build binary for current platform
-```
+Reuse existing fixtures and `test/unit-utils/MockFactories.ts`. For command tests, use the E2E harness's isolated configuration, temporary state, loopback ports, and owned subprocess teardown. Keep manual experiments isolated with a task-specific `ONE_MCP_CONFIG_DIR`; never exercise mutations against the user's live configuration. Use the SDK client for protocol journeys instead of incomplete hand-written JSON-RPC examples.
 
-## Verification and completion
+## Implementation conventions
 
-Use the repository's existing test framework, fixtures, and required quality gates. Diagnose failed checks and complete unaffected work. Report unresolved gates accurately; do not waive them or claim verification succeeded. "Verify" and "confirm" mean checking evidence unless an instruction explicitly requests human approval.
-
-## Architecture Overview
-
-1MCP is a unified MCP server that aggregates multiple MCP servers into one endpoint. It acts as a proxy, managing servers as subprocesses and forwarding requests from AI assistants.
-
-### Layered Architecture
-
-```
-src/
-├── commands/           # CLI commands (yargs-based)
-├── transport/          # HTTP/SSE and STDIO protocol implementations
-│   └── http/
-│       ├── routes/     # Endpoint handlers (oauth, sse, streamable)
-│       └── middlewares/# Security, auth, tag extraction
-├── core/               # Business logic
-│   ├── server/         # ServerManager - lifecycle management
-│   ├── capabilities/   # Tool/resource aggregation
-│   ├── loading/        # mcpLoadingManager, parallelExecutor, state tracking
-│   └── filtering/      # Request filtering
-├── config/             # McpConfigManager with hot-reload
-├── auth/               # OAuth 2.1 with scope-based authorization
-├── domains/            # Self-contained business domains
-│   ├── preset/             # Preset management
-│   ├── backup/             # Backup management
-│   ├── discovery/          # App discovery
-│   ├── installation/       # App installation
-│   ├── registry/           # Server registry
-│   ├── server-management/  # Server management
-│   └── config-change/      # Config mutation/reload observation
-├── application/        # Cross-cutting services (health, config reload)
-└── logger/             # Winston-based conditional logging
-```
-
-### Key Design Patterns
-
-- **Singleton Pattern**: `ServerManager.getInstance()`, `McpConfigManager.getInstance()`, `AgentConfigManager.getInstance()`
-- **Factory Pattern**: `TransportFactory` creates protocol-specific transports
-- **Proxy Pattern**: 1MCP aggregates multiple MCP servers through unified interface
-
-### Key Files
-
-| Purpose           | Location                                            |
-| ----------------- | --------------------------------------------------- |
-| Entry Point       | `src/index.ts`                                      |
-| Server Lifecycle  | `src/core/server/ServerManager.ts`                  |
-| Config Management | `src/config/mcpConfigManager.ts`                    |
-| Transport Factory | `src/transport/transportFactory.ts`                 |
-| Async Loading     | `src/core/capabilities/asyncLoadingOrchestrator.ts` |
-| Mock Factories    | `test/unit-utils/MockFactories.ts`                  |
-
-## Development Conventions
-
-### Maintainable control flow
+### Control flow
 
 - Make each branch express one decision. Prefer guard clauses and early returns over nested `if/else` chains.
-- Split conditions that mix several concerns or require mentally unpacking `&&`, `||`, and negation. Use sequential checks or a well-named domain predicate; keep the predicate itself straightforward.
-- Keep ordinary two-way `if/else` when it is clearer. Avoid nested ternaries and boolean flags that make one function perform different workflows.
-- Extract small functions around meaningful decisions or steps, not wrappers that merely hide a complicated expression. Do not replace simple branches with unnecessary dispatch tables, classes, or abstractions.
-- During refactoring, preserve validation, short-circuit order, side effects, and failure behavior. Review new or changed code against these rules and verify the affected behavior.
+- Split conditions that mix concerns or require unpacking `&&`, `||`, and negation. Use sequential checks or a straightforward named domain predicate.
+- Keep ordinary two-way `if/else` when clearer. Avoid nested ternaries and boolean flags that make one function perform different workflows.
+- Extract functions around meaningful decisions or steps, not wrappers that hide complicated expressions. Avoid unnecessary dispatch tables, classes, or abstractions.
+- Preserve validation, short-circuit order, side effects, and failure behavior during refactoring; verify the affected behavior.
 
-### Environment Variables
+### Configuration and CLI
 
-- Access through yargs options (`ONE_MCP_*` prefix auto-loaded), never direct `process.env` access
-- Key dev settings in `.env`: `ONE_MCP_LOG_LEVEL=debug`, `ONE_MCP_PORT=3051`, `ONE_MCP_CONFIG_DIR=./config`
+- Route user-facing `ONE_MCP_*` settings through the existing yargs/configuration pipeline rather than adding ad hoc `process.env` reads in business logic. Keep environment plumbing at its existing boundaries.
+- Validate external inputs with the existing Zod schemas before applying configuration changes.
+- Follow neighboring command builders and handlers in `src/commands/`. Keep option registration, validation, help text, focused tests, and affected public command docs aligned. Add E2E coverage when behavior crosses a process or protocol boundary.
 
-### Testing
+### SDK boundaries
 
-- **Unit tests**: Co-located `.test.ts` files with source code
-- **E2E tests**: `test/e2e/` with dedicated fixtures in `test/e2e/fixtures/`
-- **Test isolation**: Use `ONE_MCP_CONFIG_DIR=.tmp-test` for MCP command testing
-- **Mock data**: Use `test/unit-utils/MockFactories.ts` for consistent patterns
+Keep legacy `@modelcontextprotocol/sdk` dependencies inside `src/sdk/legacy/`. Before changing SDK imports or compatibility shims, read [the import policy](scripts/sdk-boundary/import-policy.mjs) and [retained transport checks](scripts/vendor-legacy-transport.mjs); preserve their enforced boundaries rather than copying imports from an unrelated transport implementation.
 
-### Validation
+### Logging and output
 
-- Use Zod schemas for all input validation and API boundaries
-- Schema validation runs before configuration changes are applied
-
-### Conditional Logging
-
-Use `debugIf()`, `infoIf()`, `warnIf()` for performance-critical hot paths:
-
-```typescript
-// Good: Expensive operations use callback form
-debugIf(() => ({
-  message: `Processing ${items.length} items`,
-  meta: { itemIds: items.map((i) => i.id) },
-}));
-
-// Good: Simple messages use string form
-debugIf('Cache hit');
-
-// Bad: Simple messages don't need callback
-debugIf(() => ({ message: 'Simple message' })); // Use logger.debug() instead
-```
-
-## CLI Development
-
-When adding new commands, follow the pattern in `src/commands/`:
-
-1. Create command file with yargs builder and handler
-2. Add unit tests (co-located `.test.ts`)
-3. Add E2E tests in `test/e2e/` if needed
-4. Update help text
-
-### Testing MCP Commands
-
-```bash
-# Isolated testing with temporary config
-ONE_MCP_CONFIG_DIR=.tmp-test node build/index.js mcp add test-server -- echo '{"jsonrpc":"2.0"}'
-
-# HTTP transport testing
-curl "http://localhost:3050/mcp?app=cursor&tags=filesystem,search"
-
-# STDIO transport with tag filtering
-echo '{"jsonrpc":"2.0","method":"initialize","params":{}}' | node build/index.js --transport stdio --tag-filter filesystem
-```
-
-## Technology Stack
-
-- **Runtime**: Node.js with child_process APIs for server management
-- **Framework**: Express.js with SSE support
-- **CLI**: Yargs with comprehensive command parsing
-- **Validation**: Zod schemas
-- **Logging**: Winston with conditional logging
-- **Testing**: Vitest with V8 coverage
-- **Build**: esbuild for SEA bundles, tsc for development
-
-## Agent skills
-
-### Issue tracker
-
-Issues and PRDs are tracked in GitHub Issues for `1mcp-app/agent`. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Triage uses GitHub labels, with `needs-info` mapped to `question` and the other canonical roles using their default names. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-This repo uses a single-context layout with root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+Use registered event names and declared fields from `src/observability/events/registry.ts` through `src/logger/logger.ts`. Use conditional callback helpers for expensive field construction; simple events need no callback. Preserve the privacy normalization in `src/observability/events/normalize.ts` and `src/observability/privacy/fields.ts`. Keep user-facing CLI output in the existing printer layer and protocol output free of diagnostic text.

@@ -5,6 +5,8 @@ import { selectTelemetryEnvironment } from './telemetryEnvironment.js';
 
 describe('runtime telemetry configuration boundary', () => {
   it.each([
+    'OTEL_NODE_RESOURCE_DETECTORS',
+    'OTEL_EXPORTER_OTLP_INSECURE',
     'OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE',
     'OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION',
   ])('retains recognized unsupported %s for sanitized configuration diagnosis', (setting) => {

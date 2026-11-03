@@ -21,6 +21,8 @@ For AI agents, the preferred path is CLI mode: keep MCP behind `1mcp serve`, the
 
 If you are still trying to get a first setup working, use [Quick Start](/guide/quick-start) before drilling into command details.
 
+Client startup hooks deliver runtime guidance through `bootstrap`. Fetch `instructions` separately only when guidance is missing or needs refreshing. For checkout selection and caller credentials, see [Project and owner options](/guide/project-checkouts#project-and-owner-options).
+
 ## Quick Reference
 
 ### Main Commands
@@ -31,12 +33,15 @@ If you are still trying to get a first setup working, use [Quick Start](/guide/q
 - **`inspect`** - List exposed servers or inspect a tool schema
 - **`run`** - Call a tool through a running 1MCP server
 - **`cli-setup`** - Install Codex or Claude bootstrap hooks and startup docs
+- **`project`** - Prepare backends and release, drain, inspect, or resume checkout admission
 - **`auth`** - Manage authentication profiles for secured servers
 - **`target`** - Manage verified Runtime Target Contexts
 - **`admin`** - Manage CLI Admin sessions for Runtime Target Contexts
 - **`app`** - Manage desktop application MCP configurations
 - **`mcp`** - Manage MCP server configurations
 - **`preset`** - Manage server presets for dynamic filtering
+
+- **[`telemetry`](/commands/telemetry)** - Inspect, enable, disable or reset local product usage collection
 
 ### Global Options
 
@@ -69,7 +74,7 @@ npx -y @1mcp/agent inspect --help
 
 ### CLI Workflow Commands
 
-Use these commands together when you want an agent or terminal session to discover and call tools through a running `1mcp serve` instance.
+For a standalone terminal session, use these commands to discover and call tools through a running `1mcp serve` instance. In a hooked agent session, use the guidance delivered by bootstrap and run `instructions` only when guidance is missing or needs refreshing. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential.
 
 ```bash
 npx -y @1mcp/agent instructions
@@ -82,7 +87,8 @@ npx -y @1mcp/agent run context7/query-docs --args '{"libraryId":"/mongodb/docs",
 - **[inspect](/commands/inspect)** - Discover tools and inspect schemas
 - **[run](/commands/run)** - Execute a tool call
 - **[wait](/commands/wait)** - Wait for configured static servers to become connected and available
-- **[prepare](/commands/prepare)** - Inspect readiness and manage checkout preparation jobs
+- **[project prepare](/commands/project/prepare)** - Inspect readiness and manage checkout preparation jobs
+- **[project lifecycle](/commands/project/)** - Release caller bindings, inspect blockers, drain and resume checkout admission
 - **[cli-setup](/commands/cli-setup)** - Install Codex or Claude bootstrap files
 - **[auth](/commands/auth)** - Manage authentication profiles for secured servers
 

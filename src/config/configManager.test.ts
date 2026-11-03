@@ -9,8 +9,11 @@ import { CONFIG_EVENTS, ConfigChangeType, ConfigManager } from '@src/config/conf
 import { getRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { runtimeAdmission, RuntimeReplacementDrain } from '@src/core/server/runtimeDrain.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
+import { observeProductRuntimeConfiguration } from '@src/productTelemetry/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@src/productTelemetry/index.js', () => ({ observeProductRuntimeConfiguration: vi.fn() }));
 
 // Mock AgentConfigManager before any tests run
 const mockAgentConfig = {
@@ -132,6 +135,34 @@ describe('ConfigManager (Integration)', () => {
     configManager = ConfigManager.getInstance(configFilePath);
     await configManager.initialize();
     await configManager.stop();
+  });
+
+  it('observes numeric validated definition counts on runtime initialization and reload, including disabled definitions', async () => {
+    expect(observeProductRuntimeConfiguration).toHaveBeenCalledExactlyOnceWith('servers', 2);
+    vi.mocked(observeProductRuntimeConfiguration).mockClear();
+    await fsPromises.writeFile(
+      configFilePath,
+      JSON.stringify({
+        mcpServers: { private_static: { command: 'secret', disabled: true }, shared: { command: 'secret' } },
+        mcpTemplates: { private_template: { command: 'secret', disabled: true }, shared: { command: 'secret' } },
+      }),
+    );
+    await configManager.reloadConfig();
+    expect(observeProductRuntimeConfiguration).toHaveBeenCalledExactlyOnceWith('servers', 3);
+  });
+
+  it('observes zero definitions after an empty configuration reload', async () => {
+    vi.mocked(observeProductRuntimeConfiguration).mockClear();
+    await fsPromises.writeFile(configFilePath, JSON.stringify({ mcpServers: {} }));
+    await configManager.reloadConfig();
+    expect(observeProductRuntimeConfiguration).toHaveBeenCalledExactlyOnceWith('servers', 0);
+  });
+
+  it('does not replace a server observation with incomplete definition validation', async () => {
+    vi.mocked(observeProductRuntimeConfiguration).mockClear();
+    await fsPromises.writeFile(configFilePath, JSON.stringify({ mcpServers: { invalid: { command: 7 } } }));
+    await configManager.reloadConfig();
+    expect(observeProductRuntimeConfiguration).not.toHaveBeenCalled();
   });
 
   it('does not start a deferred watcher after stopping before activation', async () => {

@@ -1,4 +1,5 @@
 import { withGlobalOptions } from '@src/globalOptions.js';
+import { runProductCommand } from '@src/productTelemetry/commandScope.js';
 
 import type { Argv } from 'yargs';
 
@@ -456,6 +457,10 @@ export function setupServeCommand(yargs: Argv): Argv {
       configureGlobalLogger(globalOptions, argv.transport);
 
       // Execute serve command
+      if (argv.status || argv.stop) {
+        await runProductCommand('serve', () => serveCommand(argv));
+        return;
+      }
       await serveCommand(argv);
     },
   );

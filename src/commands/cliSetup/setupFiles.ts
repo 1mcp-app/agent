@@ -12,6 +12,8 @@ import logger from '@src/logger/logger.js';
 
 import JSON5 from 'json5';
 
+import { installPreparationSkill, type SkillInstallResult } from './installPreparationSkill.js';
+
 export const CLI_SETUP_TARGETS = ['codex', 'claude'] as const;
 export type CliSetupTarget = (typeof CLI_SETUP_TARGETS)[number];
 
@@ -40,7 +42,9 @@ interface WriteCliSetupOptions {
 export interface CliSetupWriteResult {
   path: string;
   changed: boolean;
-  kind: 'hook' | 'startup-doc' | 'managed-doc';
+  kind: 'hook' | 'startup-doc' | 'managed-doc' | 'skill';
+  status?: SkillInstallResult['status'];
+  reason?: string;
   target: CliSetupTarget;
   scope: Exclude<CliSetupScope, 'all'>;
 }
@@ -61,6 +65,7 @@ interface HookConfig {
   hooks?: {
     SessionStart?: HookEntry[];
     SubagentStart?: HookEntry[];
+    SessionEnd?: HookEntry[];
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -88,10 +93,14 @@ export async function writeCliSetupFiles(options: WriteCliSetupOptions): Promise
       const hookPath = isCodex ? scopePaths.codexHookPath : scopePaths.claudeHookPath;
       const startupPath = isCodex ? scopePaths.codexStartupPath : scopePaths.claudeStartupPath;
 
-      return writeTargetSetupFiles(managedDocPath, hookPath, startupPath, managedDocContent, {
+      const results = await writeTargetSetupFiles(managedDocPath, hookPath, startupPath, managedDocContent, {
         target,
         scope: scopePaths.scope,
       });
+      const clientDirectory = isCodex ? '.agents' : '.claude';
+      const skill = await installPreparationSkill(scopePaths.rootDir, path.join(clientDirectory, 'skills'));
+      results.push({ ...skill, kind: 'skill', target, scope: scopePaths.scope });
+      return results;
     }),
   );
 
@@ -126,14 +135,20 @@ async function writeTargetSetupFiles(
 export function formatCliSetupOutput(results: CliSetupWriteResult[]): string {
   const header = 'Updated 1MCP CLI setup files:';
   const lines = results.map(
-    (result) =>
-      `- [${result.scope}] ${result.kind} ${result.target}: ${result.path}${result.changed ? '' : ' (unchanged)'}`,
+    (result) => `- [${result.scope}] ${result.kind} ${result.target}: ${result.path}${formatResultStatus(result)}`,
   );
   return [
     header,
     ...lines,
+    'The preparation skill is guidance only; installation does not enable backend preparation.',
     'Hook files configure delivery only. Disabled, untrusted, skipped, or unavailable hooks remain bootstrap coverage gaps. Verify delivery in the selected client.',
   ].join('\n');
+}
+
+function formatResultStatus(result: CliSetupWriteResult): string {
+  if (result.status === 'conflict') return ` (conflict: ${result.reason})`;
+  if (result.status) return ` (${result.status})`;
+  return result.changed ? '' : ' (unchanged)';
 }
 
 export { renderManagedDocContent, renderStartupDocManagedBlock, upsertStartupDocManagedBlock };
@@ -230,7 +245,7 @@ async function writeManagedFile(
 export function upsertHooks(existing: Record<string, unknown>, target: CliSetupTarget): Record<string, unknown> {
   const config = cloneHookConfig(existing);
   config.hooks ??= {};
-  for (const event of ['SessionStart', 'SubagentStart'] as const) {
+  for (const event of ['SessionStart', 'SubagentStart', 'SessionEnd'] as const) {
     const entries = config.hooks[event] ?? [];
     if (!Array.isArray(entries)) throw new Error(`Expected hooks.${event} to be an array`);
     config.hooks[event] = composeBootstrapHooks(entries, target, event);
@@ -251,7 +266,11 @@ function composeBootstrapHooks(entries: HookEntry[], target: CliSetupTarget, eve
     }
   }
   // Always use an unconditional entry: migrating a restrictive legacy matcher must not exclude workers.
-  preserved.push({ hooks: [{ type: 'command', command: managedBootstrapCommand(target, event), timeout: 10 }] });
+  preserved.push({
+    hooks: [
+      { type: 'command', command: managedBootstrapCommand(target, event), timeout: event === 'SessionEnd' ? 3 : 10 },
+    ],
+  });
   return preserved;
 }
 

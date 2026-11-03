@@ -59,6 +59,27 @@
               "type": "string",
               "format": "uri"
             },
+            "insecureAllowIncompleteMetadata": {
+              "description": "INSECURE: infer a missing OAuth issuer and resolve same-origin relative endpoints; disabled by default",
+              "type": "boolean"
+            },
+            "privateNetworkOrigins": {
+              "description": "Exact HTTPS origins explicitly permitted to resolve to private addresses for this upstream OAuth client",
+              "maxItems": 16,
+              "type": "array",
+              "items": {
+                "allOf": [
+                  {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^https:\\/\\/[^/?#@*\\\\\\s]+\\/?$"
+                  }
+                ]
+              }
+            },
             "clientMetadataUrl": {
               "description": "HTTPS Client ID Metadata Document URL",
               "type": "string",
@@ -267,6 +288,42 @@
                             }
                           },
                           "required": ["state", "instructions"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "unsupported"
+                            },
+                            "instructions": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": ["state", "instructions"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "unknown"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "const": "probe_failed"
+                            },
+                            "instructions": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": ["state", "reason", "instructions"],
                           "additionalProperties": false
                         }
                       ]
@@ -530,6 +587,27 @@
                 "description": "Exact approved upstream authorization-server issuer",
                 "type": "string",
                 "format": "uri"
+              },
+              "insecureAllowIncompleteMetadata": {
+                "description": "INSECURE: infer a missing OAuth issuer and resolve same-origin relative endpoints; disabled by default",
+                "type": "boolean"
+              },
+              "privateNetworkOrigins": {
+                "description": "Exact HTTPS origins explicitly permitted to resolve to private addresses for this upstream OAuth client",
+                "maxItems": 16,
+                "type": "array",
+                "items": {
+                  "allOf": [
+                    {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^https:\\/\\/[^/?#@*\\\\\\s]+\\/?$"
+                    }
+                  ]
+                }
               },
               "clientMetadataUrl": {
                 "description": "HTTPS Client ID Metadata Document URL",
@@ -843,6 +921,42 @@
                           },
                           "required": ["state", "instructions"],
                           "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "unsupported"
+                            },
+                            "instructions": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": ["state", "instructions"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "const": "unknown"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "const": "probe_failed"
+                            },
+                            "instructions": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": ["state", "reason", "instructions"],
+                          "additionalProperties": false
                         }
                       ]
                     }
@@ -1105,6 +1219,27 @@
                 "description": "Exact approved upstream authorization-server issuer",
                 "type": "string",
                 "format": "uri"
+              },
+              "insecureAllowIncompleteMetadata": {
+                "description": "INSECURE: infer a missing OAuth issuer and resolve same-origin relative endpoints; disabled by default",
+                "type": "boolean"
+              },
+              "privateNetworkOrigins": {
+                "description": "Exact HTTPS origins explicitly permitted to resolve to private addresses for this upstream OAuth client",
+                "maxItems": 16,
+                "type": "array",
+                "items": {
+                  "allOf": [
+                    {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^https:\\/\\/[^/?#@*\\\\\\s]+\\/?$"
+                    }
+                  ]
+                }
               },
               "clientMetadataUrl": {
                 "description": "HTTPS Client ID Metadata Document URL",

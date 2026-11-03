@@ -209,17 +209,7 @@ describe('inspect command internals', () => {
   });
 
   it('does not reuse proxy initialize instructions as server instructions during MCP fallback', async () => {
-    mockedApiClientGet
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        error: "Server 'serena' is not currently connected",
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        error: "Server 'serena' is not currently connected",
-      });
+    mockedApiClientGet.mockResolvedValue({ ok: false, status: 404, error: 'HTTP 404' });
 
     transportState.initializeResult = {
       instructions: '# 1MCP - Model Context Protocol Proxy\nProxy-only instructions.',
@@ -257,17 +247,7 @@ describe('inspect command internals', () => {
   });
 
   it('extracts server instructions from aggregated proxy instructions during MCP fallback', async () => {
-    mockedApiClientGet
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        error: "Server 'serena' is not currently connected",
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        error: "Server 'serena' is not currently connected",
-      });
+    mockedApiClientGet.mockResolvedValue({ ok: false, status: 404, error: 'HTTP 404' });
 
     transportState.initializeResult = {
       instructions: `# 1MCP - Model Context Protocol Proxy
@@ -312,6 +292,18 @@ Runner instructions.
       expect(result.instructions).toBe('# Serena Instructions\nUse Serena for semantic code navigation and editing.');
     }
 
+    const cachedResult = await getInspectResult({
+      target: 'serena',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+    expect(cachedResult).toMatchObject({
+      instructions: '# Serena Instructions\nUse Serena for semantic code navigation and editing.',
+    });
+    expect(transportState.instances).toHaveLength(2);
+    for (const instance of transportState.instances) {
+      expect(instance.sentMessages.map((message) => message.method)).toContain('initialize');
+    }
     await rm(cacheDir, { recursive: true, force: true });
   });
 });

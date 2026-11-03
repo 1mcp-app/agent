@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
+import { parseAllDocuments } from 'yaml';
 
 import { sha256, transformTransport, vendorLegacyTransport } from '../../scripts/vendor-legacy-transport.mjs';
 
@@ -68,16 +69,15 @@ for (const [file, mutate, expected] of [
   ],
   [
     'package.json',
-    (source) => source.replace('"@hono/node-server": "2.0.12"', '"@hono/node-server": "2.0.13"'),
-    /adapter pin changed/u,
+    (source) => {
+      const manifest = JSON.parse(source);
+      manifest.dependencies['@hono/node-server'] = '0.0.0-test';
+      return JSON.stringify(manifest);
+    },
+    /Dependency manifest\/lock mismatch/u,
   ],
   ['patches/@modelcontextprotocol__sdk@1.30.0.patch', (source) => `${source}\n`, /patch changed/u],
-  ['pnpm-lock.yaml', (source) => source.replace('hash: 75c775', 'hash: 000000'), /patch lock changed/u],
-  [
-    'pnpm-lock.yaml',
-    (source) => source.replace('version: 2.0.12(hono@4.12.34)', 'version: 2.0.12(hono@4.12.35)'),
-    /adapter installation lock changed/u,
-  ],
+  ['pnpm-lock.yaml', (source) => source.replace(/75c775[0-9a-f]+/u, '0'.repeat(64)), /patch lock changed/u],
   ['pnpm-workspace.yaml', (source) => source.replace('patches/', 'missing/'), /configuration changed/u],
 ]) {
   test(`generation rejects changed ${file}: ${expected}`, async (t) => {
@@ -100,3 +100,63 @@ test('generation rejects raw or modified upstream transport code', async () => {
     /Unexpected pinned SDK source/u,
   );
 });
+
+async function rewriteLock(directory, mutate) {
+  const lockPath = path.join(directory, 'pnpm-lock.yaml');
+  const documents = parseAllDocuments(await readFile(lockPath, 'utf8'));
+  const document = documents.find((entry) => entry.getIn(['importers', '.', 'dependencies']));
+  assert.ok(document);
+  mutate(document);
+  await writeFile(lockPath, documents.map((entry) => entry.toString()).join('\n'));
+}
+
+for (const representation of ['scalar', 'object']) {
+  test(`generation accepts ${representation} patch metadata and optional color peers`, async (t) => {
+    const directory = await fixture(t);
+    await rewriteLock(directory, (document) => {
+      const patchKey = ['patchedDependencies', '@modelcontextprotocol/sdk@1.30.0'];
+      const hash = '75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937';
+      document.setIn(
+        patchKey,
+        representation === 'scalar'
+          ? hash
+          : {
+              path: 'patches/@modelcontextprotocol__sdk@1.30.0.patch',
+              hash,
+            },
+      );
+      document.setIn(
+        ['importers', '.', 'dependencies', '@modelcontextprotocol/sdk', 'version'],
+        `1.30.0(patch_hash=${hash})(supports-color@5.5.0)(zod@4.4.3)`,
+      );
+    });
+    await vendorLegacyTransport(directory);
+  });
+}
+
+for (const [keys, value, expected] of [
+  [
+    ['patchedDependencies', '@modelcontextprotocol/sdk@1.30.0'],
+    {
+      hash: '75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937',
+      path: 'wrong.patch',
+    },
+    /patch lock changed/u,
+  ],
+  [
+    ['importers', '.', 'dependencies', '@modelcontextprotocol/sdk', 'specifier'],
+    '^1.30.0',
+    /SDK installation lock changed/u,
+  ],
+  [
+    ['importers', '.', 'dependencies', '@modelcontextprotocol/sdk', 'version'],
+    '1.30.0(zod@4.4.3)',
+    /SDK installation lock changed/u,
+  ],
+]) {
+  test(`generation rejects changed parsed lock entry ${keys.join('.')}: ${value}`, async (t) => {
+    const directory = await fixture(t);
+    await rewriteLock(directory, (document) => document.setIn(keys, value));
+    await assert.rejects(vendorLegacyTransport(directory), expected);
+  });
+}

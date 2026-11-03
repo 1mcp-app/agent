@@ -6,6 +6,8 @@ import path from 'node:path';
 
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { createTestProcessEnvironment } from '../../../scripts/test-process-environment.mjs';
+
 const nodeCli = path.resolve('build/index.js');
 const binary = process.env.ONE_MCP_TEST_BINARY;
 const fixture = path.resolve('test/e2e/fixtures/contextual-capabilities-server.mjs');
@@ -21,11 +23,14 @@ const modernMeta = {
 type Result = Record<string, any>;
 
 function environment(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] => entry[1] !== undefined && !entry[0].startsWith('ONE_MCP_'),
+  return createTestProcessEnvironment(
+    {},
+    Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined && !entry[0].startsWith('ONE_MCP_'),
+      ),
     ),
-  );
+  ) as Record<string, string>;
 }
 
 function launch(args: string[], cwd: string): ChildProcessWithoutNullStreams {

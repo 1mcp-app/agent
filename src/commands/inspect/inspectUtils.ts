@@ -76,6 +76,7 @@ export interface InspectServerSummary {
   available?: boolean;
   loadTracked?: boolean;
   toolCount: number;
+  toolCountKnown?: boolean;
   hasInstructions: boolean;
 }
 
@@ -204,7 +205,17 @@ export function formatInspectOutput(result: InspectResult, format: InspectOutput
   }
 
   if (format === 'toon') {
-    return encode(displayed);
+    return encode(
+      displayed.kind === 'servers'
+        ? {
+            ...displayed,
+            servers: displayed.servers.map((server) => ({
+              ...server,
+              toolCount: server.toolCountKnown === false ? 'unknown' : server.toolCount,
+            })),
+          }
+        : displayed,
+    );
   }
 
   if (result.kind === 'search') {
@@ -273,7 +284,7 @@ function formatServersOutput(info: InspectServersInfo): string {
     if (s.loadTracked !== undefined) {
       serverLines.push(`  load_tracked: ${s.loadTracked ? 'yes' : 'no'}`);
     }
-    serverLines.push(`  tools: ${s.toolCount}`);
+    serverLines.push(`  tools: ${s.toolCountKnown === false ? 'unknown' : s.toolCount}`);
     serverLines.push(`  instructions: ${s.hasInstructions ? 'yes' : 'no'}`);
   }
 
@@ -344,6 +355,10 @@ function formatServerOutput(serverInfo: InspectServerInfo): string {
   }
 
   const sections: string[] = [chalk.bold.cyan('Inspect: Server'), summaryLines.join('\n')];
+
+  if (serverInfo.instructions?.trim()) {
+    sections.push(`${chalk.bold('instructions:')}\n${serverInfo.instructions}`);
+  }
 
   sections.push(chalk.bold(`tools (${totalTools}):`));
   sections.push(

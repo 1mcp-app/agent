@@ -34,13 +34,16 @@ it('keeps the actual inbound Tool span open until its wire response is sent', as
   const adapter = new LegacySdkServerAdapter('private-session-id' as LegacyConnectionId, server, serverTransport);
   let release!: () => void;
   let sending = false;
+  let responseId: string | number | undefined;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
   const send = serverTransport.send.bind(serverTransport);
   serverTransport.send = async (message, options) => {
+    if ('method' in message && message.method === 'ping') throw new Error('Reverse send failed');
     if ('result' in message && 'content' in message.result) {
       sending = true;
+      responseId = message.id;
       await gate;
     }
     await send(message, options);
@@ -64,6 +67,9 @@ it('keeps the actual inbound Tool span open until its wire response is sent', as
     await client.connect(clientTransport);
     const result = client.callTool({ name: 'private-tool-name' });
     await vi.waitFor(() => expect(sending).toBe(true));
+    await expect(serverTransport.send({ jsonrpc: '2.0', id: responseId!, method: 'ping' })).rejects.toThrow(
+      'Reverse send failed',
+    );
     await withProtocolTelemetry({ kind: 'internal', phase: 'routing' }, async () => undefined);
     await vi.waitFor(() => expect(Buffer.concat(payloads).toString()).toContain('routing'));
     expect(Buffer.concat(payloads).toString()).not.toContain('tools/call');

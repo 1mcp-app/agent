@@ -4,6 +4,9 @@ import type { LegacyConnectionId } from '@src/sdk/contracts/legacySdkAdapter.js'
 import { OneMcpProtocolError } from '@src/sdk/contracts/oneMcpProtocolError.js';
 import { Client } from '@src/sdk/legacy/client/index.js';
 import { Server } from '@src/sdk/legacy/server/index.js';
+import { SSEServerTransport } from '@src/sdk/legacy/server/sse.js';
+import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@src/sdk/legacy/server/streamableHttp.js';
 import type { Transport } from '@src/sdk/legacy/shared/transport.js';
 import {
   CallToolRequestSchema,
@@ -19,6 +22,9 @@ import {
   getLegacyServerTransportHandle,
   LegacySdkServerAdapter,
 } from './legacySdkServerAdapter.js';
+
+const facts = vi.hoisted(() => ({ begin: vi.fn((..._args: unknown[]) => ({ finish: vi.fn() })) }));
+vi.mock('@src/productTelemetry/index.js', () => ({ beginProductOperation: facts.begin }));
 
 function createAdapter() {
   const transport = {
@@ -37,6 +43,77 @@ function createAdapter() {
 }
 
 describe('LegacySdkServerAdapter', () => {
+  it('preserves terminal send failure and records it once', async () => {
+    facts.begin.mockClear();
+    const { adapter, transport } = createAdapter();
+    Object.setPrototypeOf(transport, StdioServerTransport.prototype);
+    const failure = new Error('send unavailable');
+    vi.mocked(transport.send).mockRejectedValue(failure);
+    await adapter.start();
+    transport.onmessage?.({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    await expect(transport.send({ jsonrpc: '2.0', id: 1, result: { tools: [] } })).rejects.toBe(failure);
+    transport.onclose?.();
+    expect(facts.begin.mock.calls).toEqual([['tools_list', 'stdio', 'other']]);
+    expect(facts.begin.mock.results[0].value.finish.mock.calls).toEqual([['failure']]);
+  });
+
+  it.each([
+    [SSEServerTransport.prototype, 'sse'],
+    [StreamableHTTPServerTransport.prototype, 'http'],
+  ] as const)('retains transport attribution at the runtime adapter: %s', async (prototype, kind) => {
+    facts.begin.mockClear();
+    const { adapter, transport } = createAdapter();
+    Object.setPrototypeOf(transport, prototype);
+    Object.defineProperties(transport, {
+      onmessage: { value: undefined, writable: true },
+      onclose: { value: undefined, writable: true },
+    });
+    await adapter.start();
+    transport.onmessage?.({ jsonrpc: '2.0', id: 9, method: 'resources/read', params: { uri: 'private-uri' } });
+    await transport.send({ jsonrpc: '2.0', id: 9, error: { code: -32602, message: 'private-error' } });
+    transport.onclose?.();
+    expect(facts.begin.mock.calls).toEqual([['resources_read', kind, 'other']]);
+    expect(facts.begin.mock.results[0].value.finish.mock.calls).toEqual([['failure']]);
+  });
+  it('does not count private bridge/REST adapter requests or notifications', async () => {
+    facts.begin.mockClear();
+    const { server, transport } = createAdapter();
+    Object.setPrototypeOf(transport, StdioServerTransport.prototype);
+    const adapter = new LegacySdkServerAdapter('bridge' as LegacyConnectionId, server, transport, true);
+    await adapter.start();
+    transport.onmessage?.({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
+    await transport.send({ jsonrpc: '2.0', id: 1, result: {} });
+    transport.onmessage?.({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    transport.onclose?.();
+    expect(facts.begin).not.toHaveBeenCalled();
+  });
+
+  it('owns one fact per admitted initialize/call, cancellation and cleanup', async () => {
+    facts.begin.mockClear();
+    const { adapter, transport } = createAdapter();
+    Object.setPrototypeOf(transport, StdioServerTransport.prototype);
+    await adapter.start();
+    transport.onmessage?.({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { clientInfo: { name: 'codex', version: 'secret' } },
+    });
+    await transport.send({ jsonrpc: '2.0', id: 1, result: {} });
+    await transport.send({ jsonrpc: '2.0', id: 1, result: {} });
+    transport.onmessage?.({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'private-tool' } });
+    transport.onmessage?.({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'duplicate' } });
+    transport.onmessage?.({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 2 } });
+    await transport.send({ jsonrpc: '2.0', id: 2, result: { content: [] } });
+    transport.onclose?.();
+    expect(facts.begin.mock.calls).toEqual([
+      ['initialize', 'stdio', 'codex'],
+      ['tools_call', 'stdio', 'other'],
+    ]);
+    expect(facts.begin.mock.results[0].value.finish.mock.calls).toEqual([['success']]);
+    expect(facts.begin.mock.results[1].value.finish.mock.calls).toEqual([['failure']]);
+  });
+
   it('flushes an admitted tool result before retirement closes transport and rejects new calls', async () => {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const server = new Server({ name: 'server', version: '1' }, { capabilities: { tools: {} } });

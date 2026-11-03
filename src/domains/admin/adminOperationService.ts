@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { runtimeAdmission } from '@src/core/server/runtimeDrain.js';
+import { beginProductFeature } from '@src/productTelemetry/index.js';
+import type { FeatureName } from '@src/productTelemetry/producer.js';
 
 import type { AdminMutationAvailability } from './runtimeScopeAdminLock.js';
 
@@ -72,6 +74,7 @@ interface AdminOperationServiceOptions {
 }
 
 interface ExecuteMutationBase {
+  productLifecycleFeature?: 'server_enable' | 'server_disable';
   context: AdminOperationContext;
   operationName: string;
 }
@@ -497,6 +500,7 @@ export class AdminOperationService {
     const readyInput: ReadyMutationInput<T> = {
       context: input.context,
       operationName: input.operationName,
+      productLifecycleFeature: input.productLifecycleFeature,
       confirmationRequirements: prepared.confirmationRequirements,
       run: prepared.run,
     };
@@ -587,10 +591,13 @@ export class AdminOperationService {
     input: ReadyMutationInput<T>,
     entry: IdempotencyEntry,
   ): Promise<AdminOperationResult<T>> {
+    const feature = adminProductFeature(input);
+    const completion = feature ? beginProductFeature(feature) : undefined;
     let result: T;
     try {
       result = await input.run(input.context);
     } catch (error) {
+      completion?.finish('failure');
       return this.recordMutationFailure(input, entry, error);
     }
 
@@ -615,6 +622,7 @@ export class AdminOperationService {
       });
       this.appendAuditRecord(input.context, entry, 'completed');
       this.idempotency.set(entry.scopedKeyHash, completedEntry);
+      completion?.finish('success');
       return {
         ok: true,
         status: 'completed',
@@ -624,6 +632,7 @@ export class AdminOperationService {
         replayed: false,
       };
     } catch {
+      completion?.finish('failure');
       return this.markStateUnknownResult(entry);
     }
   }
@@ -1161,4 +1170,36 @@ function getRuntimeScopeMutationState(storageDir: string, runtimeScopeId: string
   };
   runtimeScopeMutationStates.set(key, state);
   return state;
+}
+
+/** Unknown operations fail closed; neither operation names nor targets leave this owner. */
+function adminProductFeature(input: ExecuteMutationBase): FeatureName | undefined {
+  switch (input.operationName) {
+    case 'applyConfiguredServerCreate':
+      return 'server_add';
+    case 'applyConfiguredServerEdit':
+      return 'server_update';
+    case 'deleteConfiguredServer':
+      return 'server_remove';
+    case 'enableConfiguredServer':
+      return 'server_enable';
+    case 'disableConfiguredServer':
+      return 'server_disable';
+    case 'applyConfiguredServerLifecycle':
+      return input.productLifecycleFeature;
+    case 'createPreset':
+    case 'updatePreset':
+    case 'duplicatePreset':
+    case 'deletePreset':
+      return 'preset_update';
+    case 'createInstructionTemplate':
+    case 'updateInstructionTemplate':
+    case 'cloneInstructionTemplate':
+    case 'activateInstructionTemplate':
+    case 'importLegacyInstructionTemplate':
+    case 'deleteInstructionTemplate':
+      return 'template_update';
+    default:
+      return undefined;
+  }
 }

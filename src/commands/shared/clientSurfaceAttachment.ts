@@ -1,7 +1,15 @@
 import path from 'node:path';
 
+import { isLoopbackHost } from '@src/commands/serve/templateContextTrust.js';
 import { type AuthProfile, loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
 import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
+import {
+  acquireProjectOwnerLease,
+  projectOwnerId,
+  readProjectOwner,
+  recordProjectOwnerSelection,
+  recordProjectOwnerTarget,
+} from '@src/commands/shared/projectOwnerStore.js';
 import {
   type CliSessionCache,
   deleteCliSessionCache,
@@ -16,6 +24,7 @@ import {
   resolveServeTarget,
 } from '@src/commands/shared/serveTargetResolver.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
+import { createProjectOwnerCredential } from '@src/core/context/projectOwner.js';
 import {
   createTemplateContextProof,
   type TemplateContextCapability,
@@ -24,6 +33,7 @@ import {
 } from '@src/core/context/templateContextTrust.js';
 import { isProcessAlive, readPidFile } from '@src/core/server/pidFileManager.js';
 import { connectRuntimeControl, type RuntimeControlDescription } from '@src/core/server/runtimeControl.js';
+import { resolveProjectSelection } from '@src/domains/project-selection/projectSelection.js';
 import type { RuntimeIdentityWarning } from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
 import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import logger from '@src/logger/logger.js';
@@ -108,6 +118,7 @@ export interface FreshClientSurfaceAttachmentResult<TOptions extends ResolvableS
   context: ContextData;
   contextProof?: TemplateContextProof;
   createContextProof: (context: ContextData) => Promise<TemplateContextProof | undefined>;
+  releaseOwnerLease?: () => Promise<void>;
   contextHash: string;
   requestSessionId: string;
   sessionId: string;
@@ -193,6 +204,10 @@ export interface AttachReusableClientSurfaceOptions<TOptions extends ResolvableS
   version: string;
   options: TOptions;
   alwaysTryRest?: boolean;
+  /** Only lifecycle controls request operator authority; ordinary tool calls never do. */
+  projectOperator?: boolean;
+  expectedRuntimeScope?: string;
+  requireProjectOwner?: boolean;
   ports?: Partial<ClientSurfaceAttachmentPorts<TOptions>>;
   rest: (context: ClientSurfaceAttachmentContext<TOptions>) => Promise<ClientSurfaceRestResponse<TValue>>;
   mcp: (
@@ -227,26 +242,33 @@ export async function attachFreshClientSurface<TOptions extends ResolvableServeT
     version: input.version,
     sessionId: freshSessionId,
   });
-  const contextHash = getCliSessionContextHash(baseContext);
-  const baseUrl = stripMcpSuffix(target.discoveredUrl);
-  const bearerToken = await loadBearerToken(ports, target, options, baseUrl);
-  const requestSessionId = resolveCanonicalSessionId({ context: baseContext, transportSessionId: freshSessionId });
-  const context = withCanonicalSessionId(baseContext, requestSessionId);
-  const contextProof = await ports.createContextProof(target, context);
+  const releaseOwnerLease = await attachProjectOwner(target, options, baseContext);
+  try {
+    const contextHash = getCliSessionContextHash(baseContext);
+    const baseUrl = stripMcpSuffix(target.discoveredUrl);
+    const bearerToken = await loadBearerToken(ports, target, options, baseUrl);
+    const requestSessionId = resolveCanonicalSessionId({ context: baseContext, transportSessionId: freshSessionId });
+    const context = withCanonicalSessionId(baseContext, requestSessionId);
+    const contextProof = await ports.createContextProof(target, context);
 
-  return {
-    target,
-    options,
-    baseUrl,
-    serverUrl: target.serverUrl,
-    bearerToken,
-    context,
-    contextProof,
-    createContextProof: (updatedContext) => ports.createContextProof(target, updatedContext),
-    contextHash,
-    requestSessionId,
-    sessionId: requestSessionId,
-  };
+    return {
+      target,
+      options,
+      releaseOwnerLease,
+      baseUrl,
+      serverUrl: target.serverUrl,
+      bearerToken,
+      context,
+      contextProof,
+      createContextProof: (updatedContext) => ports.createContextProof(target, updatedContext),
+      contextHash,
+      requestSessionId,
+      sessionId: requestSessionId,
+    };
+  } catch (error) {
+    await releaseOwnerLease?.();
+    throw error;
+  }
 }
 
 export async function attachReusableClientSurface<TOptions extends ResolvableServeTargetOptions, TValue>(
@@ -264,50 +286,135 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
     transportType: input.clientSurface,
     version: input.version,
   });
-  const contextHash = getCliSessionContextHash(baseContext);
-  const cachePath = getCliSessionCachePath({
-    cachePathTemplate: options['cli-session-cache-path'],
-    serverPid: target.serverPid,
-    serverUrl: target.serverUrl.toString(),
-    contextHash,
+  const releaseOwnerLease = await attachProjectOwner(target, options, baseContext, {
+    operator: input.projectOperator,
+    expectedRuntimeScope: input.expectedRuntimeScope,
+    required: input.requireProjectOwner,
   });
-  const baseUrl = stripMcpSuffix(target.discoveredUrl);
-  const bearerTokenPromise = loadBearerToken(ports, target, options, baseUrl);
-  const [bearerToken, loadedCachedSession] = await Promise.all([
-    bearerTokenPromise,
-    ports.readSessionCache(cachePath, target.serverUrl.toString(), contextHash),
-  ]);
-  let cachedSession = loadedCachedSession;
-  let requestSessionId = resolveCanonicalSessionId({
-    context: baseContext,
-    transportSessionId: cachedSession?.sessionId,
-  });
-  let context = withCanonicalSessionId(baseContext, requestSessionId);
-  let contextProof = await ports.createContextProof(target, context);
-  let restSupport = cachedSession?.hasRestEndpoint;
+  try {
+    const contextHash = getCliSessionContextHash(baseContext);
+    const cachePath = getCliSessionCachePath({
+      cachePathTemplate: options['cli-session-cache-path'],
+      serverPid: target.serverPid,
+      serverUrl: target.serverUrl.toString(),
+      contextHash,
+    });
+    const baseUrl = stripMcpSuffix(target.discoveredUrl);
+    const bearerTokenPromise = loadBearerToken(ports, target, options, baseUrl);
+    const [bearerToken, loadedCachedSession] = await Promise.all([
+      bearerTokenPromise,
+      ports.readSessionCache(cachePath, target.serverUrl.toString(), contextHash),
+    ]);
+    let cachedSession = loadedCachedSession;
+    let requestSessionId = resolveCanonicalSessionId({
+      context: baseContext,
+      transportSessionId: cachedSession?.sessionId,
+    });
+    let context = withCanonicalSessionId(baseContext, requestSessionId);
+    let contextProof = await ports.createContextProof(target, context);
+    let restSupport = cachedSession?.hasRestEndpoint;
 
-  let attachmentContext: ClientSurfaceAttachmentContext<TOptions> = {
-    target,
-    options,
-    baseUrl,
-    serverUrl: target.serverUrl,
-    bearerToken,
-    context,
-    contextProof,
-    contextHash,
-    cachePath,
-    cachedSession,
-    requestSessionId,
-    sessionId: requestSessionId,
-    restSupport,
-  };
+    let attachmentContext: ClientSurfaceAttachmentContext<TOptions> = {
+      target,
+      options,
+      baseUrl,
+      serverUrl: target.serverUrl,
+      bearerToken,
+      context,
+      contextProof,
+      contextHash,
+      cachePath,
+      cachedSession,
+      requestSessionId,
+      sessionId: requestSessionId,
+      restSupport,
+    };
 
-  if (input.alwaysTryRest || cachedSession?.hasRestEndpoint !== false) {
-    const restResponse = await input.rest(attachmentContext);
+    if (input.alwaysTryRest || cachedSession?.hasRestEndpoint !== false) {
+      const restResponse = await input.rest(attachmentContext);
 
-    if (restResponse.status === 'success') {
-      restSupport = restResponse.restSupport ?? true;
-      const sessionId = restResponse.sessionId ?? requestSessionId;
+      if (restResponse.status === 'success') {
+        restSupport = restResponse.restSupport ?? true;
+        const sessionId = restResponse.sessionId ?? requestSessionId;
+        await persistSession(ports, cachePath, {
+          sessionId,
+          serverUrl: target.serverUrl.toString(),
+          contextHash,
+          restSupport,
+        });
+        return {
+          status: 'success',
+          protocol: 'rest',
+          value: restResponse.value,
+          sessionId,
+          requestSessionId,
+          context,
+          contextProof,
+          contextHash,
+          cachePath,
+          target,
+          baseUrl,
+          bearerToken,
+          cachedSession,
+          restSupport,
+          observed: restResponse.observed,
+        };
+      }
+
+      if (restResponse.status === 'auth_required' || restResponse.status === 'error') {
+        return {
+          status: restResponse.status,
+          message: restResponse.message,
+          requestSessionId,
+          context,
+          contextProof,
+          contextHash,
+          cachePath,
+          target,
+          baseUrl,
+          bearerToken,
+          cachedSession,
+          restSupport,
+          observed: restResponse.observed,
+        };
+      }
+
+      if (restResponse.reason === 'endpoint_missing') {
+        restSupport = false;
+      }
+    }
+
+    let mcpResponse = await input.mcp({
+      ...attachmentContext,
+      sessionId: cachedSession?.sessionId ?? requestSessionId,
+      restSupport,
+      sendInitialize: !cachedSession?.sessionId,
+    });
+
+    if (mcpResponse.status === 'stale_session') {
+      await ports.deleteSessionCache(cachePath);
+      cachedSession = null;
+      requestSessionId = generateStreamableSessionId();
+      context = withCanonicalSessionId(baseContext, requestSessionId);
+      contextProof = await ports.createContextProof(target, context);
+      attachmentContext = {
+        ...attachmentContext,
+        context,
+        contextProof,
+        cachedSession,
+        requestSessionId,
+        sessionId: requestSessionId,
+      };
+      mcpResponse = await input.mcp({
+        ...attachmentContext,
+        sessionId: requestSessionId,
+        restSupport,
+        sendInitialize: true,
+      });
+    }
+
+    if (mcpResponse.status === 'success') {
+      const sessionId = mcpResponse.sessionId ?? requestSessionId;
       await persistSession(ports, cachePath, {
         sessionId,
         serverUrl: target.serverUrl.toString(),
@@ -316,8 +423,8 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
       });
       return {
         status: 'success',
-        protocol: 'rest',
-        value: restResponse.value,
+        protocol: 'mcp',
+        value: mcpResponse.value,
         sessionId,
         requestSessionId,
         context,
@@ -329,75 +436,13 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
         bearerToken,
         cachedSession,
         restSupport,
-        observed: restResponse.observed,
+        observed: mcpResponse.observed,
       };
     }
 
-    if (restResponse.status === 'auth_required' || restResponse.status === 'error') {
-      return {
-        status: restResponse.status,
-        message: restResponse.message,
-        requestSessionId,
-        context,
-        contextProof,
-        contextHash,
-        cachePath,
-        target,
-        baseUrl,
-        bearerToken,
-        cachedSession,
-        restSupport,
-        observed: restResponse.observed,
-      };
-    }
-
-    if (restResponse.reason === 'endpoint_missing') {
-      restSupport = false;
-    }
-  }
-
-  let mcpResponse = await input.mcp({
-    ...attachmentContext,
-    sessionId: cachedSession?.sessionId ?? requestSessionId,
-    restSupport,
-    sendInitialize: !cachedSession?.sessionId,
-  });
-
-  if (mcpResponse.status === 'stale_session') {
-    await ports.deleteSessionCache(cachePath);
-    cachedSession = null;
-    requestSessionId = generateStreamableSessionId();
-    context = withCanonicalSessionId(baseContext, requestSessionId);
-    contextProof = await ports.createContextProof(target, context);
-    attachmentContext = {
-      ...attachmentContext,
-      context,
-      contextProof,
-      cachedSession,
-      requestSessionId,
-      sessionId: requestSessionId,
-    };
-    mcpResponse = await input.mcp({
-      ...attachmentContext,
-      sessionId: requestSessionId,
-      restSupport,
-      sendInitialize: true,
-    });
-  }
-
-  if (mcpResponse.status === 'success') {
-    const sessionId = mcpResponse.sessionId ?? requestSessionId;
-    await persistSession(ports, cachePath, {
-      sessionId,
-      serverUrl: target.serverUrl.toString(),
-      contextHash,
-      restSupport,
-    });
     return {
-      status: 'success',
-      protocol: 'mcp',
-      value: mcpResponse.value,
-      sessionId,
+      status: 'error',
+      message: mcpResponse.status === 'error' ? mcpResponse.message : 'Cached session expired.',
       requestSessionId,
       context,
       contextProof,
@@ -410,23 +455,9 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
       restSupport,
       observed: mcpResponse.observed,
     };
+  } finally {
+    await releaseOwnerLease?.();
   }
-
-  return {
-    status: 'error',
-    message: mcpResponse.status === 'error' ? mcpResponse.message : 'Cached session expired.',
-    requestSessionId,
-    context,
-    contextProof,
-    contextHash,
-    cachePath,
-    target,
-    baseUrl,
-    bearerToken,
-    cachedSession,
-    restSupport,
-    observed: mcpResponse.observed,
-  };
 }
 
 function withDefaultPorts<TOptions extends ResolvableServeTargetOptions>(
@@ -434,7 +465,8 @@ function withDefaultPorts<TOptions extends ResolvableServeTargetOptions>(
 ): ClientSurfaceAttachmentPorts<TOptions> {
   return {
     resolveTarget:
-      ports?.resolveTarget ?? ((options) => resolveServeTarget(options) as Promise<ResolvedServeTarget<TOptions>>),
+      ports?.resolveTarget ??
+      ((options) => resolveServeTarget(options, { agentSession: true }) as Promise<ResolvedServeTarget<TOptions>>),
     loadAuthProfile: ports?.loadAuthProfile ?? loadAuthProfile,
     getOAuthTokenReference:
       ports?.getOAuthTokenReference ??
@@ -452,6 +484,66 @@ async function createLocalTemplateContextProof<TOptions extends ResolvableServeT
   target: ResolvedAttachmentTarget<TOptions>,
   context: ContextData,
 ): Promise<TemplateContextProof | undefined> {
+  const capability = await readLiveLocalCapability(target);
+  return capability ? createTemplateContextProof(context, capability) : undefined;
+}
+
+async function attachProjectOwner<TOptions extends ResolvableServeTargetOptions>(
+  target: ResolvedAttachmentTarget<TOptions>,
+  options: TOptions,
+  context: ContextData,
+  policy: { operator?: boolean; expectedRuntimeScope?: string; required?: boolean } = {},
+): Promise<(() => Promise<void>) | undefined> {
+  const { operator, expectedRuntimeScope } = policy;
+  const file = options['project-owner'];
+  if (!file && !operator) {
+    if (policy.required) throw new Error('A project owner credential is required');
+    return;
+  }
+  const capability = await readLiveLocalCapability(target);
+  if (!capability) {
+    if (file && target.localRuntimeScope && (!options.url || isLoopbackHost(target.serverUrl.hostname))) {
+      throw new Error(
+        'Project ownership requires verified local runtime authority; check scoped runtime permissions before retrying',
+      );
+    }
+    if (operator || policy.required || expectedRuntimeScope) {
+      throw new Error('Project ownership requires verified local runtime authority');
+    }
+    process.stderr.write(
+      'Ownership coverage gap: this runtime cannot verify a local project owner. Continuing without local ownership.\n',
+    );
+    return;
+  }
+  const token = file ? await readProjectOwner(file) : undefined;
+  if (expectedRuntimeScope && capability.runtimeScopeId !== expectedRuntimeScope) {
+    throw new Error('Recorded project owner runtime identity changed; cleanup was not attempted');
+  }
+  context.owner = createProjectOwnerCredential(
+    capability,
+    token ? projectOwnerId(token) : undefined,
+    operator ? 'operator' : 'owner',
+  );
+  if (!file || !target.localRuntimeScope) return;
+  if ('terminal-cleanup' in options && options['terminal-cleanup']) return;
+  const selection = resolveProjectSelection(context);
+  const recordedTarget = {
+    'config-dir': path.resolve(target.localRuntimeScope.storagePath),
+    runtimeScopeId: capability.runtimeScopeId,
+    ...(options.config ? { config: path.resolve(options.config) } : {}),
+    ...(options.url ? { url: target.discoveredUrl } : { context: 'local' }),
+  };
+  if (selection.kind === 'native-set') {
+    await recordProjectOwnerSelection(file, recordedTarget, selection.projects);
+  } else if (selection.kind === 'single') {
+    await recordProjectOwnerTarget(file, { ...recordedTarget, project: [selection.projects[0].path] });
+  }
+  return acquireProjectOwnerLease(file);
+}
+
+async function readLiveLocalCapability<TOptions extends ResolvableServeTargetOptions>(
+  target: ResolvedAttachmentTarget<TOptions>,
+): Promise<TemplateContextCapability | undefined> {
   const localScope = target.localRuntimeScope;
   if (!localScope) {
     return undefined;
@@ -502,7 +594,7 @@ async function createLocalTemplateContextProof<TOptions extends ResolvableServeT
     return undefined;
   }
 
-  return capability ? createTemplateContextProof(context, capability) : undefined;
+  return capability ?? undefined;
 }
 
 function isProtectedTemplateContextProofTransport(url: URL): boolean {
@@ -530,13 +622,20 @@ async function loadBearerToken<TOptions extends ResolvableServeTargetOptions>(
   const runtimeTargetContext = target.runtimeTargetContext;
   if (runtimeTargetContext) {
     if (!runtimeTargetContext.runtimeScopeId) {
+      if (runtimeTargetContext.kind === 'local' && options['project-owner']) {
+        return (await ports.loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl)))?.token;
+      }
       return undefined;
     }
     const reference = await ports.getOAuthTokenReference(
       runtimeTargetContext.name,
       runtimeTargetContext.runtimeScopeId,
     );
-    return toOAuthTokenReference(reference)?.token;
+    const token = toOAuthTokenReference(reference)?.token;
+    if (token) return token;
+    if (runtimeTargetContext.kind !== 'local' || !options['project-owner']) return undefined;
+    // Hook cleanup pins the local target; retain the implicit-local credential lookup.
+    return (await ports.loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl)))?.token;
   }
 
   const authProfile = await ports.loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));

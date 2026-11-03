@@ -270,3 +270,5 @@ Contributions are welcome! Please read our [CONTRIBUTING.md](https://github.com/
 - [Configuration Deep Dive](/guide/essentials/configuration) - Detailed setup options
 - [Architecture Reference](/reference/architecture) - System design and patterns
 - [Contributing Guide](https://github.com/1mcp-app/agent/blob/main/CONTRIBUTING.md) - How to contribute
+
+For MCP protocol and SDK dependency changes, run `pnpm test:protocol`. See [protocol regression setup and retained coverage](https://github.com/1mcp-app/agent/blob/main/docs/development/protocol-regressions.md).

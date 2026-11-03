@@ -46,7 +46,7 @@ describe('release candidate dependency cache isolation', () => {
           jobName === 'release-result' ? 'false' : '${{ !inputs.checkout_ref && !inputs.release_gate }}',
         );
     }
-    const uv = ci.jobs['test-conformance'].steps.find((step: Step) => step.uses === 'astral-sh/setup-uv@v7');
+    const uv = ci.jobs['test-protocol'].steps.find((step: Step) => step.uses === 'astral-sh/setup-uv@v7');
     expect(uv.with['enable-cache']).toBe('${{ !inputs.checkout_ref && !inputs.release_gate }}');
   });
   it.each(['native-credentials', 'cooperative-runtime'])(

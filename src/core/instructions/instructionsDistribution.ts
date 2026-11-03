@@ -1,8 +1,12 @@
 import path from 'node:path';
 
+import { INSPECTION_GUIDANCE } from '@src/core/instructions/inspectionGuidance.js';
+
+import { fromMarkdown } from 'mdast-util-from-markdown';
 import { z } from 'zod';
 
 import { PREPARATION_GUIDANCE } from './preparationGuidance.js';
+import { SESSION_GUIDANCE } from './sessionGuidance.js';
 
 const instructionServerSummarySchema = z.object({
   server: z.string(),
@@ -11,6 +15,7 @@ const instructionServerSummarySchema = z.object({
   available: z.boolean().optional(),
   loadTracked: z.boolean().optional(),
   toolCount: z.number().int().nonnegative(),
+  toolCountKnown: z.boolean().optional(),
   hasInstructions: z.boolean(),
 });
 
@@ -41,6 +46,7 @@ export interface InstructionServerSummary {
   available?: boolean;
   loadTracked?: boolean;
   toolCount: number;
+  toolCountKnown?: boolean;
   hasInstructions: boolean;
 }
 
@@ -182,26 +188,25 @@ export function renderManagedDocContent(): string {
   return [
     '# 1MCP Agent Bootstrap',
     '',
-    'If this session already received the current 1MCP instructions content from hooks, do not run `1mcp instructions` again.',
+    'If this session already received the current 1MCP instructions content from hooks, do not run `1mcp instructions` again. Reuse it only for the same assigned target.',
     'Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.',
+    'Use the 1MCP CLI for upstream capabilities; never call replaced servers directly. Config files alone do not prove trusted hooks or runtime readiness.',
     '',
-    'Always use the 1MCP CLI as the entrypoint for upstream MCP capabilities. Do not call replaced upstream MCP servers directly when 1MCP is available.',
+    '## Tool workflow',
     '',
-    'Required workflow after you have the instructions content:',
-    '1. Review the available servers and their applicable instructions. If the provider or tool is unknown, optionally discover candidates with `1mcp inspect --search <query>` or `1mcp inspect <server> --search <query>`.',
-    '2. Run `1mcp inspect <server>` before selecting a tool and read its applicable instructions. When the target is known, inspect it directly without searching.',
-    '3. Run `1mcp inspect <server>/<tool>` before invoking that tool.',
-    "4. Run `1mcp run <server>/<tool> --args '<json>'` only after inspecting the tool schema.",
+    '1. Review server instructions. If the provider/tool is unknown, search with `1mcp inspect --search <query>` or `1mcp inspect <server> --search <query>`. When the target is known, skip discovery.',
+    '2. Run `1mcp instructions <server>` when its instructions are missing; read its applicable instructions.',
+    '3. Inspect unknown schemas with `1mcp inspect <server>/<tool>`.',
+    "4. Invoke with `1mcp run <server>/<tool> --args '<json>'`.",
     '',
-    'Search uses case-insensitive literal substring matching on server/tool references. Use a quoted pattern such as `--search "filesystem/*read?" --glob` for whole-reference matching with only `*` and `?` wildcards.',
-    '`--include-descriptions` also matches effective descriptions using the selected matching mode; `--show-descriptions` independently displays descriptions without changing matches.',
+    'Server metadata uses `type: external` for static servers and `type: template` for dynamic servers. Narrow the server set with `--preset`, `--tags` or `--tag-filter`.',
     '',
-    'Use `--preset`, `--tags`, or `--tag-filter` with `1mcp instructions`, `inspect`, and `run` when you need a narrower server set.',
+    'Search is case-insensitive literal substring matching on server/tool references. Use `--search "filesystem/*read?" --glob` for whole-reference matching (`*` and `?` only).',
+    '`--include-descriptions` also matches effective descriptions; `--show-descriptions` independently displays descriptions without changing matches.',
     '',
-    'Each delegated worker must receive this playbook independently. Dispatch instructions must name its Worker Project Assignment as an absolute checkout path or project-set definition path.',
-    'If the startup hook cannot resolve the assignment, run `1mcp bootstrap --client codex|claude --event SubagentStart --project <absolute-checkout>` or use `--project-set <absolute-definition>` before project-specific instructions or calls. Do not infer a worker target from parent cwd or session identity.',
-    'Retain the assigned `--project` and/or `--project-set` selectors for instructions and tool calls. With a project set, repeat `--project <label>` to select its ordered members. A multi-project set requires explicit selection for checkout-specific calls; coordinate separate calls for single-project tools.',
-    'Identical hook delivery may repeat across global and repository sources. Never suppress instructions for a different assigned target. Configuration files alone do not prove enabled, trusted hook delivery or runtime readiness.',
+    INSPECTION_GUIDANCE,
+    '',
+    SESSION_GUIDANCE,
     '',
     PREPARATION_GUIDANCE,
     '',
@@ -236,15 +241,59 @@ export function upsertStartupDocManagedBlock(existingContent: string, managedBlo
   }
 
   const withoutLegacyBlocks = normalizedExisting.replace(LEGACY_MANAGED_BLOCK_PATTERN, '');
-  const remainingLines = withoutLegacyBlocks
-    .split('\n')
-    .filter((line) => !managedReferenceAliases.has(line.trim()))
-    .join('\n')
-    .trimEnd();
+  const { codeLines, unclosedFenceLine } = findStartupDocCode(withoutLegacyBlocks);
+  let foundReference = false;
+  const updatedLines = withoutLegacyBlocks.split('\n').flatMap((line, index) => {
+    if (codeLines.has(index)) return [line];
+    if (!managedReferenceAliases.has(line.trim())) return [line];
+    if (foundReference) return [];
+
+    foundReference = true;
+    return [line.trim() === referenceLine ? line : referenceLine];
+  });
+
+  if (foundReference) return updatedLines.join('\n');
+
+  if (unclosedFenceLine !== undefined) {
+    updatedLines.splice(unclosedFenceLine, 0, referenceLine);
+    return updatedLines.join('\n');
+  }
+
+  const remainingLines = updatedLines.join('\n').trimEnd();
 
   if (remainingLines.length === 0) {
     return `${referenceLine}\n`;
   }
 
   return `${remainingLines}\n${referenceLine}\n`;
+}
+
+function findStartupDocCode(content: string): { codeLines: Set<number>; unclosedFenceLine?: number } {
+  const tree = fromMarkdown(content);
+  const codeLines = new Set<number>();
+  let unclosedFenceLine: number | undefined;
+
+  function visit(node: (typeof tree.children)[number], blockStart: number): void {
+    if (node.type === 'code' || node.type === 'inlineCode') {
+      const position = node.position!;
+      for (let line = position.start.line - 1; line < position.end.line; line++) codeLines.add(line);
+
+      if (node.type !== 'code') return;
+      if (position.end.offset! < content.trimEnd().length) return;
+      const sourceLines = content.slice(position.start.offset, position.end.offset).split('\n');
+      const marker = /^(`{3,}|~{3,})/.exec(sourceLines[0])?.[0];
+      if (!marker) return;
+      const closingFence = new RegExp(`^\\s*${marker[0]}{${marker.length},}[ \\t]*$`);
+      if (sourceLines.length > 1 && closingFence.test(sourceLines.at(-1)!)) return;
+      unclosedFenceLine = blockStart;
+      return;
+    }
+
+    if ('children' in node) {
+      for (const child of node.children) visit(child, blockStart);
+    }
+  }
+
+  for (const node of tree.children) visit(node, node.position!.start.line - 1);
+  return { codeLines, unclosedFenceLine };
 }

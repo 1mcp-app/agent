@@ -1,3 +1,4 @@
+import { SCHEMA_LIMITS } from '@src/core/validation/schemaPolicy.js';
 import { JSON_VALUE_LIMITS, toJsonValue } from '@src/sdk/contracts/index.js';
 
 import { captureCapabilityListResult } from './capabilityListCapture.js';
@@ -80,4 +81,48 @@ describe('capability list capture', () => {
 
     expect(() => captureCapabilityListResult('tools/call', result)).toThrow('node limit');
   });
+});
+
+describe('tool-result output budget', () => {
+  it('accepts tool output beyond the ordinary string ceiling', () => {
+    const result = { content: [{ type: 'text', text: 'x'.repeat(1_000_001) }] };
+    expect(captureCapabilityListResult('tools/call', result)).toEqual(result);
+  });
+});
+
+it.each(['x', '界', '\n'])('enforces the serialized UTF-8 output boundary for %j', (character) => {
+  const empty = { content: [{ type: 'text', text: '' }] };
+  const overhead = Buffer.byteLength(JSON.stringify(empty));
+  const unitBytes = Buffer.byteLength(JSON.stringify(character)) - 2;
+  const length = Math.floor((SCHEMA_LIMITS.outputBytes - overhead) / unitBytes);
+  const result = { content: [{ type: 'text', text: character.repeat(length) }] };
+  expect(captureCapabilityListResult('tools/call', result)).toEqual(result);
+  expect(() =>
+    captureCapabilityListResult('tools/call', {
+      content: [{ type: 'text', text: character.repeat(length + 1) }],
+    }),
+  ).toThrow('schema_budget_exceeded');
+});
+
+it('leaves other operation results on the ordinary string budget', () => {
+  expect(() => captureCapabilityListResult('resources/read', { contents: [{ text: 'x'.repeat(1_000_001) }] })).toThrow(
+    'total string length limit',
+  );
+});
+
+it('rejects foreign accessors without evaluating them', () => {
+  let reads = 0;
+  const result = {
+    content: [
+      {
+        type: 'text',
+        get text() {
+          reads++;
+          return 'unsafe';
+        },
+      },
+    ],
+  };
+  expect(() => captureCapabilityListResult('tools/call', result)).toThrow('schema_invalid');
+  expect(reads).toBe(0);
 });

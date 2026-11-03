@@ -26,6 +26,7 @@ export default [
       '.tmp',
       '.tmp-test',
       '.scratch/**',
+      '.worktrees/**',
       '.pnpm-store',
       'eslint.config.*',
       'docs/site/.vitepress/dist',

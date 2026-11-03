@@ -4,6 +4,8 @@
  * This module contains schema definitions for MCP server configuration editing,
  * including modifying server properties, environment variables, and transport-specific settings.
  */
+import { oAuthConfigSchema } from '@src/core/types/index.js';
+
 import { z } from 'zod';
 
 // ==================== INPUT SCHEMAS ====================
@@ -40,16 +42,7 @@ export const McpEditToolSchema = z.object({
   headers: z.record(z.string(), z.string()).optional().describe('HTTP headers for HTTP/SSE transport'),
 
   // OAuth configuration
-  oauth: z
-    .object({
-      clientId: z.string().optional(),
-      clientSecret: z.string().optional(),
-      scopes: z.array(z.string()).optional(),
-      autoRegister: z.boolean().optional(),
-      redirectUrl: z.string().optional(),
-    })
-    .optional()
-    .describe('OAuth configuration'),
+  oauth: oAuthConfigSchema.optional().describe('OAuth configuration'),
 
   // Operation control
   preview: z.boolean().optional().describe('Preview changes without applying them'),

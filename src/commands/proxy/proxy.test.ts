@@ -110,6 +110,18 @@ describe('proxyCommand', () => {
     processExitSpy.mockRestore();
   });
 
+  it('preserves owner release alongside operational telemetry cleanup', async () => {
+    const attachment = await proxyMocks.attachFreshClientSurface();
+    const releaseOwnerLease = vi.fn(async () => undefined);
+    proxyMocks.attachFreshClientSurface.mockResolvedValue({ ...attachment, releaseOwnerLease });
+
+    await proxyCommand({ 'config-dir': '/tmp/config' });
+
+    expect(proxyMocks.transportOptions).toEqual([
+      expect.objectContaining({ onClosed: releaseOwnerLease, onclose: expect.any(Function) }),
+    ]);
+  });
+
   it('starts the stdio proxy from a fresh client-surface attachment', async () => {
     await proxyCommand({ 'config-dir': '/tmp/config', filter: 'web,api' });
 

@@ -1,4 +1,4 @@
-import { StreamableSessionData } from '@src/auth/sessionTypes.js';
+import { StreamableSessionAuthorizationBinding, StreamableSessionData } from '@src/auth/sessionTypes.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -6,6 +6,7 @@ import { InboundConnectionConfig } from '@src/core/types/index.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger from '@src/logger/logger.js';
+import { canonicalSessionBinding } from '@src/transport/http/streamableSessionAuthorization.js';
 import { logError } from '@src/transport/http/utils/unifiedLogger.js';
 
 /**
@@ -38,8 +39,13 @@ export class StreamableSessionRepository {
   /**
    * Creates a new streamable session with the given ID and configuration
    */
-  create(sessionId: string, config: InboundConnectionConfig): void {
+  create(
+    sessionId: string,
+    config: InboundConnectionConfig,
+    authorizationBinding?: StreamableSessionAuthorizationBinding,
+  ): void {
     const sessionData: StreamableSessionData = {
+      ...(authorizationBinding ? { authorizationBinding: canonicalSessionBinding(authorizationBinding) } : {}),
       tags: config.tags,
       tagExpression: config.tagExpression ? JSON.stringify(config.tagExpression) : undefined,
       tagQuery: config.tagQuery ? JSON.stringify(config.tagQuery) : undefined,

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { configureProductTelemetryBootstrap } from '@src/config/productTelemetryBootstrap.js';
 import { loadRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
@@ -216,7 +217,7 @@ export async function launchCooperativeRuntime(
   const child = spawn(
     command,
     [...baseArgs, 'serve', '--cooperative-bootstrap=supervisor', '--config', configFilePath],
-    { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
+    { detached: true, windowsHide: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
   );
   const bootstrap: RuntimeLaunchBootstrap = {
     type: 'runtime-bootstrap',
@@ -383,7 +384,8 @@ export async function restartCooperativeRuntime(options: ServeOptions): Promise<
   }
   const until = Date.now() + RUNTIME_RETIREMENT_OBSERVATION_MS;
   while (fs.existsSync(getRuntimeScopeOwnershipPath(runtimeScope)) && Date.now() < until) {
-    if (readRuntimeScopeOwnership(runtimeScope)?.claimId !== client.descriptor.claimId)
+    const currentOwner = readRuntimeScopeOwnership(runtimeScope);
+    if (currentOwner && currentOwner.claimId !== client.descriptor.claimId)
       throw markServeLifecycleFailure(
         'ownership',
         new Error(`Another runtime won ownership; replacement not started. Inspect: ${recoveryCommand} --status`),
@@ -428,6 +430,9 @@ function readCurrentBackendSnapshot(snapshot: RuntimeReplacementSnapshot): Runti
 
 export async function runCooperativeSupervisor(): Promise<void> {
   const bootstrap = await receiveRuntimeBootstrap();
+  configureProductTelemetryBootstrap({
+    'product-telemetry-test-suppressed': bootstrap.options['product-telemetry-test-suppressed'] === true,
+  });
   const scope = bootstrap.snapshot.runtimeScope;
   installRuntimeReplacementConfig(bootstrap.snapshot, bootstrap.digest, scope);
   assertEmptyScope(scope);
@@ -605,7 +610,7 @@ export async function runCooperativeSupervisor(): Promise<void> {
               nonce: randomUUID(),
               claimId: ownership.record.claimId,
             };
-            const child = spawn(cmd, [...args], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+            const child = spawn(cmd, [...args], { windowsHide: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
             worker = child;
             if (child.pid) spawnedWorkerPids.add(child.pid);
             const ready = waitForChildActivation(child, launch).then((message) => {
@@ -690,6 +695,9 @@ export function settleCooperativeInitialLoading(): void {
 
 export async function authorizeCooperativeWorker(): Promise<RuntimeLaunchBootstrap> {
   const bootstrap = await receiveRuntimeBootstrap();
+  configureProductTelemetryBootstrap({
+    'product-telemetry-test-suppressed': bootstrap.options['product-telemetry-test-suppressed'] === true,
+  });
   const owner = readRuntimeScopeOwnership(bootstrap.snapshot.runtimeScope);
   if (!isCooperativeParent(owner, bootstrap.claimId))
     throw new Error('Private worker launch does not match scope ownership');

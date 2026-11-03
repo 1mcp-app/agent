@@ -5,6 +5,10 @@ on:
     paths:
       - 'src/**'
       - 'test/telemetry/**'
+      - 'test/e2e/fixtures/gatewayInteractionMatrix.ts'
+      - 'test/e2e/gateway-interactions-four-era.test.ts'
+      - 'test/unit-utils/isolateProcessEnvironment.ts'
+      - 'scripts/test-process-environment.*'
       - 'scripts/telemetry/**'
       - '.node-version'
       - '.github/actions/setup-node-pnpm/**'
@@ -50,7 +54,11 @@ jobs:
           else
             git diff --name-only "$BASE_SHA...$HEAD_SHA" -- \
               'src/observability/**' 'src/config/telemetry*' \
+              'src/gateway/**' 'src/sdk/**' 'src/transport/**' \
+              'src/core/**' 'src/commands/proxy/**' 'src/commands/serve/**' \
               'scripts/telemetry/**' 'test/telemetry/**' \
+              'scripts/test-process-environment.*' 'test/unit-utils/isolateProcessEnvironment.ts' \
+              'test/e2e/fixtures/gatewayInteractionMatrix.ts' 'test/e2e/gateway-interactions-four-era.test.ts' \
               '.github/workflows/operational-telemetry.yml' \
               '.github/actions/setup-node-pnpm/**' '.node-version' \
               'package.json' 'pnpm-lock.yaml' 'pnpm-workspace.yaml' 'patches/**' > "$RUNNER_TEMP/telemetry-changes"

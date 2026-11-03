@@ -57,7 +57,7 @@ Start it with `otelcol --config=collector.yaml`. If 1MCP runs on the same host, 
 
 ## Check delivery and state
 
-In your Collector, confirm traces and metrics with `service.name=1mcp` or your configured service name. The default trace batch delay is five seconds and the metric interval is 60 seconds, so all signals do not appear immediately. `1mcp serve status` and authenticated Admin Runtime Health expose read-only telemetry state. Telemetry does not determine public readiness.
+In your Collector, confirm traces and metrics with `service.name=1mcp` or your configured service name. The default trace batch delay is five seconds and the metric interval is 60 seconds, so all signals do not appear immediately. `1mcp serve --status` and authenticated Admin Runtime Health expose read-only telemetry state. Telemetry does not determine public readiness.
 
 | State                  | Meaning                                                                        |
 | ---------------------- | ------------------------------------------------------------------------------ |

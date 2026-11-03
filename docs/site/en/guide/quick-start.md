@@ -67,13 +67,14 @@ Pick one client:
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-The command installs the startup files that tell the agent to use `instructions`, `inspect`, and `run` in order. For Codex, it also prints required changes for `config.toml`; it does **not** apply those changes. Copy the printed snippet into `config.toml` before starting Codex. See [`cli-setup`](/commands/cli-setup) for target and scope details.
+The command installs hooks that run `bootstrap` at startup, supplying runtime guidance and a private owner credential to the agent. For Codex, it also prints required changes for `config.toml`; it does **not** apply those changes. Copy the printed snippet into `config.toml` before starting Codex. See [`cli-setup`](/commands/cli-setup) for target and scope details.
 
 ### 5. Verify the workflow
 
-Run the same commands your agent will use:
+Enable and trust the hooks, then open a new agent session. Verify that it receives runtime guidance and establishes ownership. With a named or implicitly discovered local runtime, supported Codex sessions resolve their owner and assigned project automatically. Claude and hosts without automatic owner lookup add their own bootstrap `--project-owner <own-file>` to each call. Each worker uses its own startup context and credential. Ask the agent to follow this flow; you do not need to repeat these commands manually:
 
 ```bash
+# Only if current target guidance is missing or needs refreshing.
 1mcp instructions
 1mcp inspect context7
 1mcp inspect context7/query-docs
@@ -82,7 +83,7 @@ Run the same commands your agent will use:
 
 ### Success looks like this
 
-- `instructions` explains the CLI workflow and shows the available runtime context
+- Startup delivers the CLI playbook and this session’s owner credential; `instructions` is only needed to fetch missing or refreshed guidance
 - `inspect context7` lists tools from the upstream server
 - `inspect context7/query-docs` shows the tool schema before invocation
 - `run ...` returns a real result from the upstream server
@@ -133,6 +134,8 @@ Use these once the basic flow works and you want to manage the runtime itself:
 - [Presets](/commands/preset/)
 
 ## Next Steps
+
+For a workflow across repositories and Git worktrees, see [Working Across Projects and Worktrees](/guide/worktrees-and-cross-project-sessions).
 
 - [CLI Mode guide](/guide/integrations/cli-mode) for the conceptual model
 - [Add more servers](/guide/essentials/configuration) to expand the runtime

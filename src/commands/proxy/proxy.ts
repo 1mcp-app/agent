@@ -7,6 +7,7 @@ import {
   startRuntimeTelemetry,
 } from '@src/core/server/runtimeTelemetry.js';
 import logger from '@src/logger/logger.js';
+import { beginProductStartup } from '@src/productTelemetry/index.js';
 import { StdioProxyTransport } from '@src/transport/stdioProxyTransport.js';
 
 import { ProxyOptions } from './index.js';
@@ -15,6 +16,9 @@ import { ProxyOptions } from './index.js';
  * Proxy command - Start STDIO proxy to running 1MCP HTTP server
  */
 export async function proxyCommand(options: ProxyOptions): Promise<void> {
+  const startup = beginProductStartup('proxy');
+  let releaseOwnerLease: (() => Promise<void>) | undefined;
+  let proxyTransport: StdioProxyTransport | undefined;
   try {
     await startRuntimeTelemetry('proxy');
     installTelemetryCompletionHandlers();
@@ -23,6 +27,7 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
       version: 'proxy',
       options,
     });
+    releaseOwnerLease = attachment.releaseOwnerLease;
     const { target, options: mergedOptions } = attachment;
     const discoveredUrl = attachment.serverUrl.toString();
 
@@ -54,9 +59,10 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     // Create and start proxy transport
     logger.info('proxy.starting.stdio.proxy.d415368c');
 
-    const proxyTransport = new StdioProxyTransport({
+    proxyTransport = new StdioProxyTransport({
       serverUrl: discoveredUrl,
       onclose: () => finishRuntimeTelemetry(),
+      ...(releaseOwnerLease ? { onClosed: releaseOwnerLease } : {}),
       bearerToken: attachment.bearerToken,
       context: attachment.context,
       contextProof: attachment.contextProof,
@@ -64,6 +70,7 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     });
 
     await proxyTransport.start();
+    startup.finish('success');
 
     logger.info('proxy.stdio.proxy.running.forwarding.to.b084a797');
 
@@ -73,7 +80,7 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
       shutdownPromise ??= (async () => {
         beginRuntimeTelemetryShutdown();
         logger.info('proxy.shutting.down.stdio.proxy.0fa99376');
-        await proxyTransport.close();
+        await proxyTransport!.close();
         logger.info('proxy.stdio.proxy.shutdown.complete.eb154c73');
         exitRuntime(0);
       })();
@@ -85,6 +92,8 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     process.on('SIGHUP', shutdown);
   } catch (error) {
     await finishRuntimeTelemetry(true);
+    startup.finish('failure');
+    if (!proxyTransport) await releaseOwnerLease?.();
     if (error instanceof Error) {
       logger.error('proxy.proxycommand.diagnostic.de43c663', { error: error });
     } else {

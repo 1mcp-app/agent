@@ -270,6 +270,18 @@ describe('ClientInstancePool', () => {
       expect(instance.clientIds).toEqual(new Set(['client-a']));
       expect(instance.outboundKeys).toEqual(new Set(['testTemplate:client-a']));
       vi.useRealTimers();
+      // The old PID now belongs to another process; its recorded exit is authoritative.
+      const kill = vi.spyOn(process, 'kill').mockImplementation((pid) => {
+        if (pid === 101) return true;
+        throw Object.assign(new Error('No process'), { code: 'ESRCH' });
+      });
+      try {
+        await pool.removeInstance(instance.instanceKey);
+        expect(pool.getInstance(instance.instanceKey)).toBeUndefined();
+        expect(kill).not.toHaveBeenCalledWith(101, 0);
+      } finally {
+        kill.mockRestore();
+      }
     });
 
     it('removes an idle supervised template when its child exits without scheduling recovery', async () => {

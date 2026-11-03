@@ -13,6 +13,7 @@ import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { test } from 'vitest';
 
+import { createTestProcessEnvironment } from '../../scripts/test-process-environment.mjs';
 import { createCollector } from './fake-collector.mjs';
 import { assertPrivatePayloads, privacyCorpus } from './privacy-corpus.mjs';
 import { createModernBackend } from './workload-modern-backend.mjs';
@@ -65,19 +66,21 @@ test.each([
         'error',
       ],
       {
-        env: {
-          ...process.env,
-          OTEL_SDK_DISABLED: 'false',
-          OTEL_TRACES_EXPORTER: 'otlp',
-          OTEL_METRICS_EXPORTER: 'otlp',
-          OTEL_LOGS_EXPORTER: 'none',
-          OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
-          OTEL_TRACES_SAMPLER: 'always_on',
-          OTEL_BSP_SCHEDULE_DELAY: '10',
-          OTEL_METRIC_EXPORT_INTERVAL: '5000',
-          OTEL_EXPORTER_OTLP_TIMEOUT: '1000',
-          OTEL_EXPORTER_OTLP_HEADERS: `x-acceptance=${privacyCorpus.authorization}`,
-        },
+        env: createTestProcessEnvironment(
+          {
+            OTEL_SDK_DISABLED: 'false',
+            OTEL_TRACES_EXPORTER: 'otlp',
+            OTEL_METRICS_EXPORTER: 'otlp',
+            OTEL_LOGS_EXPORTER: 'none',
+            OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
+            OTEL_TRACES_SAMPLER: 'always_on',
+            OTEL_BSP_SCHEDULE_DELAY: '10',
+            OTEL_METRIC_EXPORT_INTERVAL: '5000',
+            OTEL_EXPORTER_OTLP_TIMEOUT: '1000',
+            OTEL_EXPORTER_OTLP_HEADERS: `x-acceptance=${privacyCorpus.authorization}`,
+          },
+          Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('OTEL_'))),
+        ),
         cwd: directory,
         stdio: ['ignore', 'ignore', 'pipe'],
       },

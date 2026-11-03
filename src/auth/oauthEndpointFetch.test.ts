@@ -1,5 +1,6 @@
 import * as dns from 'node:dns/promises';
 import http from 'node:http';
+import https from 'node:https';
 
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 
@@ -17,6 +18,7 @@ vi.mock('@src/logger/localDiagnostics.js', () => ({ writeLocalDiagnostic: vi.fn(
 vi.mock('node:dns/promises', async (importOriginal) => ({ ...(await importOriginal<typeof dns>()), lookup: vi.fn() }));
 const close: Array<() => Promise<void>> = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.resetAllMocks();
   for (const stop of close.splice(0)) await stop();
 });
@@ -47,6 +49,49 @@ function guarded(resource: string, overrides: Partial<Parameters<typeof createOA
   });
 }
 describe('OAuth network boundary', () => {
+  it('permits only explicitly approved private HTTPS origins and pins the socket DNS lookup', async () => {
+    const received: string[] = [];
+    const base = await endpoint((req, res) => {
+      received.push(req.url!);
+      res.end('{}');
+    });
+    const origin = base.replace('http://127.0.0.1', 'https://private.example');
+    // Exercise the real socket lookup on loopback without needing a test certificate authority.
+    vi.spyOn(https, 'request').mockImplementation((...args: Parameters<typeof https.request>) => {
+      const [input, options, callback] = args;
+      const url = new URL(String(input));
+      url.protocol = 'http:';
+      return http.request(url, options, callback);
+    });
+    vi.mocked(dns.lookup).mockResolvedValue([{ address: '127.0.0.1', family: 4 }] as never);
+    const pin = vi.fn(async () => undefined);
+    const fetch = guarded(origin + '/mcp', { privateNetworkOrigins: [origin], pinDestination: pin });
+    await fetch(origin + '/metadata');
+    await fetch(origin + '/token', { method: 'POST', body: 'code=fixture' });
+    expect(received).toEqual(['/metadata', '/token']);
+    expect(pin).toHaveBeenCalledWith(new URL(origin).host, '127.0.0.1', expect.any(Object));
+    for (const target of [origin.replace('private.example', 'other.example'), 'https://private.example:1']) {
+      await expect(fetch(target + '/metadata?secret=sentinel')).rejects.toThrow('private_destination_blocked');
+    }
+    await expect(fetch(origin.replace('https:', 'http:') + '/metadata')).rejects.toThrow('authority_mismatch');
+    expect(received).toHaveLength(2);
+  });
+
+  it('rejects mixed public/private DNS answers without leaking query data', async () => {
+    vi.mocked(dns.lookup).mockResolvedValue([
+      { address: '8.8.8.8', family: 4 },
+      { address: '100.64.0.1', family: 4 },
+    ] as never);
+    const onDiagnostic = vi.fn();
+    const pin = vi.fn();
+    await expect(
+      guarded('https://private.example/mcp', { pinDestination: pin, onDiagnostic })(
+        'https://private.example/metadata?secret=sentinel',
+      ),
+    ).rejects.toThrow('private_destination_blocked');
+    expect(pin).not.toHaveBeenCalled();
+    expect(JSON.stringify(onDiagnostic.mock.calls)).not.toContain('sentinel');
+  });
   it.each([
     ['network_failure', 'network', 'Check provider reachability and DNS.', undefined],
     ['metadata_http_error', 'metadata', 'Check provider metadata availability and access policy.', 403],

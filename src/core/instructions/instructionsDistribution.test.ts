@@ -1,3 +1,5 @@
+import { formatInstructionsOutput } from '@src/commands/instructions/instructionsUtils.js';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -259,7 +261,7 @@ describe('instructionsDistribution', () => {
 
     expect(content).toContain('If this session already received the current 1MCP instructions content from hooks');
     expect(content).toContain('Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.');
-    expect(content).toContain('Run `1mcp inspect <server>` before selecting a tool');
+    expect(content).toContain('Run `1mcp instructions <server>` when its instructions are missing');
   });
 
   it('keeps the managed reference and hook-delivered playbook search workflow consistent', () => {
@@ -270,7 +272,7 @@ describe('instructionsDistribution', () => {
       expect(content).toContain('--search "filesystem/*read?" --glob');
       expect(content).toContain('`--include-descriptions` also matches effective descriptions');
       expect(content).toContain('`--show-descriptions` independently displays descriptions');
-      expect(content).toContain('When the target is known, inspect it directly');
+      expect(content).not.toContain('When the target is known, inspect it directly');
       expect(content.indexOf('read its applicable instructions')).toBeLessThan(
         content.indexOf('1mcp inspect <server>/<tool>'),
       );
@@ -281,6 +283,26 @@ describe('instructionsDistribution', () => {
     }
     expect(DEFAULT_CLI_INSTRUCTION_TEMPLATE).toContain('1mcp wait <server>');
     expect(DEFAULT_CLI_INSTRUCTION_TEMPLATE).toContain('1mcp auth login --context <name> --token <token>');
+  });
+
+  it('aligns installed and runtime playbooks with supported session defaults and recovery', () => {
+    for (const content of [
+      renderManagedDocContent(),
+      DEFAULT_CLI_INSTRUCTION_TEMPLATE,
+      formatInstructionsOutput({ servers: [], details: [] }),
+    ]) {
+      expect(content).toContain('Normal calls omit --project-owner and --project.');
+      expect(content).toContain('CODEX_THREAD_ID (current agent) locates an exact private hook-written thread record');
+      expect(content).toContain('A per-call --project or --project-set override never changes that default.');
+      expect(content).toContain(
+        'Claude and Codex hosts without a trustworthy thread locator or both-ID integration require',
+      );
+      expect(content).toContain('Recovery requires a recorded SessionEnd');
+      expect(content).toContain('scoped write permission');
+      expect(content).not.toContain(
+        'Retain the bootstrap-provided --project-owner credential reference on every call.',
+      );
+    }
   });
 
   it('renders global Codex startup references as absolute managed-doc references', () => {
@@ -324,5 +346,76 @@ describe('instructionsDistribution', () => {
     const block = renderStartupDocManagedBlock('/tmp/.codex/AGENTS.md', '/tmp/.codex/1MCP.md');
 
     expect(upsertStartupDocManagedBlock('# Existing\n@1MCP.md\n', block)).toBe('# Existing\n@/tmp/.codex/1MCP.md\n');
+  });
+
+  it.each(['@1MCP.md', '@.codex/1MCP.md', '@/tmp/.codex/1MCP.md'])(
+    'preserves the position of an existing %s reference',
+    (reference) => {
+      for (const prefix of ['', '# Instructions\n\n']) {
+        const content = `${prefix}${reference}\n\nKeep these instructions after the reference.\n\n`;
+        expect(upsertStartupDocManagedBlock(content, `${reference}\n`)).toBe(content);
+      }
+    },
+  );
+
+  it('migrates and deduplicates references at the first existing position', () => {
+    const block = '@/tmp/.codex/1MCP.md\n';
+    const content = `# Before\n@1MCP.md\n# After\n${block}`;
+    const expected = `# Before\n${block}# After\n`;
+
+    expect(upsertStartupDocManagedBlock(content, block)).toBe(expected);
+    expect(upsertStartupDocManagedBlock(expected, block)).toBe(expected);
+  });
+
+  it.each([
+    ['```markdown', '```'],
+    ['~~~markdown', '~~~'],
+    ['````markdown\n```\n~~~', '`````'],
+    ['   ```markdown', '   ```'],
+  ])('ignores reference examples inside %s fences', (opening, closing) => {
+    const block = '@.claude/1MCP.md\n';
+    const example = `${opening}\n${block}${closing}\n`;
+    const content = `${example}\n${block}\n# After\n`;
+
+    expect(upsertStartupDocManagedBlock(content, block)).toBe(content);
+    expect(upsertStartupDocManagedBlock(example, block)).toBe(`${example}${block}`);
+  });
+
+  it.each(['```markdown', '~~~markdown'])('inserts a missing reference before an unclosed %s fence', (opening) => {
+    const block = '@.claude/1MCP.md\n';
+    const prefix = '# Instructions\n\n```text\nclosed example\n```\n\n';
+    const example = `${opening}\n${block}unfinished example\n`;
+    const expected = `${prefix}${block}${example}`;
+
+    const updated = upsertStartupDocManagedBlock(`${prefix}${example}`, block);
+
+    expect(updated).toBe(expected);
+    expect(upsertStartupDocManagedBlock(updated, block)).toBe(expected);
+    expect(upsertStartupDocManagedBlock(`${block}${example}`, block)).toBe(`${block}${example}`);
+  });
+
+  it.each([
+    '  - ```\n    @.claude/1MCP.md\n    ```\n',
+    '- Example:\n\n    ~~~markdown\n    @.claude/1MCP.md\n    ~~~\n',
+    'Example `\n@.claude/1MCP.md\n`\n',
+    'Example ``\n`\n@.claude/1MCP.md\n``\n',
+    '    @.claude/1MCP.md\n',
+  ])('preserves Markdown code examples when selecting the real reference: %s', (example) => {
+    const block = '@.claude/1MCP.md\n';
+    const content = `${example}\n${block}\n# After\n`;
+
+    expect(upsertStartupDocManagedBlock(content, block)).toBe(content);
+    const inserted = upsertStartupDocManagedBlock(example, block);
+    expect(inserted).toBe(`${example}${block}`);
+    expect(upsertStartupDocManagedBlock(inserted, block)).toBe(inserted);
+  });
+
+  it('inserts before the containing list when its final fence is unclosed', () => {
+    const block = '@.claude/1MCP.md\n';
+    const content = '# Instructions\n\n- Example:\n\n    ```markdown\n    @.claude/1MCP.md\n';
+    const expected = `# Instructions\n\n${block}- Example:\n\n    \`\`\`markdown\n    @.claude/1MCP.md\n`;
+
+    expect(upsertStartupDocManagedBlock(content, block)).toBe(expected);
+    expect(upsertStartupDocManagedBlock(expected, block)).toBe(expected);
   });
 });

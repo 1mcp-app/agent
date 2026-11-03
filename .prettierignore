@@ -20,3 +20,6 @@ coverage/
 *.log
 logs/
 
+# Generated release notes (git-cliff); preserve the authored layout.
+CHANGELOG.md
+

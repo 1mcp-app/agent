@@ -6,7 +6,7 @@ This repo uses a single-context domain documentation layout.
 
 ## Before exploring, read these
 
-- `CONTEXT.md` at the repo root, if it exists
+- `GLOSSARY.md` at the repo root, if it exists
 - `docs/adr/`, if it exists, for architectural decisions relevant to the area being changed
 
 If these files do not exist, proceed silently. The producer skill creates them lazily when terms or decisions get resolved.
@@ -15,14 +15,14 @@ If these files do not exist, proceed silently. The producer skill creates them l
 
 ```text
 /
-|-- CONTEXT.md
+|-- GLOSSARY.md
 |-- docs/adr/
 `-- src/
 ```
 
 ## Use the glossary's vocabulary
 
-When output names a domain concept, use the term as defined in `CONTEXT.md`. Map unambiguous shorthand to that vocabulary. Ask only when competing meanings would materially change behavior, data ownership, compatibility, or acceptance criteria and available evidence cannot resolve them.
+When output names a domain concept, use the term as defined in `GLOSSARY.md`. Map unambiguous shorthand to that vocabulary. Ask only when competing meanings would materially change behavior, data ownership, compatibility, or acceptance criteria and available evidence cannot resolve them.
 
 ## Flag ADR conflicts
 

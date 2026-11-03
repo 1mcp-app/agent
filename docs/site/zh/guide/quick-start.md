@@ -67,13 +67,14 @@ npm install -g @1mcp/agent
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-这个命令会安装引导文件，让 agent 按顺序使用 `instructions`、`inspect` 和 `run`。对于 Codex，它还会打印必须加入 `config.toml` 的改动，但**不会**自动写入。请在启动 Codex 前把打印出的片段复制到 `config.toml`。目标类型和作用域细节见 [`cli-setup`](/zh/commands/cli-setup)。
+这个命令会安装在启动时运行 `bootstrap` 的钩子，为 agent 提供运行时指引和私有所有者凭证。对于 Codex，它还会打印必须加入 `config.toml` 的改动，但**不会**自动写入。请在启动 Codex 前把打印出的片段复制到 `config.toml`。目标类型和作用域细节见 [`cli-setup`](/zh/commands/cli-setup)。
 
 ### 5. 验证工作流
 
-运行与你的 agent 将使用的同一组命令：
+启用并信任钩子，然后打开新的 agent 会话。确认它收到运行时指引并建立所有权。使用命名或隐式发现的本地运行时时，受支持的 Codex 会话自动解析所有者和已分配项目。Claude 和不支持自动查找所有者的宿主需在每次调用中添加自己的 bootstrap `--project-owner <own-file>`。每个 worker 使用自己的启动上下文和凭证。让 agent 执行以下流程；无需你手动重复这些命令：
 
 ```bash
+# 仅在缺少当前目标指引或需要刷新时执行。
 1mcp instructions
 1mcp inspect context7
 1mcp inspect context7/query-docs
@@ -82,7 +83,7 @@ npm install -g @1mcp/agent
 
 ### 成功的样子
 
-- `instructions` 会解释 CLI 工作流，并展示当前运行时上下文
+- 启动时收到 CLI 操作指引和本会话的所有者凭证；仅在缺少指引或需要刷新时运行 `instructions`
 - `inspect context7` 能列出上游 server 的工具
 - `inspect context7/query-docs` 会在调用前展示 schema
 - `run ...` 会返回来自上游 server 的真实结果
@@ -133,6 +134,8 @@ npm install -g @1mcp/agent
 - [预设](/zh/commands/preset/)
 
 ## 下一步
+
+跨仓库和 Git worktree 的完整流程见[跨项目与 Git Worktree 工作指南](/zh/guide/worktrees-and-cross-project-sessions)。
 
 - [CLI 模式指南](/zh/guide/integrations/cli-mode) 了解完整心智模型
 - [添加更多服务器](/zh/guide/essentials/configuration) 扩展运行时能力

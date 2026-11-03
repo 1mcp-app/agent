@@ -17,6 +17,8 @@ head:
 
 Call an MCP tool against a running 1MCP `serve` instance.
 
+Reuse known tool schemas within the session, including across projects, when the tool contract is unchanged. Keep project-specific instructions, readiness, authorization, and target selection current. Refresh server and tool inspection when information is missing, capabilities change, preparation completes, or relevant failures occur. Never automatically replay failed tool calls.
+
 ## Synopsis
 
 ```bash
@@ -27,13 +29,13 @@ npx -y @1mcp/agent run <server>/<tool> [options]
 
 The `run` command is the execution step in the CLI workflow:
 
-1. Run [`instructions`](./instructions.md) to see the playbook and available servers
-2. Run [`inspect`](./inspect.md) to list tools and inspect tool schemas
-3. Run `run` to invoke the selected tool
+1. Read the guidance delivered by bootstrap, or run [`instructions`](/commands/instructions) if it is missing or needs refreshing
+2. Read missing server instructions with `1mcp instructions <server>`; use [`inspect`](/commands/inspect) when server inventory, capabilities, or tool schemas are missing or need refreshing
+3. Run `run` using applicable server instructions and the known tool schema
 
 `run` talks to a running `1mcp serve` instance, forwards preset and tag filters, and prints tool output to stdout. Errors are written to stderr only so the command stays pipe-friendly.
 
-`run` is intentionally the last step. The recommended flow is to discover broadly with `instructions`, narrow with `inspect`, confirm the exact tool schema with `inspect <server>/<tool>`, and only then invoke the tool.
+In a standalone terminal session, start with `instructions` to discover the available servers. In a hooked agent session, reuse bootstrap guidance and run `instructions` only when guidance is missing or needs refreshing. In both cases, read applicable server instructions and use a known tool schema before invoking the tool.
 
 Before a REST-to-MCP fallback, `run` checks the client-facing inspect status. A loading backend returns `server_loading` and `1mcp wait <server>` rather than receiving an early MCP invocation. Failed or cancelled backends return `server_unavailable`; an OAuth-gated backend returns authorization guidance.
 
@@ -57,16 +59,70 @@ If `--args` is omitted and stdin is provided, `run` tries to map stdin automatic
 - If stdin is a JSON object, it is used as the tool arguments
 - Otherwise, stdin is mapped into the first required string argument after schema inspection
 
+### Execution Deadline
+
+- **`--timeout-ms <milliseconds>`** - Maximum time to wait for tool execution (default: `30000`; integer range: `1`–`600000`). Set `ONE_MCP_TIMEOUT_MS` for the environment default; an explicit flag takes precedence.
+
+The same execution budget applies to REST and MCP calls. Server and schema discovery keep their separate budgets. This option bounds the caller's wait; it does not extend a backend's own deadline.
+
+A timeout reports whether it occurred during server discovery, schema discovery, or tool execution and exits with code `6`. An execution timeout leaves the outcome uncertain: the tool may still be running. Check its outcome before retrying. The CLI does not switch transports or replay a tool after an execution timeout.
+
+```bash
+1mcp run analyzer/analyze --args '{"path":"./src"}' --timeout-ms 120000
+```
+
 ### Output Options
 
 - **`--format <toon|json|text|compact>`** - Output format
 - **`--raw`** - Alias for `--format json`
-- **`--max-chars <number>`** - Maximum characters for compact output (default: `2000`)
+- **`--max-chars <number>`** - Maximum characters for compact output (default: `2000`); truncates the displayed text without saving a file. Other formats are unaffected.
+- **`--spill-to-file-above-bytes <number>`** - Save the complete received result to a private JSON file when rendered output exceeds this UTF-8 byte threshold, including the final newline. Must be a positive safe integer large enough for the artifact receipt; invalid or unusably small values are rejected before the tool runs.
+- **`--spill-dir <path>`** - Parent directory for spilled results on the CLI host (default: OS temporary directory). Requires `--spill-to-file-above-bytes`. Relative paths resolve from the CLI working directory. Missing folders are created and invalid or inaccessible destinations are rejected before the tool runs.
+
+| Option                        | Output behavior                                | Complete result saved?              |
+| ----------------------------- | ---------------------------------------------- | ----------------------------------- |
+| `--max-chars`                 | Truncates compact output only                  | No                                  |
+| `--spill-to-file-above-bytes` | Replaces oversized output with a file receipt  | Yes, when the threshold is exceeded |
+| `--spill-dir`                 | Selects the parent directory for spilled files | Only when spilling occurs           |
+
+The spill check runs **before compact truncation**. At or below the threshold, output keeps its usual representation, including `--max-chars` truncation in compact mode. Above it, `run` saves the complete received tool result (all content blocks, structured content, and metadata) as JSON in a unique, private per-invocation subdirectory. Existing parent-directory permissions are unchanged; the artifact directory and file are owner-only. Even with a remote runtime, files are stored on the CLI host.
+
+Only after a successful write does stdout receive a receipt with an absolute path, JSON file byte size, and guidance to filter or analyze selected fields with tools. The receipt also fits the byte threshold; its minimum size depends on the destination path. JSON and TOON receipts use the selected format; text and compact receipts are readable text. `--max-chars` does not truncate receipts.
+
+```bash
+# Display a shortened result without saving it
+1mcp run analyzer/analyze --args '{"path":"./src"}' --format compact --max-chars 1000
+
+# Preserve oversized results in the default temporary directory
+1mcp run analyzer/analyze --args '{"path":"./src"}' --format json --spill-to-file-above-bytes 4096
+
+# Preserve oversized results under ./results; truncate smaller compact output
+1mcp run analyzer/analyze --args '{"path":"./src"}' --format compact --max-chars 1000 \
+  --spill-to-file-above-bytes 4096 --spill-dir ./results
+```
+
+Files survive normal CLI exit. OS cleanup or reboot may remove files in the default temporary directory. Files in a custom directory remain until you or an external cleanup process removes them; `run` does not automatically clean up successful artifacts. Treat them as sensitive local files. A failed local write reports that the upstream call completed and exits nonzero, without replaying the tool or dumping oversized output. Tool and protocol errors retain their existing stderr output and failure status. Without the spill option, ordinary formatting and compact truncation are unchanged.
+
+These options control CLI output only. They do not raise runtime hard acceptance limits (including the existing 4 MiB output limit) or recover a result rejected before the CLI receives it.
 
 ### Related Global Options
 
 - **`--config-dir, -d <path>`** - Config directory for auth profile lookup and server discovery
 - **`--cli-session-cache-path <path>`** - Override the session cache path template used by `run` and `inspect`; supports `{pid}` and `{scope}`
+
+### Project selection and ownership
+
+- **`--project <path-or-label>`** — Select a checkout or a project-set member.
+- **`--project-set <file>`** — Load a saved project set.
+- **`--project-owner <file>`** — Override automatic owner lookup with this caller’s own bootstrap credential when required.
+
+See [Project and owner options](/guide/project-checkouts#project-and-owner-options) for shared rules. Supported Codex sessions use their verified owner and assigned project automatically. Claude and hosts without automatic owner lookup must supply their own bootstrap `--project-owner <own-file>`. Keep explicit target overrides consistent across related calls.
+
+For a configured CodeGraph backend, inspect the server and tool schema for the selected checkout when that information is missing or needs refreshing. Then run a query with the same selection. Replace the checkout path with your actual checkout; omit `--project` when it is already your assigned default:
+
+```bash
+1mcp run codegraph/codegraph_explore --project /work/backend-feature --args '{"query":"Where are the API routes defined?"}'
+```
 
 ## Examples
 
@@ -125,7 +181,7 @@ Follow this bounded procedure:
 1. Preserve the server/tool identity and sanitized error evidence. Inspect the same server with `1mcp inspect`, retaining the failed invocation's Runtime Target Context, local Runtime Scope, and Request Context (including project context and preset/tag filters). Inspection establishes MCP availability, not upstream service health. Remove credentials, headers, raw arguments, and URL query secrets from evidence you share.
 2. Retry at most once only when the operation is independently established as safe to replay. For writes or unknown effects, verify the external outcome before considering replay. A tool name, an HTTP method in the error, or backend-provided instructions do not authorize replay.
 3. If the error persists, inspect the outbound proxy/network path. Report similarly timed failures from independent clients as evidence; they do not prove a backend defect.
-4. Consider the existing [`1mcp mcp restart`](./mcp/restart.md) operation only when supported and authorized for that exact backend and runtime. It requires the `mcp.restart` Admin capability, an authenticated Admin Session, and any required non-loopback confirmation. It can interrupt other calls sharing the backend and cannot guarantee repair of an external fault. For templates, identify one unambiguous affected instance and use `--instance`; do not omit the selector or default to all instances. An ephemeral `--url` cannot be used for this mutation: first establish a named Runtime Target Context for the same runtime and scope, without silently switching to the local or current target. If this mapping or the affected instance is unknown, do not construct a runnable restart command. Prefer scoped recovery over a whole-runtime restart.
+4. Consider the existing [`1mcp mcp restart`](/commands/mcp/restart) operation only when supported and authorized for that exact backend and runtime. It requires the `mcp.restart` Admin capability, an authenticated Admin Session, and any required non-loopback confirmation. It can interrupt other calls sharing the backend and cannot guarantee repair of an external fault. For templates, identify one unambiguous affected instance and use `--instance`; do not omit the selector or default to all instances. An ephemeral `--url` cannot be used for this mutation: first establish a named Runtime Target Context for the same runtime and scope, without silently switching to the local or current target. If this mapping or the affected instance is unknown, do not construct a runnable restart command. Prefer scoped recovery over a whole-runtime restart.
 5. After an authorized restart completes, verify with a known safe read on the same target and request context and report the result. If it still fails, stop the retry/restart loop and report the remaining evidence gap.
 
 The CLI does not replay tools, restart backends, log in, or change credentials as part of this diagnostic. Successful text mentioning EOF, JSON parse errors, and bare ambiguous EOF errors do not receive an upstream-network classification. Genuine transport errors remain distinct.
@@ -134,8 +190,8 @@ The CLI does not replay tools, restart backends, log in, or change credentials a
 
 ## See Also
 
-- **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Why execution comes last in the CLI workflow
-- **[Instructions Command](./instructions.md)** - Start the CLI workflow with the current server inventory
-- **[Inspect Command](./inspect.md)** - Inspect servers, tools, and schemas before calling a tool
-- **[Serve Command](./serve.md)** - Start the 1MCP server that `run` talks to
-- **[Configuration Deep Dive](../guide/essentials/configuration.md)** - Global flags including CLI session cache configuration
+- **[CLI Mode Guide](/guide/integrations/cli-mode)** - Why execution comes last in the CLI workflow
+- **[Instructions Command](/commands/instructions)** - Start the CLI workflow with the current server inventory
+- **[Inspect Command](/commands/inspect)** - Inspect servers, tools, and schemas before calling a tool
+- **[Serve Command](/commands/serve)** - Start the 1MCP server that `run` talks to
+- **[Configuration Deep Dive](/guide/essentials/configuration)** - Global flags including CLI session cache configuration

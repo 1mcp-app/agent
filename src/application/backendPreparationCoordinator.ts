@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { canonicalLifecyclePath, getProjectLifecycle, type ProjectBlocker } from '@src/application/projectLifecycle.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { normalizeTags, resolveProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
@@ -337,6 +338,11 @@ export class BackendPreparationCoordinator {
   }
 
   async control(grant: PreparationGrant, request: PreparationControlRequest): Promise<PreparationControlResult> {
+    if (['wait', 'cancel'].includes(request.action) && !request.id) throw new Error('This action requires a job id');
+    if (request.action === 'inspect' && request.id) throw new Error('inspect does not accept a job id');
+    if (request.action === 'prepare' || request.action === 'retry')
+      getProjectLifecycle()?.assertScheduling([grant.target.checkoutRoot]);
+
     if (this.closed) throw new Error('Preparation coordinator is stopped');
     if (!request.id) this.assertNamedGrantCurrent(grant);
     if (grant.integrationAvailable === false)
@@ -354,6 +360,18 @@ export class BackendPreparationCoordinator {
     const validateAdmission = () =>
       this.revalidateGrant(grant, request.validateAdmission, false, expiresAt, request.signal);
     const key = digest(preparationKey(grant.target, grant.policy, this.service.options, operation));
+    // Draining controls inspect cached job state without launching native probes in the checkout.
+    if (getProjectLifecycle()?.status(grant.target.checkoutRoot).admission === 'draining') {
+      const handle = request.id ? this.handles.get(request.id) : undefined;
+      if (request.id && (!handle || handle.owner !== grant.owner || handle.key !== key))
+        throw new Error('Unknown preparation operation for this grant and checkout');
+      let status = handle ? this.service.status(handle.serviceId) : this.currentStatus(key);
+      if (!status)
+        return { state: 'conflict', instructions: 'Project Checkout is draining; resume before native inspection.' };
+      if (request.action === 'cancel') status = this.service.cancel(handle!.serviceId);
+      if (request.action === 'wait') status = await this.service.wait(handle!.serviceId, probeOptions());
+      return status ? this.presentStatus(grant, key, status) : undefined;
+    }
     if (request.action === 'inspect') {
       if (request.id) throw new Error('inspect does not accept a job id');
       const current = this.currentStatus(key);
@@ -587,6 +605,15 @@ export class BackendPreparationCoordinator {
     );
   }
 
+  public getProjectBlockers(checkout: string): ProjectBlocker[] {
+    const canonical = canonicalLifecyclePath(checkout);
+    const blockers: ProjectBlocker[] = [];
+    for (const status of this.service.activeStatuses()) {
+      if (status.target.checkoutRoot === canonical) blockers.push({ kind: 'preparation-job', id: status.id });
+    }
+    return blockers;
+  }
+
   private async withReservation<T>(
     key: string,
     action: (beforeAdmission: () => void) => Promise<T>,
@@ -597,6 +624,7 @@ export class BackendPreparationCoordinator {
     try {
       return await action(() => {
         this.assertGrantCurrent(grant);
+        getProjectLifecycle()?.assertScheduling([grant.target.checkoutRoot]);
         assertAdmission?.();
         release ??= this.store.reserve(key);
       });
@@ -983,4 +1011,34 @@ export function getBackendPreparationCoordinator(serverManager: ServerManager): 
     await coordinator!.shutdown();
   });
   return coordinator;
+}
+
+/** Read-only lookup: lifecycle status must never initialize preparation. */
+export function peekBackendPreparationCoordinator(
+  serverManager: ServerManager,
+): BackendPreparationCoordinator | undefined {
+  return runtimeCoordinators.get(serverManager);
+}
+
+/** A restarted runtime cannot infer that an advisory active job's external writer has exited. */
+export function persistedProjectPreparationBlockers(checkout: string): ProjectBlocker[] {
+  const storage = AgentConfigManager.getInstance().get?.('runtimeScopeStoragePath');
+  if (!storage) return [];
+  const file = path.join(storage, 'backend-preparation.json');
+  if (!fs.existsSync(file)) return [];
+  const fd = openCredentialReadSync(file);
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size > 128 * 1024 * 1024) throw new Error('Invalid preparation recovery storage');
+    const records = z.array(savedSchema).parse(JSON.parse(fs.readFileSync(fd, 'utf8')));
+    const canonical = canonicalLifecyclePath(checkout);
+    return records
+      .filter(
+        (record) =>
+          record.target.checkoutRoot === canonical && ['queued', 'running', 'cancelling'].includes(record.state),
+      )
+      .map((record) => ({ kind: 'preparation-recovery', id: record.previousJobId }));
+  } finally {
+    fs.closeSync(fd);
+  }
 }

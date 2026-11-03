@@ -2,6 +2,8 @@ import { PROTOCOL_VERSION_META_KEY, StreamableHTTPClientTransport } from '@model
 
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
+import * as telemetry from '@src/observability/telemetry.js';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SSE_WIRE_LIMIT_BYTES, SseWireLimitError } from './sseWireLimit.js';
@@ -57,6 +59,32 @@ describe('StdioProxyTransport', () => {
       });
 
       expect(proxy).toBeDefined();
+    });
+
+    it('does not claim a preexisting session when its generated context is fresh', () => {
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp', bearerToken: 'test-token' });
+      expect(proxy['context'].sessionId).toMatch(/^stream-/);
+      expect(vi.mocked(StreamableHTTPClientTransport).mock.calls[0]?.[1]?.sessionId).toBeUndefined();
+    });
+
+    it('sends the logical context session on modern requests only', async () => {
+      const delegate = vi.fn<typeof fetch>().mockResolvedValue(new Response());
+      vi.stubGlobal('fetch', delegate);
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+      const customFetch = proxy['createDynamicHeaderFetch']();
+
+      await customFetch('http://localhost:3050/mcp');
+      expect(new Headers(delegate.mock.calls.at(-1)?.[1]?.headers).get('mcp-session-id')).toBeNull();
+
+      proxy['downstreamPin'] = { era: 'legacy', revision: '2025-06-18' };
+      await customFetch('http://localhost:3050/mcp', { headers: { 'mcp-session-id': 'server-session' } });
+      expect(new Headers(delegate.mock.calls.at(-1)?.[1]?.headers).get('mcp-session-id')).toBe('server-session');
+
+      proxy['downstreamPin'] = { era: 'modern', revision: '2026-07-28' };
+      await customFetch('http://localhost:3050/mcp');
+      expect(new Headers(delegate.mock.calls.at(-1)?.[1]?.headers).get('mcp-session-id')).toBe(
+        proxy['context'].sessionId,
+      );
     });
 
     it('should create proxy with tags', () => {
@@ -158,6 +186,64 @@ describe('StdioProxyTransport', () => {
   });
 
   describe('message forwarding', () => {
+    it('finishes subscription request spans at acknowledgement without finishing other requests', async () => {
+      const status = telemetry.getTelemetryStatus();
+      const statusSpy = vi.spyOn(telemetry, 'getTelemetryStatus').mockReturnValue({ ...status, state: 'healthy' });
+      const ends: ReturnType<typeof vi.fn>[] = [];
+      const operationSpy = vi.spyOn(telemetry, 'startTelemetryOperation').mockImplementation(() => {
+        const end = vi.fn();
+        ends.push(end);
+        return { run: (callback) => callback(), end };
+      });
+      try {
+        proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+        await proxy.start();
+        for (const [id, method] of [
+          [7, 'subscriptions/listen'],
+          [8, 'tools/call'],
+        ] as const) {
+          await proxy['stdioTransport'].onmessage!({
+            jsonrpc: '2.0',
+            id,
+            method,
+            params: { _meta: { [PROTOCOL_VERSION_META_KEY]: '2026-07-28' } },
+          });
+        }
+        expect(ends).toHaveLength(6);
+        for (const id of [8, 7]) {
+          await proxy['httpTransport'].onmessage!({
+            jsonrpc: '2.0',
+            method: 'notifications/subscriptions/acknowledged',
+            params: { _meta: { 'io.modelcontextprotocol/subscriptionId': id } },
+          });
+        }
+        expect(ends.slice(0, 3).map((end) => end.mock.calls)).toEqual([[['success']], [['success']], [['success']]]);
+        expect(ends.slice(3).every((end) => end.mock.calls.length === 0)).toBe(true);
+        expect(proxy['pendingTelemetry'].upstream.has(7)).toBe(false);
+        await proxy['stdioTransport'].onmessage!({
+          jsonrpc: '2.0',
+          id: 9,
+          method: 'subscriptions/listen',
+          params: { _meta: { [PROTOCOL_VERSION_META_KEY]: '2026-07-28' } },
+        });
+        vi.mocked(proxy['stdioTransport'].send).mockRejectedValueOnce(new Error('Downstream closed'));
+        await proxy['httpTransport'].onmessage!({
+          jsonrpc: '2.0',
+          method: 'notifications/subscriptions/acknowledged',
+          params: { _meta: { 'io.modelcontextprotocol/subscriptionId': 9 } },
+        });
+        expect(ends.slice(6).map((end) => end.mock.calls)).toEqual([
+          [['transport-error']],
+          [['transport-error']],
+          [['transport-error']],
+        ]);
+        await proxy.close();
+      } finally {
+        operationSpy.mockRestore();
+        statusSpy.mockRestore();
+      }
+    });
+
     it('should forward messages from STDIO to HTTP with _meta field', async () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',
@@ -497,6 +583,36 @@ describe('StdioProxyTransport', () => {
   });
 
   describe('close', () => {
+    it('releases caller authority only after both hops close, once', async () => {
+      const onClosed = vi.fn().mockResolvedValue(undefined);
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp', onClosed });
+      await proxy.start();
+      expect(onClosed).not.toHaveBeenCalled();
+      let finish!: () => void;
+      vi.mocked(proxy['httpTransport'].close).mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const closing = proxy.close();
+      await Promise.resolve();
+      expect(onClosed).not.toHaveBeenCalled();
+      finish();
+      await closing;
+      await proxy.close();
+      expect(onClosed).toHaveBeenCalledOnce();
+    });
+
+    it('retains uncertain caller authority when a transport cannot close', async () => {
+      const onClosed = vi.fn();
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp', onClosed });
+      await proxy.start();
+      vi.mocked(proxy['httpTransport'].close).mockRejectedValueOnce(new Error('close uncertain'));
+      await proxy.close();
+      expect(onClosed).not.toHaveBeenCalled();
+    });
+
     it('should close both transports', async () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',

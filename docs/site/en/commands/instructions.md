@@ -15,26 +15,44 @@ head:
 
 # Instructions Command
 
+Client hooks run `bootstrap` to establish ownership and fetch guidance through `instructions`. Agents run `instructions` separately only when current guidance is missing or needs refreshing; it does not create an owner credential. See [the startup workflow](/guide/worktrees-and-cross-project-sessions#bootstrap-and-instructions-which-one-runs).
+
 Show CLI-mode instructions for AI agents using a running 1MCP `serve` instance.
+
+Reuse known tool schemas within the session, including across projects, when the tool contract is unchanged. Keep project-specific instructions, readiness, authorization, and target selection current. Refresh server and tool inspection when information is missing, capabilities change, preparation completes, or relevant failures occur. Never automatically replay failed tool calls.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent instructions [options]
+npx -y @1mcp/agent instructions [server] [options]
 ```
 
 ## Description
 
-The `instructions` command is the entrypoint for CLI-mode agent workflows. It prints:
+Without a server target, the `instructions` command is the entrypoint for CLI-mode agent workflows. It prints:
 
 - A fixed playbook telling the agent to use `inspect` before `run`
 - A server summary section
 - A server details section
-- Per-server instruction blocks when the server provides them
+- Available per-server instruction blocks and configured overrides
 
 Use this command first when an agent or terminal session needs current guidance from the running 1MCP instance.
 
+Without a server target, instruction delivery applies the current project selection, permissions, and filters without starting template backends or requesting their tool inventories. Tool counts appear as `unknown` until an inventory is queried. A cold template's upstream instructions may be unavailable; use `1mcp instructions <server>` to start only the selected backend and read its instructions before invoking a tool. Warm instructions remain scoped to the selected session. This metadata does not establish backend preparation readiness.
+
+Older runtimes without the instruction endpoint retain the legacy discovery behavior, which can initialize backends.
+
 In practice, `instructions` is what replaces a large direct-MCP starting surface in the agent loop. Instead of expecting the agent to carry every available tool and schema up front, 1MCP gives it a compact playbook plus the current inventory, then tells it to narrow further with `inspect`.
+
+## One Server's Instructions
+
+```bash
+1mcp instructions filesystem
+```
+
+With a server target, the command prints only that server's applicable instructions, including configured overrides. It uses targeted inspection and may start the selected template and query its inventory. It preserves the current project, owner, authorization, and filters; unrelated backends are not prepared. If the server has no manual, it reports that explicitly. Tool targets such as `filesystem/read_file` are rejected. Use `inspect` for tool inventories and schemas.
+
+The targeted form reuses inspection's REST/MCP compatibility path. Bare `instructions` retains the bootstrap output below.
 
 ## Output Structure
 
@@ -50,7 +68,7 @@ Each server entry includes metadata such as:
 - Server type
 - Connection status
 - Availability
-- Tool count
+- Tool count, or `unknown` when not queried
 - Whether instructions are available
 
 ## Options
@@ -60,6 +78,14 @@ Each server entry includes metadata such as:
 - **`--preset, -p <name>`** - Use a preset when querying the running server
 - **`--tag-filter, -f <expression>`** - Apply an advanced tag filter expression
 - **`--tags <tag>`** - Apply simple comma-separated tags
+
+### Project selection and ownership
+
+- **`--project <path-or-label>`** — Select a checkout or a project-set member.
+- **`--project-set <file>`** — Load a saved project set.
+- **`--project-owner <file>`** — Override automatic owner lookup with this caller’s own bootstrap credential when required.
+
+See [Project and owner options](/guide/project-checkouts#project-and-owner-options) for shared rules. Supported Codex sessions use their verified owner and assigned project automatically. Claude and hosts without automatic owner lookup must supply their own bootstrap `--project-owner <own-file>`. Keep explicit target overrides consistent across related calls.
 
 ## Examples
 
@@ -89,12 +115,17 @@ npx -y @1mcp/agent instructions --preset development
 
 ## Recommended Workflow
 
-After reading `instructions`, continue with:
+After reading applicable instructions, inspect only when information is missing or needs refreshing, capabilities change, preparation completes, or relevant failures occur. Then invoke using the known schema. This example assumes a configured `filesystem` server whose `read_file` tool can read `README.md`:
 
 ```bash
-npx -y @1mcp/agent inspect <server>
-npx -y @1mcp/agent inspect <server>/<tool>
-npx -y @1mcp/agent run <server>/<tool> --args '<json>'
+# When server instructions are missing or need refreshing:
+1mcp instructions filesystem
+# When the server tool inventory is needed:
+1mcp inspect filesystem
+# When the tool schema is missing or needs refreshing:
+1mcp inspect filesystem/read_file
+# Invoke using current instructions and the known schema:
+1mcp run filesystem/read_file --args '{"path":"README.md"}'
 ```
 
 If authentication is required, the playbook directs the user or agent to retry with:

@@ -7,6 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { createTestProcessEnvironment } from '../test-process-environment.mjs';
+
 // Writes only synthetic records in a disposable Runtime Scope. Never enumerates
 // the user's keychain; real helpers (not mocks) supply all native operations.
 const args = process.argv.slice(2);
@@ -64,7 +66,7 @@ function run(commandArgs) {
     executable,
     [...prefix, ...commandArgs, '--config-dir', scope, '--session-storage-path', base],
     {
-      env,
+      env: createTestProcessEnvironment({}, env),
       encoding: 'utf8',
       timeout: 60000,
       maxBuffer: 1024 * 1024,

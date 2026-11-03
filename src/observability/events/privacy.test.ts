@@ -138,6 +138,52 @@ describe('typed local instrumentation privacy', () => {
     ).toMatchObject({ platform: 'other', code: 'other' });
   });
 
+  it('normalizes runtime claim diagnostics with closed enums and redacted errors', () => {
+    const result = normalizeEvent('serve.runtime-claim.failed', {
+      error: Object.assign(new Error('private ownership path'), { name: 'RuntimeScopeOwnedError' }),
+      ownership_reason: 'ambiguous',
+      evidence_status: 'unavailable',
+      acquisition_code: 'ETIMEDOUT',
+      elapsed_ms: 3025,
+    });
+    expect(result).toMatchObject({
+      event: 'serve.runtime-claim.failed',
+      ownership_reason: 'ambiguous',
+      evidence_status: 'unavailable',
+      acquisition_code: 'ETIMEDOUT',
+      elapsed_ms: 3025,
+      error_kind: 'other',
+      error_code: 'other',
+    });
+    expect(JSON.stringify(result)).not.toContain('private');
+    expect(
+      normalizeEvent('serve.runtime-claim.failed', {
+        ownership_reason: 'private',
+        evidence_status: 'private',
+        acquisition_code: 'PRIVATE_TOKEN',
+      }),
+    ).toMatchObject({ ownership_reason: 'other', evidence_status: 'other', acquisition_code: 'other' });
+  });
+
+  it('normalizes ownership cleanup and repair outcomes with closed enums', () => {
+    expect(
+      normalizeEvent('runtimeScopeOwnership.release.failed', {
+        error: Object.assign(new Error('private cleanup path'), { name: 'RuntimeScopeOwnedError' }),
+        stage: 'stop-lock',
+      }),
+    ).toMatchObject({ stage: 'stop-lock', error_kind: 'other', error_code: 'other' });
+    expect(
+      normalizeEvent('runtimeScopeOwnership.identity.repair.unsafe', {
+        attempts: 1,
+        elapsedMs: 10,
+        pid_outcome: 'unsafe',
+      }),
+    ).toMatchObject({ attempts: 1, elapsedMs: 10, pid_outcome: 'unsafe' });
+    expect(normalizeEvent('runtimeScopeOwnership.release.failed', { stage: 'private' })).toMatchObject({
+      stage: 'other',
+    });
+  });
+
   it('preserves protocol stdout when the actual file logger runs in stdio mode', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'stdio-local-logs-'));
     directories.push(directory);

@@ -6,7 +6,7 @@ import { applicationConfigSchema, transportConfigSchema } from '@src/core/types/
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import yargs from 'yargs';
 
-import { setupPreparationCommands } from './index.js';
+import { setupProjectCommands } from '../project/index.js';
 import { formatPreparationOutput, preparationCommand } from './preparation.js';
 
 vi.mock('@src/commands/shared/clientSurfaceAttachment.js', () => ({
@@ -22,7 +22,7 @@ afterEach(() => {
 
 describe('preparation CLI', () => {
   it.each(['inspect', 'status', 'wait', 'cancel', 'retry'])(
-    'sends identical authorized runtime requests for canonical and legacy %s',
+    'preserves authorized runtime requests for project prepare %s',
     async (action) => {
       const post = vi
         .spyOn(ApiClient.prototype, 'post')
@@ -41,27 +41,25 @@ describe('preparation CLI', () => {
         } as never) as never;
       });
       const id = '00000000-0000-4000-8000-000000000001';
-      for (const command of ['prepare', 'preparation']) {
-        await setupPreparationCommands(yargs([]).exitProcess(false).strict()).parseAsync([
-          command,
-          action,
-          'source-search',
-          ...(action === 'inspect' ? [] : [id]),
-          '--project',
-          '/selected',
-          '--context',
-          'local',
-          '--operation',
-          'lookup',
-          '--tags',
-          'code',
-          '--format',
-          'json',
-          ...(action === 'wait' ? ['--wait-ms', '500'] : []),
-        ]);
-      }
-      expect(post).toHaveBeenCalledTimes(2);
-      expect(post.mock.calls[0]).toEqual(post.mock.calls[1]);
+      await setupProjectCommands(yargs([]).exitProcess(false).strict()).parseAsync([
+        'project',
+        'prepare',
+        action,
+        'source-search',
+        ...(action === 'inspect' ? [] : [id]),
+        '--project',
+        '/selected',
+        '--context',
+        'local',
+        '--operation',
+        'lookup',
+        '--tags',
+        'code',
+        '--format',
+        'json',
+        ...(action === 'wait' ? ['--wait-ms', '500'] : []),
+      ]);
+      expect(post).toHaveBeenCalledTimes(1);
       expect(post.mock.calls[0][0]).toBe('/api/v1/preparation?tags=code');
       expect(post.mock.calls[0][1]).toMatchObject({
         action,
