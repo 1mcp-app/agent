@@ -1,5 +1,13 @@
 import { types } from 'node:util';
 
+// POSIFLORA PATCH: the upstream budgets (compile 250 ms, evaluate 50 ms) are too tight for a loaded desktop:
+// a timeout kills the schema worker, and tools of big servers (mcp-atlassian) vanish from the catalog or fail
+// with schema_evaluation_timeout. Defaults raised, both overridable via environment.
+const envMs = (name: string, fallback: number): number => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+
 /** Accepted safety baseline. Scheduling optimizations and operator controls are intentionally deferred. */
 export const SCHEMA_LIMITS = Object.freeze({
   schemaBytes: 256 * 1024,
@@ -18,8 +26,8 @@ export const SCHEMA_LIMITS = Object.freeze({
   instanceNodes: 100_000,
   arrayEntries: 10_000,
   instanceProperties: 10_000,
-  compileMs: 250,
-  evaluateMs: 50,
+  compileMs: envMs('ONE_MCP_SCHEMA_COMPILE_MS', 3000),
+  evaluateMs: envMs('ONE_MCP_SCHEMA_EVALUATE_MS', 500),
   queue: 128,
   heapMb: 128,
   stackMb: 4,
