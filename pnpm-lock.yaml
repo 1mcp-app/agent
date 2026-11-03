@@ -188,8 +188,8 @@ importers:
         specifier: 2.3.1
         version: 2.3.1
       '@modelcontextprotocol/server-legacy':
-        specifier: 2.3.1
-        version: 2.3.1(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)
+        specifier: 2.4.0
+        version: 2.4.0(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)
       '@opentelemetry/api':
         specifier: 1.9.1
         version: 1.9.1
@@ -1210,8 +1210,8 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
-  '@modelcontextprotocol/server-legacy@2.3.1':
-    resolution: {integrity: sha512-+cuB+hl7s8DiFXIt13le3cD2wZPOeDYwlycAkRMPljqqNbOLekGRiyslx8WXfqaXSCveS1eDD8/B8rmxz9BZFQ==}
+  '@modelcontextprotocol/server-legacy@2.4.0':
+    resolution: {integrity: sha512-xWq1YTZiLZltEXp/NJhsW7IvpuowrapEFuriAz3a86CIwMnt7+r8EaG/7xtWi7aqLzhtplOJJffUE5YIcUT+Aw==}
     engines: {node: '>=20'}
     deprecated: This package is a frozen copy of v1's SSE transport and OAuth Authorization Server helpers for migration purposes only. Use StreamableHTTP from @modelcontextprotocol/server and a dedicated OAuth server in production. Will not receive new features.
     peerDependencies:
@@ -5444,9 +5444,9 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@modelcontextprotocol/server-legacy@2.3.1(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)':
+  '@modelcontextprotocol/server-legacy@2.4.0(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)':
     dependencies:
-      '@modelcontextprotocol/core': 2.3.1
+      '@modelcontextprotocol/core': 2.4.0
       content-type: 1.0.5
       cors: 2.8.6
       express-rate-limit: 8.7.0(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)
