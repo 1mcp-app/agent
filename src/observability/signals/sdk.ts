@@ -8,7 +8,7 @@ import {
   SpanStatusCode,
   trace,
 } from '@opentelemetry/api';
-import type { Counter, Gauge, Histogram, UpDownCounter } from '@opentelemetry/api';
+import type { Counter, Histogram } from '@opentelemetry/api';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import {
   AggregationType,
@@ -42,6 +42,7 @@ import {
 import { type MeasurementDimensions, type MeasurementName, METRIC_ATTRIBUTE_KEYS, METRIC_REGISTRY } from './schema.js';
 
 const instanceId = randomUUID();
+const OVERFLOW_DIMENSIONS = Object.freeze({ 'otel.metric.overflow': true }) as MeasurementDimensions;
 const BOUNDARIES = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60, 120, 300];
 /** All promises started here are observed, including work that outlives a shutdown deadline. */
 async function bounded(work: Promise<unknown>, timeout: number): Promise<ShutdownOutcome> {
@@ -244,7 +245,8 @@ export class TelemetrySdk {
   private meterProvider?: MeterProvider;
   private traceQueue?: TraceQueue;
   private metricReader?: BoundedMetricReader;
-  private instruments = new Map<MeasurementName, Counter | Histogram | UpDownCounter | Gauge>();
+  private instruments = new Map<MeasurementName, Counter | Histogram>();
+  private observations = new Map<MeasurementName, Map<MeasurementDimensions, number>>();
   private series = new Map<MeasurementName, Map<string, MeasurementDimensions>>();
   private ticker: ReturnType<typeof setInterval>;
   private stopping?: Promise<void>;
@@ -323,12 +325,22 @@ export class TelemetrySdk {
         });
         const meter = this.meterProvider.getMeter('1mcp.operational', version);
         for (const [name, spec] of Object.entries(METRIC_REGISTRY)) {
-          let instrument: Counter | Histogram | UpDownCounter | Gauge;
-          if (spec.kind === 'histogram') instrument = meter.createHistogram(name, { unit: spec.unit });
-          else if (spec.kind === 'counter') instrument = meter.createCounter(name, { unit: spec.unit });
-          else if (spec.kind === 'updown') instrument = meter.createUpDownCounter(name, { unit: spec.unit });
-          else instrument = meter.createGauge(name, { unit: spec.unit });
-          this.instruments.set(name as MeasurementName, instrument);
+          if (spec.kind === 'histogram') {
+            this.instruments.set(name as MeasurementName, meter.createHistogram(name, { unit: spec.unit }));
+          } else if (spec.kind === 'counter') {
+            this.instruments.set(name as MeasurementName, meter.createCounter(name, { unit: spec.unit }));
+          } else {
+            // Observe only the bounded canonical series; state updates need no SDK recording.
+            const observations = new Map<MeasurementDimensions, number>();
+            this.observations.set(name as MeasurementName, observations);
+            const instrument =
+              spec.kind === 'updown'
+                ? meter.createObservableUpDownCounter(name, { unit: spec.unit })
+                : meter.createObservableGauge(name, { unit: spec.unit });
+            instrument.addCallback((result) => {
+              for (const [attributes, value] of observations) result.observe(value, attributes);
+            });
+          }
         }
       }
     } catch (error) {
@@ -368,7 +380,8 @@ export class TelemetrySdk {
   measure(name: MeasurementName, value: number, attributes: MeasurementDimensions): void {
     if (this.stopping) return;
     const instrument = this.instruments.get(name);
-    if (!instrument) return;
+    const observations = this.observations.get(name);
+    if (!instrument && !observations) return;
     const spec = METRIC_REGISTRY[name];
     // Closed enum values never contain NUL or empty strings. Fixed positions
     // distinguish omitted fields without sort/serialization or per-field strings.
@@ -386,10 +399,16 @@ export class TelemetrySdk {
         seen.set(key, canonical);
       } else {
         this.metrics.cardinality();
-        canonical = { 'otel.metric.overflow': true } as MeasurementDimensions;
+        canonical = OVERFLOW_DIMENSIONS;
       }
     }
     attributes = canonical;
+    if (observations) {
+      const next = spec.kind === 'updown' ? (observations.get(attributes) ?? 0) + value : value;
+      observations.set(attributes, next);
+      return;
+    }
+    if (!instrument) return;
     if ('record' in instrument) instrument.record(value, attributes, ROOT_CONTEXT);
     else instrument.add(value, attributes, ROOT_CONTEXT);
   }
