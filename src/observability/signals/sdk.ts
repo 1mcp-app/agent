@@ -347,22 +347,13 @@ export class TelemetrySdk {
     );
     this.ticker.unref();
   }
-  span(
-    name: string,
-    kind: SpanKind,
-    attributes: MeasurementDimensions,
-    parent: Context,
-    transportLink?: Context,
-  ): Span | undefined {
+  span(name: string, kind: SpanKind, parent: Context, transportLink?: Context): Span | undefined {
     if (this.stopping || !this.tracer) return undefined;
     const link = transportLink ? trace.getSpanContext(transportLink) : undefined;
     const links = link ? [{ context: link, attributes: {} }] : [];
-    const limited = Object.fromEntries(
-      Object.entries(attributes)
-        .filter(([, value]) => value !== undefined && Buffer.byteLength(value) <= this.config.limits.attributeBytes)
-        .slice(0, this.config.limits.attributes),
-    );
-    return this.tracer.startSpan(name, { kind, attributes: limited, links }, parent);
+    // Supported samplers use trace/parent identity only. Finish installs the closed
+    // attributes once, and only for recording spans; metrics still cover every operation.
+    return this.tracer.startSpan(name, { kind, links }, parent);
   }
   finish(span: Span | undefined, attributes: MeasurementDimensions, error: boolean): void {
     if (!span) return;

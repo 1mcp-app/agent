@@ -59,6 +59,10 @@ function disabledSignal(): SignalStatus {
     shutdown: 'none',
   };
 }
+/** Provider presence only; includes stopped providers, matching the disabled gate. */
+export function hasTelemetryProvider(): boolean {
+  return sdk !== undefined;
+}
 export function getTelemetryStatus(): TelemetryStatus {
   return sdk?.status() ?? { state: 'disabled', traces: disabledSignal(), metrics: disabledSignal() };
 }
@@ -124,6 +128,13 @@ export function startTelemetryOperation(input: TelemetryOperationOptions): Telem
   const live = getLiveTraceContext();
   if (isTracingSuppressed(live)) return { run: (operation) => operation(), end: () => undefined };
   const parent = options.kind === 'server' ? extractMcpParentContext(options.remoteParams) : live;
+  const owner = sdk;
+  if (!owner) {
+    return {
+      run: (callback, signal) => runWithOwnedTraceContext(parent, callback, signal),
+      end: () => undefined,
+    };
+  }
   const operation = classifyOperation(options.method);
   const phase = options.phase ?? 'operation';
   let direction: MeasurementDimensions['direction'] = 'internal';
@@ -143,8 +154,7 @@ export function startTelemetryOperation(input: TelemetryOperationOptions): Telem
   if (options.kind === 'server') kind = SpanKind.SERVER;
   if (options.kind === 'client') kind = SpanKind.CLIENT;
   if (options.kind === 'http') kind = direction === 'outbound' ? SpanKind.CLIENT : SpanKind.SERVER;
-  const owner = sdk;
-  const span = isolate(() => owner?.span(name, kind, attributes, parent, options.kind === 'server' ? live : undefined));
+  const span = isolate(() => owner.span(name, kind, parent, options.kind === 'server' ? live : undefined));
   const owned = span ? trace.setSpan(parent, span) : parent;
   const started = performance.now();
   let ended = false;

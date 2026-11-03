@@ -16,6 +16,20 @@ const variants = process.env.ONE_MCP_TEST_BINARY
   ? [{ name: 'SEA', executable: resolve(process.env.ONE_MCP_TEST_BINARY), entry: '' }]
   : [{ name: 'Node', executable: process.execPath, entry: resolve('build/index.js') }];
 
+test('runtime fixture keeps the harness binary selector out of child CLI configuration', async () => {
+  const collector = await createCollector();
+  let runtime;
+  try {
+    runtime = await startRuntime({ collector, background: true, env: { ONE_MCP_TEST_BINARY: '/harness-only/sea' } });
+    const status = await runtime.execute(['serve', '--status']);
+    assert.match(status.stdout, /telemetry/i);
+    assert.equal(runtime.env.ONE_MCP_TEST_BINARY, undefined);
+  } finally {
+    await runtime?.close();
+    await collector.close();
+  }
+});
+
 for (const variant of variants) {
   test(`${variant.name}: authenticated supervised stop preserves readiness ownership, telemetry status and cleanup deadline`, async () => {
     const collector = await createCollector();

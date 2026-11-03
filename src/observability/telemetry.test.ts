@@ -9,6 +9,7 @@ import { parseTelemetryConfig } from '../config/telemetryConfig.js';
 import { selectTelemetryEnvironment } from '../config/telemetryEnvironment.js';
 import {
   getTelemetryStatus,
+  hasTelemetryProvider,
   markTelemetryStopping,
   recordTelemetryMeasurement,
   startTelemetry,
@@ -16,6 +17,7 @@ import {
   stopTelemetry,
   withTelemetryOperation,
 } from './telemetry.js';
+import { getActiveTraceCorrelation } from './tracing/context.js';
 
 afterEach(async () => {
   await stopTelemetry({ deadlineMs: Date.now() + 1000 });
@@ -66,6 +68,7 @@ describe('SDK-free operational telemetry facade', () => {
   it('does not activate for selectors-none or one-shot commands and preserves results', async () => {
     await startTelemetry(parseTelemetryConfig({}), { role: 'runtime', serviceVersion: '0.39.2' });
     expect(getTelemetryStatus().state).toBe('disabled');
+    expect(hasTelemetryProvider()).toBe(false);
     expect(
       await withTelemetryOperation({ kind: 'server', method: 'tools/call', transport: 'stdio' }, async () => 'ok'),
     ).toBe('ok');
@@ -76,6 +79,29 @@ describe('SDK-free operational telemetry facade', () => {
     });
     expect(getTelemetryStatus().state).toBe('disabled');
   });
+  it('preserves remote context, nested propagation and error identity with recording disabled', async () => {
+    await startTelemetry(parseTelemetryConfig({}), { role: 'runtime', serviceVersion: 'test' });
+    const traceId = '12345678901234567890123456789012';
+    const original = new Error('business failure');
+    const operation = startTelemetryOperation({
+      kind: 'server',
+      method: 'tools/call',
+      remoteParams: { _meta: { traceparent: `00-${traceId}-1234567890123456-01` } },
+    });
+    await expect(
+      operation.run(async () => {
+        expect(getActiveTraceCorrelation()?.trace_id).toBe(traceId);
+        const child = startTelemetryOperation({ kind: 'client', method: 'tools/call' });
+        await child.run(async () => expect(getActiveTraceCorrelation()?.trace_id).toBe(traceId));
+        child.end();
+        throw original;
+      }),
+    ).rejects.toBe(original);
+    operation.end('internal-error');
+    expect(getActiveTraceCorrelation()).toBeUndefined();
+    expect(getTelemetryStatus().state).toBe('disabled');
+  });
+
   it('exports only approved facts as HTTP protobuf and strips remote tracestate', async () => {
     const payloads: Buffer[] = [];
     const collector = createServer(async (req, res) => {
@@ -124,6 +150,7 @@ describe('SDK-free operational telemetry facade', () => {
       expect(wire).not.toContain('process.pid');
       expect(wire).not.toContain('host.name');
       expect(getTelemetryStatus().state).toBe('stopped');
+      expect(hasTelemetryProvider()).toBe(true);
     } finally {
       collector.closeAllConnections();
       await new Promise<void>((resolve) => collector.close(() => resolve()));
@@ -144,6 +171,17 @@ describe('SDK-free operational telemetry facade', () => {
     expect(await startTelemetryOperation({ kind: 'server', metadata: 'secret' } as never).run(async () => 42)).toBe(42);
     expect(calls).toBe(0);
   });
+  it('rejects hidden and prototype-named signal fields without reading inherited accessors', () => {
+    const inherited = vi.fn(() => 'private');
+    const dimensions = Object.create(Object.defineProperty({}, 'outcome', { get: inherited }));
+    dimensions.cache = 'schema';
+    expect(recordTelemetryMeasurement('gateway.cache.outcomes', 1, dimensions)).toBe(true);
+    expect(inherited).not.toHaveBeenCalled();
+    Object.defineProperty(dimensions, 'private', { value: 'hidden', enumerable: false });
+    expect(recordTelemetryMeasurement('gateway.cache.outcomes', 1, dimensions)).toBe(false);
+    expect(recordTelemetryMeasurement('gateway.failures', 1, JSON.parse('{"__proto__":"private"}'))).toBe(false);
+  });
+
   it('isolates recording SDK failures from successful callbacks and original thrown errors', async () => {
     await startTelemetry(parseTelemetryConfig({ OTEL_TRACES_EXPORTER: 'otlp', OTEL_TRACES_SAMPLER: 'always_on' }), {
       role: 'runtime',

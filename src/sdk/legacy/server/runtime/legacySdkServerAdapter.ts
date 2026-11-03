@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { InboundConnectionAdapter } from '@src/core/types/server.js';
 import { ownData } from '@src/observability/privacy/fields.js';
 import {
-  getTelemetryStatus,
+  hasTelemetryProvider,
   recordTelemetryDrop,
   recordTelemetryMeasurement,
   startTelemetryOperation,
@@ -228,7 +228,7 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
       }
       if (
         tracing &&
-        getTelemetryStatus().state !== 'disabled' &&
+        hasTelemetryProvider() &&
         'method' in message &&
         'id' in message &&
         !pending.has(message.id) &&

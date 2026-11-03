@@ -1,11 +1,11 @@
-import { getTelemetryStatus, startTelemetryOperation } from '@src/observability/telemetry.js';
+import { hasTelemetryProvider, startTelemetryOperation } from '@src/observability/telemetry.js';
 import { withMcpTraceContext } from '@src/observability/tracing/context.js';
 
 import type { NextFunction, Request, Response } from 'express';
 
 /** Reviewed HTTP correlation only; local diagnostic fields never enter the signal API. */
 export function httpTelemetry(req: Request, res: Response, next: NextFunction): void {
-  if (getTelemetryStatus().state === 'disabled') {
+  if (!hasTelemetryProvider()) {
     next();
     return;
   }

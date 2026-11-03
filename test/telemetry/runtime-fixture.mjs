@@ -70,6 +70,8 @@ export async function startRuntime({
       OTEL_BSP_SCHEDULE_DELAY: '10',
       OTEL_METRIC_EXPORT_INTERVAL: '5000',
       ...extra,
+      // The parent selects the executable; yargs must not parse the harness selector.
+      ONE_MCP_TEST_BINARY: undefined,
     },
     isolated.env,
   );

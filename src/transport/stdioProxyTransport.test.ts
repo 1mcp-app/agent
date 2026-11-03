@@ -187,8 +187,7 @@ describe('StdioProxyTransport', () => {
 
   describe('message forwarding', () => {
     it('finishes subscription request spans at acknowledgement without finishing other requests', async () => {
-      const status = telemetry.getTelemetryStatus();
-      const statusSpy = vi.spyOn(telemetry, 'getTelemetryStatus').mockReturnValue({ ...status, state: 'healthy' });
+      const statusSpy = vi.spyOn(telemetry, 'hasTelemetryProvider').mockReturnValue(true);
       const ends: ReturnType<typeof vi.fn>[] = [];
       const operationSpy = vi.spyOn(telemetry, 'startTelemetryOperation').mockImplementation(() => {
         const end = vi.fn();

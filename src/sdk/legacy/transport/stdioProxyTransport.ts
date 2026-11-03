@@ -10,7 +10,7 @@ import {
   type ProtocolEraPin,
 } from '@src/gateway/contracts/index.js';
 import logger from '@src/logger/logger.js';
-import { getTelemetryStatus, recordTelemetryDrop, startTelemetryOperation } from '@src/observability/telemetry.js';
+import { hasTelemetryProvider, recordTelemetryDrop, startTelemetryOperation } from '@src/observability/telemetry.js';
 import { telemetryResultOutcome } from '@src/observability/telemetryOutcome.js';
 import { injectTraceContext, stripBaggage, withMcpTraceContext } from '@src/observability/tracing/context.js';
 import { toProtocolJSONRPCMessage } from '@src/sdk/contracts/index.js';
@@ -296,7 +296,7 @@ export class StdioProxyTransport {
         return;
       }
     }
-    if (getTelemetryStatus().state === 'disabled') {
+    if (!hasTelemetryProvider()) {
       await withMcpTraceContext('params' in message ? message.params : undefined, forward);
       return;
     }

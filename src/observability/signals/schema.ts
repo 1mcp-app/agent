@@ -156,10 +156,11 @@ export type TelemetryOperationResult = z.infer<typeof outcomeSchema>;
 /** Refuse accessors/proxies before schema parsing, including arbitrary metadata. */
 export function dataRecord(value: unknown): Record<string, unknown> | undefined {
   if (value === null || typeof value !== 'object' || Array.isArray(value) || types.isProxy(value)) return undefined;
-  const result: Record<string, unknown> = {};
-  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+  const result = Object.create(null) as Record<string, unknown>;
+  for (const key of Object.getOwnPropertyNames(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
     if (!('value' in descriptor)) return undefined;
-    Object.defineProperty(result, key, { value: descriptor.value as unknown, enumerable: true });
+    result[key] = descriptor.value as unknown;
   }
   return result;
 }
