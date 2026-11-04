@@ -84,6 +84,7 @@ try {
     identityPresent: false,
     queuedSummaries: 0,
     coordination: 'available',
+    recovery: 'not-needed',
     collectionEnabled: false,
   });
   await assert.rejects(stat(root));
