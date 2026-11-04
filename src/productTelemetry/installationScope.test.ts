@@ -15,14 +15,14 @@ afterEach(async () => {
   lookup.mockReset();
 });
 
-it('resolves execution context before creating coordination entries', async () => {
+it.each([false, true])('resolves execution context before coordination entries (background=%s)', async (background) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'product-scope-'));
   roots.push(root);
   let resolve!: (scope: string | undefined) => void;
   lookup.mockReturnValue(new Promise<string | undefined>((done) => (resolve = done)));
-  const store = new InstallationStore(root, { notice: () => {} });
+  const store = new InstallationStore(root, { notice: () => {}, background });
   const admission = store.admit();
-  await vi.waitFor(() => expect(lookup).toHaveBeenCalled());
+  await vi.waitFor(() => expect(lookup).toHaveBeenCalledWith(background));
   expect(await readdir(root)).toEqual([]);
   resolve(undefined);
   const ticket = await admission;

@@ -284,6 +284,9 @@ describe('owned OS process installation transactions', () => {
     await owned;
     await stop(owner);
     expect(await store.status()).toMatchObject({ recovery: 'offline-required' });
+    const guardBefore = await readFile(path.join(root, 'guard/owner.json'), 'utf8');
+    await expect(store.admit()).rejects.toThrow('Invalid product telemetry recovery ticket');
+    expect(await readFile(path.join(root, 'guard/owner.json'), 'utf8')).toBe(guardBefore);
     expect(await readFile(path.join(directory, 'ticket'), 'utf8')).toBe('invalid');
   });
   it.each(['before-owner', 'guard-created'])(
