@@ -5,12 +5,23 @@ import { Socket } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-let cached: Promise<string | undefined> | undefined;
+let cached: string | undefined;
+const pending = new Map<boolean, Promise<string | undefined>>();
 
 /** PIDs authorize recovery only inside the same boot and PID namespace. */
 export function coordinationScope(background = false): Promise<string | undefined> {
-  cached ??= readScope(background).catch(() => undefined);
-  return cached;
+  if (cached) return Promise.resolve(cached);
+  const existing = pending.get(background);
+  if (existing) return existing;
+  const read = readScope(background)
+    .catch(() => undefined)
+    .then((scope) => {
+      if (scope) cached = scope;
+      return scope;
+    })
+    .finally(() => pending.delete(background));
+  pending.set(background, read);
+  return read;
 }
 
 async function readScope(background: boolean): Promise<string | undefined> {

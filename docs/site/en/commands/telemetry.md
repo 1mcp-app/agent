@@ -74,7 +74,7 @@ A live owner is never stolen by age. When valid ownership records identify proce
 
 `status` is read-only and does not perform recovery. Its `recovery` field explains the current coordination snapshot:
 
-- `not-needed`: no guard or main lock is present.
+- `not-needed`: no guard or main lock is present. Leftover recovery tickets do not block healthy admission; they are checked when guard recovery is needed.
 - `wait`: an owner is alive or process absence cannot be verified; retry after current operations finish.
 - `automatic`: the recorded owners have exited; the next collection or control operation will attempt recovery.
 - `offline-required`: ownership metadata is missing, corrupt, unreadable or belongs to an unverifiable execution context, or a live recovery ticket is invalid. Collection remains blocked until offline repair.

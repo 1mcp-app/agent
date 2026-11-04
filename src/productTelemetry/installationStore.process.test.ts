@@ -272,10 +272,17 @@ describe('owned OS process installation transactions', () => {
   });
   it('reports invalid live recovery tickets without modifying them', async () => {
     const { root, store } = await fixture();
-    await store.admit();
+    const ticket = await store.admit();
     const directory = path.join(root, `recovery-${process.pid}-${randomUUID()}-${await coordinationScope()}`);
     await mkdir(directory, { mode: 0o700 });
     await writeFile(path.join(directory, 'ticket'), 'invalid', { mode: 0o600 });
+    expect(await store.status()).toMatchObject({ recovery: 'not-needed' });
+    expect(await store.admit()).toEqual(ticket);
+    const owner = await worker(root, 'guard-owned');
+    const owned = waitFor(owner, (m) => m.checkpoint === 'guard-owned');
+    owner.send({ id: ++requestId, action: 'admit' });
+    await owned;
+    await stop(owner);
     expect(await store.status()).toMatchObject({ recovery: 'offline-required' });
     expect(await readFile(path.join(directory, 'ticket'), 'utf8')).toBe('invalid');
   });

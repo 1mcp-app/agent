@@ -277,6 +277,7 @@ export class InstallationStore {
     const nonce = randomUUID();
     const guard = path.join(this.root, 'guard');
     const lock = path.join(this.root, 'lock');
+    const scope = await coordinationScope(this.options.background);
     const acquisitionDeadline = performance.now() + (process.platform === 'win32' ? 5000 : 1000);
     while (performance.now() < acquisitionDeadline) {
       let guarded = false;
@@ -293,7 +294,7 @@ export class InstallationStore {
           throw error;
         }
         await secureNewInstallationEntry(guard, true, this.options.background);
-        await writeOwner(guard, nonce, this.options.background);
+        await writeOwner(guard, nonce, scope, this.options.background);
         guarded = true;
         if (await exists(lock)) {
           const owner = ownerSchema.safeParse(await readOwner(lock));
@@ -305,7 +306,7 @@ export class InstallationStore {
         }
         await mkdir(lock, { mode: 0o700 });
         await secureNewInstallationEntry(lock, true, this.options.background);
-        await writeOwner(lock, nonce, this.options.background);
+        await writeOwner(lock, nonce, scope, this.options.background);
         locked = true;
         await release(guard, nonce);
         guarded = false;
@@ -354,6 +355,8 @@ const recoveryName = /^recovery-([1-9][0-9]*)-([0-9a-f-]{36})(?:-([0-9a-f]{64}))
 
 async function coordinationRecovery(root: string): Promise<InstallationStatus['recovery']> {
   const owners = await ownerRecovery(root);
+  // Recovery tickets serialize reapers, not healthy guard-free admission.
+  if (owners === 'not-needed') return owners;
   if (owners === 'offline-required') return owners;
   let waiting = owners === 'wait';
   try {
@@ -500,8 +503,12 @@ async function checkPrivate(file: string, directory: boolean): Promise<void> {
   if (info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)
     throw new Error('Product telemetry path is not owner-only');
 }
-async function writeOwner(directory: string, nonce: string, background = false): Promise<void> {
-  const scope = await coordinationScope(background);
+async function writeOwner(
+  directory: string,
+  nonce: string,
+  scope: string | undefined,
+  background = false,
+): Promise<void> {
   const file = await open(path.join(directory, 'owner.json'), 'wx', 0o600);
   try {
     await secureNewInstallationEntry(path.join(directory, 'owner.json'), false, background);
