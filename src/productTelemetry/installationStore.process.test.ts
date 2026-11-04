@@ -7,13 +7,14 @@ import { build } from 'esbuild';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { createTestProcessEnvironment } from '../../scripts/test-process-environment.mjs';
+import type { Summary } from './contract.js';
 import { type AdmissionTicket, InstallationStore } from './installationStore.js';
 
 let directory: string;
 let bundle: string;
 const children: ChildProcess[] = [];
 const fixtureRoots: string[] = [];
-const facts = {
+const facts: Omit<Summary, 'installation_id'> = {
   occurred_at: '2026-10-27T10:00:00Z',
   version: '0.39.3',
   os: 'darwin',
@@ -161,6 +162,80 @@ describe('owned OS process installation transactions', () => {
     },
     30000,
   );
+  it.each(['guard-owned', 'lock-owned'])(
+    'recovers an abandoned %s with concurrent contenders without resetting state',
+    async (phase) => {
+      const { root, store } = await fixture();
+      const ticket = (await store.admit())!;
+      await store.append(ticket, facts);
+      const child = await worker(root, phase);
+      const checkpoint = waitFor(child, (m) => m.checkpoint === phase);
+      child.send({ id: ++requestId, action: 'admit' });
+      await checkpoint;
+      await stop(child);
+      expect(await store.status()).toMatchObject({ recovery: 'automatic' });
+      const contenders = await Promise.all(Array.from({ length: 4 }, () => worker(root)));
+      const results = await Promise.all(contenders.map((contender) => request(contender, 'admit')));
+      expect(results.every((result) => !result.error)).toBe(true);
+      expect(results.map((result) => result.result)).toEqual(Array(4).fill(ticket));
+      expect(await store.status()).toMatchObject({ queuedSummaries: 1, coordination: 'available' });
+    },
+    30000,
+  );
+  it.each(['recovery-created', 'recovery-numbered'])(
+    'recovers when a guard reaper dies at %s and preserves a disabled preference',
+    async (phase) => {
+      const { root, store } = await fixture();
+      await store.control('disable');
+      const before = await readFile(path.join(root, 'state.json'), 'utf8');
+      const owner = await worker(root, 'guard-owned');
+      const owned = waitFor(owner, (m) => m.checkpoint === 'guard-owned');
+      owner.send({ id: ++requestId, action: 'admit' });
+      await owned;
+      await stop(owner);
+      const reaper = await worker(root, phase);
+      const reaping = waitFor(reaper, (m) => m.checkpoint === phase);
+      reaper.send({ id: ++requestId, action: 'admit' });
+      await reaping;
+      await stop(reaper);
+      expect(await store.admit()).toBeUndefined();
+      expect(await readFile(path.join(root, 'state.json'), 'utf8')).toBe(before);
+      expect(await store.status()).toMatchObject({ coordination: 'available', recovery: 'not-needed' });
+      expect((await readdir(root)).filter((name) => name.startsWith('recovery-'))).toEqual([]);
+    },
+    30000,
+  );
+  it('does not reclaim a live guard even while concurrent callers time out', async () => {
+    const { root, store } = await fixture();
+    const owner = await worker(root, 'guard-owned');
+    const owned = waitFor(owner, (m) => m.checkpoint === 'guard-owned');
+    owner.send({ id: ++requestId, action: 'admit' });
+    await owned;
+    const before = await readFile(path.join(root, 'guard/owner.json'), 'utf8');
+    expect(await store.status()).toMatchObject({ recovery: 'wait' });
+    await expect(store.admit()).rejects.toThrow('offline recovery');
+    expect(await readFile(path.join(root, 'guard/owner.json'), 'utf8')).toBe(before);
+    await stop(owner);
+    expect(await store.admit()).toBeDefined();
+  });
+  it('waits for a live recovery contender instead of bypassing its ticket', async () => {
+    const { root, store } = await fixture();
+    const ticket = (await store.admit())!;
+    const owner = await worker(root, 'guard-owned');
+    const owned = waitFor(owner, (m) => m.checkpoint === 'guard-owned');
+    owner.send({ id: ++requestId, action: 'admit' });
+    await owned;
+    await stop(owner);
+    const before = await readFile(path.join(root, 'guard/owner.json'), 'utf8');
+    const reaper = await worker(root, 'recovery-numbered');
+    const reaping = waitFor(reaper, (m) => m.checkpoint === 'recovery-numbered');
+    reaper.send({ id: ++requestId, action: 'admit' });
+    await reaping;
+    await expect(store.admit()).rejects.toThrow('recovery busy');
+    expect(await readFile(path.join(root, 'guard/owner.json'), 'utf8')).toBe(before);
+    await stop(reaper);
+    expect(await store.admit()).toEqual(ticket);
+  });
   it.each(['before-owner', 'guard-created'])(
     'fails closed at ambiguous %s and supports explicit offline coordination cleanup',
     async (phase) => {
@@ -171,7 +246,7 @@ describe('owned OS process installation transactions', () => {
       child.send({ id: ++requestId, action: 'admit' });
       await checkpoint;
       await stop(child);
-      expect(await store.status()).toMatchObject({ coordination: 'busy-or-ambiguous' });
+      expect(await store.status()).toMatchObject({ coordination: 'busy-or-ambiguous', recovery: 'offline-required' });
       await expect(store.admit()).rejects.toThrow('offline recovery');
       // All owned producers are stopped. Remove coordination only, retain authoritative state/tombstone.
       await rm(path.join(root, 'lock'), { recursive: true, force: true });

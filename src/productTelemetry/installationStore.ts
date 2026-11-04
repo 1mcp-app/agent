@@ -37,6 +37,7 @@ export interface InstallationStatus {
   identityPresent: boolean;
   queuedSummaries: number;
   coordination: 'available' | 'busy-or-ambiguous';
+  recovery: 'not-needed' | 'wait' | 'automatic' | 'offline-required';
 }
 const ownerSchema = z.strictObject({ pid: z.number().int().positive(), nonce: z.uuid() });
 
@@ -49,12 +50,13 @@ export class InstallationStore {
   async status(): Promise<InstallationStatus> {
     await this.checkRoot(false);
     const state = await this.read();
-    const busy = (await exists(path.join(this.root, 'guard'))) || (await exists(path.join(this.root, 'lock')));
+    const recovery = await coordinationRecovery(this.root);
     return {
       preference: state?.preference ?? 'default',
       identityPresent: Boolean(state?.installationId),
       queuedSummaries: state?.queue.length ?? 0,
-      coordination: busy ? 'busy-or-ambiguous' : 'available',
+      coordination: recovery === 'not-needed' ? 'available' : 'busy-or-ambiguous',
+      recovery,
     };
   }
 
@@ -261,7 +263,7 @@ export class InstallationStore {
     }
   }
 
-  /** All acquisitions and dead-owner reclamation honor the same guard. An abandoned guard fails closed. */
+  /** Legacy producers still share this guard; only verified dead owners may be recovered. */
   private async transaction<T>(work: () => Promise<T>): Promise<T> {
     await this.checkRoot(true);
     const nonce = randomUUID();
@@ -276,6 +278,7 @@ export class InstallationStore {
           await mkdir(guard, { mode: 0o700 });
         } catch (error) {
           if (isExists(error)) {
+            await recoverGuard(this.root, acquisitionDeadline, this.options.background);
             await delay(10, undefined, { ref: !this.options.background });
             continue;
           }
@@ -306,6 +309,128 @@ export class InstallationStore {
       }
     }
     throw new Error('Product telemetry coordination busy or ambiguous; use offline recovery');
+  }
+}
+
+async function coordinationRecovery(root: string): Promise<InstallationStatus['recovery']> {
+  let recovery: InstallationStatus['recovery'] = 'not-needed';
+  for (const name of ['guard', 'lock']) {
+    const directory = path.join(root, name);
+    if (!(await exists(directory))) continue;
+    const owner = ownerSchema.safeParse(await readOwner(directory));
+    if (!owner.success) return 'offline-required';
+    if (!demonstrablyDead(owner.data.pid)) return 'wait';
+    recovery = 'automatic';
+  }
+  return recovery;
+}
+
+async function recoverGuard(root: string, deadline: number, background = false): Promise<void> {
+  const guard = path.join(root, 'guard');
+  const observed = ownerSchema.safeParse(await readOwner(guard));
+  if (!observed.success || !demonstrablyDead(observed.data.pid)) return;
+  if ((await coordinationRecovery(root)) !== 'automatic') return;
+  await withGuardRecovery(root, deadline, background, async () => {
+    // Another reaper may already have completed. Never remove a replacement's guard.
+    const current = ownerSchema.safeParse(await readOwner(guard));
+    if (!current.success || current.data.nonce !== observed.data.nonce || current.data.pid !== observed.data.pid)
+      return;
+    if (!demonstrablyDead(current.data.pid)) return;
+    if ((await coordinationRecovery(root)) !== 'automatic') return;
+    await rm(guard, { recursive: true });
+  });
+}
+
+const recoveryName = /^recovery-([1-9][0-9]*)-([0-9a-f-]{36})$/;
+
+/**
+ * Lamport bakery doorway for guard reapers. Each attempt owns an immutable name,
+ * so a dead contender can be discarded without deleting a replacement's lock.
+ * Normal transactions retain the legacy guard protocol and do not enter here.
+ */
+async function withGuardRecovery(
+  root: string,
+  deadline: number,
+  background: boolean,
+  work: () => Promise<void>,
+): Promise<void> {
+  const name = `recovery-${process.pid}-${randomUUID()}`;
+  const directory = path.join(root, name);
+  await mkdir(directory, { mode: 0o700 });
+  try {
+    await secureNewInstallationEntry(directory, true, background);
+    const contenders = await recoveryContenders(root);
+    let number = 1;
+    for (const contender of contenders) {
+      const ticket = await recoveryTicket(root, contender);
+      number = Math.max(number, (ticket ?? 0) + 1);
+    }
+    if (!Number.isSafeInteger(number)) throw new Error('Product telemetry recovery ticket overflow');
+    const temporary = path.join(directory, 'ticket.tmp');
+    const handle = await open(temporary, 'wx', 0o600);
+    try {
+      await secureNewInstallationEntry(temporary, false, background);
+      await handle.writeFile(String(number));
+    } finally {
+      await handle.close();
+    }
+    await rename(temporary, path.join(directory, 'ticket'));
+    while (performance.now() < deadline) {
+      let waiting = false;
+      for (const contender of await recoveryContenders(root)) {
+        if (contender === name) continue;
+        const ticket = await recoveryTicket(root, contender);
+        if (ticket === undefined) continue;
+        if (ticket === 0 || ticket < number || (ticket === number && contender < name)) {
+          waiting = true;
+          break;
+        }
+      }
+      if (!waiting) {
+        await work();
+        return;
+      }
+      await delay(10, undefined, { ref: !background });
+    }
+    throw new Error('Product telemetry recovery busy; retry after active producers finish');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function recoveryContenders(root: string): Promise<string[]> {
+  const entries = await readdir(root);
+  if (entries.length > 256) throw new Error('Product telemetry coordination requires offline recovery');
+  return entries.filter((entry) => recoveryName.test(entry));
+}
+
+/** Zero is a live contender choosing its ticket; undefined means it has left. */
+async function recoveryTicket(root: string, name: string): Promise<number | undefined> {
+  const match = recoveryName.exec(name)!;
+  const pid = Number(match[1]);
+  if (!Number.isSafeInteger(pid)) throw new Error('Invalid product telemetry recovery owner');
+  const directory = path.join(root, name);
+  try {
+    await checkPrivate(directory, true);
+    if (demonstrablyDead(pid)) {
+      await rm(directory, { recursive: true, force: true });
+      return undefined;
+    }
+    const file = path.join(directory, 'ticket');
+    try {
+      await checkPrivate(file, false);
+      const value = await readFile(file, 'utf8');
+      const ticket = Number(value);
+      if (!/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(ticket))
+        throw new Error('Invalid product telemetry recovery ticket');
+      return ticket;
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+      return (await exists(directory)) ? 0 : undefined;
+    }
+  } catch (error) {
+    if (isMissing(error)) return undefined;
+    throw error;
   }
 }
 

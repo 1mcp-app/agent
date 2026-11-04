@@ -20,6 +20,14 @@ async function checkpoint(stage: string) {
 // Fault injection belongs to the owned test process, never to the production store API.
 fs.promises.open = async (...args: Parameters<typeof originalOpen>) => {
   const handle = await originalOpen(...args);
+  if (String(args[0]).endsWith('owner.json')) {
+    const sync = handle.sync.bind(handle);
+    handle.sync = async () => {
+      await sync();
+      if (String(args[0]) === path.join(root, 'guard', 'owner.json')) await checkpoint('guard-owned');
+      if (String(args[0]) === path.join(root, 'lock', 'owner.json')) await checkpoint('lock-owned');
+    };
+  }
   if (String(args[0]).endsWith('.tmp')) {
     if (phase === 'write-failure')
       handle.writeFile = async () => {
@@ -38,12 +46,14 @@ fs.promises.rename = async (...args: Parameters<typeof originalRename>) => {
   if (phase === 'rename-failure') throw new Error('injected commit failure');
   await checkpoint('before-rename');
   await originalRename(...args);
+  if (path.basename(String(args[1])) === 'ticket') await checkpoint('recovery-numbered');
   await checkpoint('after-rename');
 };
 fs.promises.mkdir = (async (...args: Parameters<typeof originalMkdir>) => {
   const result = await originalMkdir(...args);
   if (String(args[0]) === path.join(root, 'lock')) await checkpoint('before-owner');
   if (String(args[0]) === path.join(root, 'guard')) await checkpoint('guard-created');
+  if (path.basename(String(args[0])).startsWith('recovery-')) await checkpoint('recovery-created');
   return result;
 }) as typeof originalMkdir;
 syncBuiltinESMExports();

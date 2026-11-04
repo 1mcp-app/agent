@@ -37,6 +37,7 @@ describe('local telemetry controls in an unconditionally suppressed CLI', () => 
       identityPresent: false,
       queuedSummaries: 0,
       collectionEnabled: false,
+      recovery: 'not-needed',
     });
     await expect(stat(installation)).rejects.toThrow();
   });
@@ -73,5 +74,22 @@ describe('local telemetry controls in an unconditionally suppressed CLI', () => 
     expect(state.installationId).toBeUndefined();
     expect(state.queue).toEqual([]);
     expect(state.noticed).toBe(false);
+  });
+  it('reports blocked ownership and offline guidance without changing installation state', async () => {
+    const before = await readFile(path.join(installation, 'state.json'), 'utf8');
+    await mkdir(path.join(installation, 'guard'), { mode: 0o700 });
+    const status = await runner.runCommand('telemetry', 'status', { ...options(), args: ['--json'] });
+    runner.assertSuccess(status);
+    expect(JSON.parse(status.stdout)).toMatchObject({
+      coordination: 'busy-or-ambiguous',
+      recovery: 'offline-required',
+      identityPresent: false,
+    });
+    const text = await runner.runCommand('telemetry', 'status', options());
+    runner.assertSuccess(text);
+    expect(text.stdout).toContain('Recovery: offline-required');
+    expect(text.stdout).toContain('Stop all local 1MCP producers before offline repair; preserve state.json');
+    expect(await readFile(path.join(installation, 'state.json'), 'utf8')).toBe(before);
+    expect((await stat(path.join(installation, 'guard'))).isDirectory()).toBe(true);
   });
 });

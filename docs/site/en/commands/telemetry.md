@@ -31,7 +31,7 @@ For a plain-language explanation of collected data, identity, retention and opt-
 
 Controls always apply locally, including when `--context` or `--url` selects a remote runtime. `--config-dir`, checkout and project selection do not change the installation store. Status and controls do not count as usage and do not create a UUID or queue. Help and version also create no product state.
 
-- `status` reports the stored preference, effective process policy, identity presence, queue size and coordination state. It does not print the UUID. An absent store stays absent.
+- `status` reports the stored preference, effective process policy, identity presence, queue size, coordination state and recovery guidance. It does not print the UUID. An absent store stays absent.
 - `disable` stores an off preference and clears unsent data, retaining an existing UUID.
 - `enable` stores an on preference. It does not create a UUID or override process, CI or test suppression.
 - `reset` clears the local UUID and unsent data while preserving the preference. Only a later enabled admission creates a new UUID. It does not erase transmitted service records. Earlier processes cannot restore the old identity or queue.
@@ -70,6 +70,15 @@ The private dashboard reports observed, missing, stale and provisional days. Mis
 
 ## Busy or ambiguous coordination
 
-A live owner is never stolen by age. A demonstrably dead main lock owner can be recovered under a separate acquisition guard. Missing/corrupt owner metadata, permission uncertainty or an abandoned guard fail closed. `status` reports `busy-or-ambiguous`; collection drops work rather than affecting commands.
+A live owner is never stolen by age. When valid ownership records identify processes that have exited, the next collection or control operation can recover abandoned guards and main locks automatically. Recovery preserves the installation identity, preference, generation and unsent queue; it does not replay attempted batches. Concurrent recovery attempts are serialized, including when a recovery process exits before finishing its coordination step. Older producers still use the same guard and main lock.
+
+`status` is read-only and does not perform recovery. Its `recovery` field explains the current coordination snapshot:
+
+- `not-needed`: no guard or main lock is present.
+- `wait`: an owner is alive or process absence cannot be verified; retry after current operations finish.
+- `automatic`: the recorded owners have exited; the next collection or control operation will attempt recovery.
+- `offline-required`: ownership metadata is missing, corrupt or unreadable. Collection remains blocked until offline repair.
+
+Missing/corrupt records and permission uncertainty still fail closed, including a crash before owner publication or during removal of its record. `collectionEnabled` describes policy, not successful collection or delivery. A `busy-or-ambiguous` coordination state can therefore appear while policy is enabled. Background collection drops work rather than affecting commands.
 
 For offline recovery: stop **all** local 1MCP producers for this OS user, inspect `guard/owner.json` and `lock/owner.json` where present, and independently confirm every recorded process is absent. Only then remove the inspected `guard` and `lock` directories. Keep `state.json`, including its epoch/generation and preference. Restart and check status. Never delete coordination based only on age or while another producer may be running. If state itself is corrupt or privacy checks fail, retain it for diagnosis and fix the specific problem; status/controls will continue to report failure.
