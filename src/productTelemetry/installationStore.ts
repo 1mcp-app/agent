@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 
 import { DAY, envelopeSchema, MAX_BODY, type Summary, summarySchema } from './contract.js';
+import { coordinationScope } from './coordinationScope.js';
 import { secureNewInstallationEntry, verifyInstallationPrivacy } from './permissions.js';
 
 const MAX_QUEUE = 256 * 1024;
@@ -39,7 +40,14 @@ export interface InstallationStatus {
   coordination: 'available' | 'busy-or-ambiguous';
   recovery: 'not-needed' | 'wait' | 'automatic' | 'offline-required';
 }
-const ownerSchema = z.strictObject({ pid: z.number().int().positive(), nonce: z.uuid() });
+const ownerSchema = z.strictObject({
+  pid: z.number().int().positive(),
+  nonce: z.uuid(),
+  scope: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+});
 
 export class InstallationStore {
   constructor(
@@ -289,7 +297,7 @@ export class InstallationStore {
         guarded = true;
         if (await exists(lock)) {
           const owner = ownerSchema.safeParse(await readOwner(lock));
-          if (!owner.success || !demonstrablyDead(owner.data.pid)) {
+          if (!owner.success || !(await ownerIsDead(owner.data))) {
             await delay(10, undefined, { ref: !this.options.background });
             continue;
           }
@@ -312,13 +320,14 @@ export class InstallationStore {
   }
 }
 
-async function coordinationRecovery(root: string): Promise<InstallationStatus['recovery']> {
+async function ownerRecovery(root: string): Promise<InstallationStatus['recovery']> {
   let recovery: InstallationStatus['recovery'] = 'not-needed';
   for (const name of ['guard', 'lock']) {
     const directory = path.join(root, name);
     if (!(await exists(directory))) continue;
     const owner = ownerSchema.safeParse(await readOwner(directory));
     if (!owner.success) return 'offline-required';
+    if (!(await matchingScope(owner.data.scope))) return 'offline-required';
     if (!demonstrablyDead(owner.data.pid)) return 'wait';
     recovery = 'automatic';
   }
@@ -328,20 +337,45 @@ async function coordinationRecovery(root: string): Promise<InstallationStatus['r
 async function recoverGuard(root: string, deadline: number, background = false): Promise<void> {
   const guard = path.join(root, 'guard');
   const observed = ownerSchema.safeParse(await readOwner(guard));
-  if (!observed.success || !demonstrablyDead(observed.data.pid)) return;
-  if ((await coordinationRecovery(root)) !== 'automatic') return;
+  if (!observed.success || !(await ownerIsDead(observed.data))) return;
+  if ((await ownerRecovery(root)) !== 'automatic') return;
   await withGuardRecovery(root, deadline, background, async () => {
     // Another reaper may already have completed. Never remove a replacement's guard.
     const current = ownerSchema.safeParse(await readOwner(guard));
     if (!current.success || current.data.nonce !== observed.data.nonce || current.data.pid !== observed.data.pid)
       return;
-    if (!demonstrablyDead(current.data.pid)) return;
-    if ((await coordinationRecovery(root)) !== 'automatic') return;
+    if (!(await ownerIsDead(current.data))) return;
+    if ((await ownerRecovery(root)) !== 'automatic') return;
     await rm(guard, { recursive: true });
   });
 }
 
-const recoveryName = /^recovery-([1-9][0-9]*)-([0-9a-f-]{36})$/;
+const recoveryName = /^recovery-([1-9][0-9]*)-([0-9a-f-]{36})(?:-([0-9a-f]{64}))?$/;
+
+async function coordinationRecovery(root: string): Promise<InstallationStatus['recovery']> {
+  const owners = await ownerRecovery(root);
+  if (owners === 'offline-required') return owners;
+  let waiting = owners === 'wait';
+  try {
+    for (const name of await recoveryContenders(root)) {
+      const ticket = await recoveryTicket(root, name);
+      if (ticket !== undefined) waiting = true;
+    }
+  } catch (error) {
+    if (!isMissing(error)) return 'offline-required';
+  }
+  return waiting ? 'wait' : owners;
+}
+
+async function matchingScope(scope: string | undefined): Promise<boolean> {
+  if (!scope) return false;
+  return scope === (await coordinationScope());
+}
+
+async function ownerIsDead(owner: z.infer<typeof ownerSchema>): Promise<boolean> {
+  if (!(await matchingScope(owner.scope))) return false;
+  return demonstrablyDead(owner.pid);
+}
 
 /**
  * Lamport bakery doorway for guard reapers. Each attempt owns an immutable name,
@@ -354,15 +388,17 @@ async function withGuardRecovery(
   background: boolean,
   work: () => Promise<void>,
 ): Promise<void> {
-  const name = `recovery-${process.pid}-${randomUUID()}`;
+  const scope = await coordinationScope(background);
+  if (!scope) return;
+  const name = `recovery-${process.pid}-${randomUUID()}-${scope}`;
   const directory = path.join(root, name);
   await mkdir(directory, { mode: 0o700 });
   try {
     await secureNewInstallationEntry(directory, true, background);
-    const contenders = await recoveryContenders(root);
+    const contenders = await recoveryContenders(root, name);
     let number = 1;
     for (const contender of contenders) {
-      const ticket = await recoveryTicket(root, contender);
+      const ticket = await recoveryTicket(root, contender, true);
       number = Math.max(number, (ticket ?? 0) + 1);
     }
     if (!Number.isSafeInteger(number)) throw new Error('Product telemetry recovery ticket overflow');
@@ -377,9 +413,9 @@ async function withGuardRecovery(
     await rename(temporary, path.join(directory, 'ticket'));
     while (performance.now() < deadline) {
       let waiting = false;
-      for (const contender of await recoveryContenders(root)) {
+      for (const contender of await recoveryContenders(root, name)) {
         if (contender === name) continue;
-        const ticket = await recoveryTicket(root, contender);
+        const ticket = await recoveryTicket(root, contender, true);
         if (ticket === undefined) continue;
         if (ticket === 0 || ticket < number || (ticket === number && contender < name)) {
           waiting = true;
@@ -398,22 +434,23 @@ async function withGuardRecovery(
   }
 }
 
-async function recoveryContenders(root: string): Promise<string[]> {
-  const entries = await readdir(root);
+async function recoveryContenders(root: string, ownName?: string): Promise<string[]> {
+  const entries = (await readdir(root)).filter((entry) => entry !== ownName);
   if (entries.length > 256) throw new Error('Product telemetry coordination requires offline recovery');
   return entries.filter((entry) => recoveryName.test(entry));
 }
 
 /** Zero is a live contender choosing its ticket; undefined means it has left. */
-async function recoveryTicket(root: string, name: string): Promise<number | undefined> {
+async function recoveryTicket(root: string, name: string, cleanup = false): Promise<number | undefined> {
   const match = recoveryName.exec(name)!;
   const pid = Number(match[1]);
   if (!Number.isSafeInteger(pid)) throw new Error('Invalid product telemetry recovery owner');
   const directory = path.join(root, name);
   try {
     await checkPrivate(directory, true);
+    if (!(await matchingScope(match[3]))) throw new Error('Unverified telemetry recovery scope');
     if (demonstrablyDead(pid)) {
-      await rm(directory, { recursive: true, force: true });
+      if (cleanup) await rm(directory, { recursive: true, force: true });
       return undefined;
     }
     const file = path.join(directory, 'ticket');
@@ -464,10 +501,11 @@ async function checkPrivate(file: string, directory: boolean): Promise<void> {
     throw new Error('Product telemetry path is not owner-only');
 }
 async function writeOwner(directory: string, nonce: string, background = false): Promise<void> {
+  const scope = await coordinationScope(background);
   const file = await open(path.join(directory, 'owner.json'), 'wx', 0o600);
   try {
     await secureNewInstallationEntry(path.join(directory, 'owner.json'), false, background);
-    await file.writeFile(JSON.stringify({ pid: process.pid, nonce }));
+    await file.writeFile(JSON.stringify({ pid: process.pid, nonce, scope }));
     await file.sync();
   } finally {
     await file.close();

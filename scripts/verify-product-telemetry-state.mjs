@@ -32,7 +32,7 @@ await mkdir(secondScope, { mode: 0o700 });
 const bundle = path.join(scratch, 'state.mjs');
 await build({
   stdin: {
-    contents: `export { InstallationStore } from './src/productTelemetry/installationStore.ts'; export { verifyInstallationPrivacy, secureNewInstallationEntry } from './src/productTelemetry/permissions.ts';`,
+    contents: `export { InstallationStore } from './src/productTelemetry/installationStore.ts'; export { coordinationScope } from './src/productTelemetry/coordinationScope.ts'; export { verifyInstallationPrivacy, secureNewInstallationEntry } from './src/productTelemetry/permissions.ts';`,
     resolveDir: agent,
   },
   outfile: bundle,
@@ -40,7 +40,7 @@ await build({
   format: 'esm',
   platform: 'node',
 });
-const { InstallationStore, verifyInstallationPrivacy, secureNewInstallationEntry } = await import(
+const { InstallationStore, coordinationScope, verifyInstallationPrivacy, secureNewInstallationEntry } = await import(
   pathToFileURL(bundle).href
 );
 const environment = createTestProcessEnvironment({
@@ -76,6 +76,7 @@ const control = async (action) =>
 const stateFile = path.join(root, 'state.json');
 const store = new InstallationStore(root, { notice: () => {} });
 try {
+  assert.match(await coordinationScope(), /^[0-9a-f]{64}$/);
   await run(['--help']);
   await run(['--version']);
   await run(['inspect', '--help']);

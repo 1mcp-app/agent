@@ -12,6 +12,7 @@ const phase = process.argv[3];
 const originalOpen = fs.promises.open;
 const originalRename = fs.promises.rename;
 const originalMkdir = fs.promises.mkdir;
+const originalRm = fs.promises.rm;
 async function checkpoint(stage: string) {
   if (phase !== stage) return;
   process.send?.({ checkpoint: stage });
@@ -56,6 +57,10 @@ fs.promises.mkdir = (async (...args: Parameters<typeof originalMkdir>) => {
   if (path.basename(String(args[0])).startsWith('recovery-')) await checkpoint('recovery-created');
   return result;
 }) as typeof originalMkdir;
+fs.promises.rm = async (...args: Parameters<typeof originalRm>) => {
+  if (String(args[0]) === path.join(root, 'guard')) await checkpoint('recovery-removing');
+  return originalRm(...args);
+};
 syncBuiltinESMExports();
 const store = new InstallationStore(root, {
   notice: async () => {
