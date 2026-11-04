@@ -66,7 +66,7 @@
     "measuredRequests": 10000,
     "batchIntervalMs": 100,
     "settleMs": 5000,
-    "method": "Fresh baseline and healthy processes; identical 16-request batches every 100ms, exact counts and operation mix; alternate pair order. Reject any batch that overruns its slot. Compare peak RSS in paired 95% intervals; no forced GC or baseline-growth subtraction.",
+    "method": "Fresh baseline and healthy processes run together; identical 16-request batches admitted together, next batch after both finish and at least 100ms. Exact counts and shared recorded admission schedule; alternate startup order. Compare peak RSS in paired 95% intervals; no forced GC or baseline-growth subtraction.",
     "baseline": "Same-build test-only propagation-disabled baseline; includes propagation plus recording/export overhead at default 10% sampling.",
     "budget": "healthy.rssMiB remains 64; saturated timing and max-queue outage stress are separate gates."
   }

@@ -2,53 +2,69 @@ import assert from 'node:assert/strict';
 
 import test from 'node:test';
 
-import { pacedRequests, pairedInterval } from '../../scripts/telemetry/memory-measurement.mjs';
+import { createMemoryPair, pairedInterval } from '../../scripts/telemetry/memory-measurement.mjs';
 
-test('paced memory workload fixes admission times, concurrency, exact count and final duration', async () => {
+test('paired memory lanes share admissions, exact counts and duration, including slow batches', async () => {
   let clock = 0;
-  const calls = [];
-  const result = await pacedRequests({
-    count: 5,
+  const pair = createMemoryPair({
     concurrency: 2,
     intervalMs: 100,
     now: () => clock,
     sleep: async (ms) => {
       clock += ms;
     },
-    request: async (index) => {
-      calls.push([index, clock]);
-    },
   });
+  const calls = [[], []];
+  const first = pair.run(5, async (index) => {
+    calls[0].push(index);
+    if (index === 0) clock += 150;
+  });
+  assert.deepEqual(calls, [[], []], 'A lane must wait for its partner before admission');
+  const second = pair.run(5, async (index) => {
+    calls[1].push(index);
+  });
+  const [a, b] = await Promise.all([first, second]);
   assert.deepEqual(calls, [
-    [0, 0],
-    [1, 0],
-    [2, 100],
-    [3, 100],
-    [4, 200],
+    [0, 1, 2, 3, 4],
+    [0, 1, 2, 3, 4],
   ]);
-  assert.equal(result.operations, 5);
-  assert.equal(result.elapsedMs, 300);
+  assert.deepEqual(a.admissionOffsetsMs, [0, 150, 250]);
+  assert.deepEqual(b.admissionOffsetsMs, a.admissionOffsetsMs);
+  assert.equal(a.elapsedMs, 350);
+  assert.equal(b.elapsedMs, a.elapsedMs);
+  assert.equal(a.operations, 5);
+  // A subsequent phase has its own shared clock after both lanes arrive.
+  const next = await Promise.all([pair.run(1, async () => {}), pair.run(1, async () => {})]);
+  assert.deepEqual(next[0].admissionOffsetsMs, [0]);
 });
 
-test('slow work and missed slots reject instead of changing the comparison workload', async () => {
-  for (const lateStart of [false, true]) {
-    let clock = 0;
-    await assert.rejects(
-      pacedRequests({
-        count: 4,
-        concurrency: 2,
-        intervalMs: 100,
-        now: () => clock,
-        sleep: async (ms) => {
-          clock += ms + (lateStart ? 101 : 0);
-        },
-        request: async () => {
-          clock += 101;
-        },
-      }),
-      /admission slot/,
-    );
-  }
+test('a failing request rejects both lanes without admitting further batches', async () => {
+  const pair = createMemoryPair({ concurrency: 1, intervalMs: 1 });
+  const seen = [];
+  const results = await Promise.allSettled([
+    pair.run(10, async () => {
+      throw new Error('request failed');
+    }),
+    pair.run(10, async (index) => {
+      seen.push(index);
+    }),
+  ]);
+  assert(results.every((result) => result.status === 'rejected' && result.reason.message === 'request failed'));
+  assert.deepEqual(seen, [0]);
+});
+
+test('startup failure aborts a waiting partner, and unequal work cannot pass', async () => {
+  const pair = createMemoryPair({ concurrency: 1, intervalMs: 1 });
+  const waiting = pair.run(1, async () => {});
+  pair.abort(new Error('startup failed'));
+  await assert.rejects(waiting, /startup failed/);
+  await assert.rejects(
+    pair.run(1, async () => {}),
+    /startup failed/,
+  );
+  const other = createMemoryPair({ concurrency: 1, intervalMs: 1 });
+  const results = await Promise.allSettled([other.run(1, async () => {}), other.run(2, async () => {})]);
+  assert(results.every((result) => result.status === 'rejected'));
 });
 
 test('paired interval preserves negative overhead and uncertainty instead of clamping noise to a pass', () => {

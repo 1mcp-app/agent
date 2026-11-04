@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -11,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createCollector } from '../../test/telemetry/fake-collector.mjs';
 import { startModernBackend } from '../../test/telemetry/modern-backend-process.mjs';
 import { createTestProcessEnvironment, isolatedTestEnvironment } from '../test-process-environment.mjs';
-import { pacedRequests, pairedInterval } from './memory-measurement.mjs';
+import { createMemoryPair, pairedInterval } from './memory-measurement.mjs';
 
 const plan = JSON.parse(await readFile(new URL('./workload.json', import.meta.url)));
 const memoryOnly = process.argv[4] === '--memory';
@@ -54,9 +55,23 @@ const report = {
 await writeFile(output, JSON.stringify(report, null, 2));
 const quantile = (values, p) =>
   [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(values.length * p))];
-async function run(mode, round) {
+async function run(mode, round, memoryPair) {
   const collector = await createCollector({ maxRequests: memoryOnly ? 128 : 16 });
-  const config = settings.modes[mode];
+  const config = { ...settings.modes[mode], command: [...settings.modes[mode].command] };
+  if (memoryOnly) {
+    const socket = createServer();
+    await new Promise((resolve, reject) => {
+      socket.once('error', reject);
+      socket.listen(0, '127.0.0.1', resolve);
+    });
+    const port = socket.address().port;
+    await new Promise((resolve, reject) => socket.close((error) => (error ? reject(error) : resolve())));
+    const index = config.command.indexOf('--port');
+    assert(index >= 0, 'Missing runtime port option');
+    config.command[index + 1] = String(port);
+    config.healthUrl = `http://127.0.0.1:${port}/health`;
+    config.mcpUrl = `http://127.0.0.1:${port}/mcp`;
+  }
   const temporary = await mkdtemp(join(tmpdir(), '1mcp-perf-'));
   const probe = join(temporary, 'probe.jsonl');
   const isolated = isolatedTestEnvironment(
@@ -151,22 +166,17 @@ async function run(mode, round) {
       };
     }
     async function paced(count) {
-      return pacedRequests({
-        count,
-        concurrency: plan.concurrency,
-        intervalMs: plan.memory.batchIntervalMs,
-        request: async (index) => {
-          if (index % 100 < 80) {
-            await mcp.listTools();
-          } else if (index % 100 < 99) {
-            const result = await mcp.callTool({ name: settings.echoTool, arguments: { message: 'x'.repeat(4096) } });
-            assert(!result.isError, 'Echo failed');
-            assert.equal(result.content[0].text, 'x'.repeat(4096), 'Echo result changed');
-          } else {
-            const result = await mcp.callTool({ name: settings.errorTool, arguments: {} });
-            assert(result.isError, 'Expected Tool isError');
-          }
-        },
+      return memoryPair.run(count, async (index) => {
+        if (index % 100 < 80) {
+          await mcp.listTools();
+        } else if (index % 100 < 99) {
+          const result = await mcp.callTool({ name: settings.echoTool, arguments: { message: 'x'.repeat(4096) } });
+          assert(!result.isError, 'Echo failed');
+          assert.equal(result.content[0].text, 'x'.repeat(4096), 'Echo result changed');
+        } else {
+          const result = await mcp.callTool({ name: settings.errorTool, arguments: {} });
+          assert(result.isError, 'Expected Tool isError');
+        }
       });
     }
     let warmup;
@@ -241,11 +251,29 @@ async function run(mode, round) {
 try {
   for (let round = 0; round < settings.repetitions; round++) {
     const order = [...modes.slice(round % modes.length), ...modes.slice(0, round % modes.length)];
-    for (const mode of order) {
-      report.current = { round, mode };
+    if (memoryOnly) {
+      const pair = createMemoryPair({ concurrency: plan.concurrency, intervalMs: plan.memory.batchIntervalMs });
+      report.current = { round, modes: order };
       await writeFile(output, JSON.stringify(report, null, 2));
-      report.samples.push(await run(mode, round));
+      const results = await Promise.allSettled(
+        order.map((mode) =>
+          run(mode, round, pair).catch((error) => {
+            pair.abort(error);
+            throw error;
+          }),
+        ),
+      );
+      for (const result of results) if (result.status === 'fulfilled') report.samples.push(result.value);
+      const failure = results.find((result) => result.status === 'rejected');
+      if (failure) throw failure.reason;
       await writeFile(output, JSON.stringify(report, null, 2));
+    } else {
+      for (const mode of order) {
+        report.current = { round, mode };
+        await writeFile(output, JSON.stringify(report, null, 2));
+        report.samples.push(await run(mode, round));
+        await writeFile(output, JSON.stringify(report, null, 2));
+      }
     }
   }
   report.comparisons = [];

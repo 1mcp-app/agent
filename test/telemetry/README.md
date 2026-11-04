@@ -181,22 +181,24 @@ node scripts/telemetry/measure.mjs /path/to/run.json /path/to/memory.json --memo
 ```
 
 This separate required CI lane compares fresh same-build baseline and healthy
-processes at default 10% sampling. The baseline omits propagation using the
+processes concurrently at default 10% sampling. The baseline omits propagation using the
 existing recorded test-only transformation and disables both exporters, so the
 comparison includes propagation plus operational recording/export costs.
 Both processes execute exactly 10,000 warmup and 10,000 measured requests in the
-same 80/19/1 mix, admitting 16 requests every 100 ms with five seconds of settling.
-Every batch must complete within its slot; slow or missed slots invalidate the
-run instead of silently changing request counts, pacing or duration. Both signal
+same 80/19/1 mix, admitting 16 requests to each process together, with five
+seconds of settling. The next batch waits for both lanes and at least 100 ms.
+Both lanes therefore share an exact admission schedule (recorded in the report),
+request count and measured duration, including slow batches. Both signal
 exports must be observed. No explicit GC or subtraction of post-warmup growth is
 used. The compared value is peak measured process RSS, including runtime workers;
 it does not include the external backend, client driver or Collector.
 
-At least three paired repetitions alternate baseline/healthy order. A paired
+At least three paired repetitions alternate baseline/healthy startup order. A paired
 95% Student-t interval must lie wholly at or below 64 MiB to pass. An interval
 crossing the budget is inconclusive, never a pass; increase repetitions when
 needed. Preserve raw paired samples, including negative differences caused by
-runtime noise. Saturated timing still enforces the existing latency/throughput
+runtime noise. Concurrent lanes share host contention; this isolates memory
+under matched work and does not establish latency or throughput performance. Saturated timing still enforces the existing latency/throughput
 budgets; healthy RSS is decided only by this equal-work lane. Propagation-only
 RSS remains in the timing lane. The 100%-sampled max-queue outage lane retains
 queue/drop checks, the 16 MiB plateau requirement, recovery, readiness, privacy
