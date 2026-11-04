@@ -11,15 +11,19 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createCollector } from '../../test/telemetry/fake-collector.mjs';
 import { startModernBackend } from '../../test/telemetry/modern-backend-process.mjs';
 import { createTestProcessEnvironment, isolatedTestEnvironment } from '../test-process-environment.mjs';
+import { pacedRequests, pairedInterval } from './memory-measurement.mjs';
 
 const plan = JSON.parse(await readFile(new URL('./workload.json', import.meta.url)));
+const memoryOnly = process.argv[4] === '--memory';
+assert(process.argv[4] === undefined || memoryOnly, 'Unknown measurement mode');
+const modes = memoryOnly ? ['baseline', 'healthy'] : plan.order;
 const input = process.argv[2];
 assert(input, 'Usage: node scripts/telemetry/measure.mjs <run-config.json> <report.json>');
 const settings = JSON.parse(await readFile(input));
 const output = process.argv[3];
 assert(output, 'A report path is required');
 assert(settings.repetitions >= 3, 'At least three matched repetitions; add more when noisy');
-for (const mode of plan.order) {
+for (const mode of modes) {
   assert(Array.isArray(settings.modes[mode].command), `Missing explicit ${mode} runtime command`);
 }
 assert(settings.baselineDescription, 'Document how the baseline omits propagation');
@@ -37,6 +41,7 @@ assert.equal(
 // Persist the exact workload BEFORE starting any process. Do not store secret env values.
 const report = {
   sha,
+  kind: memoryOnly ? 'paced-telemetry-memory-overhead' : 'saturated-performance',
   node: process.version,
   platform: process.platform,
   arch: process.arch,
@@ -49,8 +54,8 @@ const report = {
 await writeFile(output, JSON.stringify(report, null, 2));
 const quantile = (values, p) =>
   [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(values.length * p))];
-const collector = await createCollector({ maxRequests: 16 });
 async function run(mode, round) {
+  const collector = await createCollector({ maxRequests: memoryOnly ? 128 : 16 });
   const config = settings.modes[mode];
   const temporary = await mkdtemp(join(tmpdir(), '1mcp-perf-'));
   const probe = join(temporary, 'probe.jsonl');
@@ -68,7 +73,7 @@ async function run(mode, round) {
     env.OTEL_METRICS_EXPORTER = 'otlp';
     env.OTEL_EXPORTER_OTLP_ENDPOINT = collector.url;
     env.OTEL_TRACES_SAMPLER = 'traceidratio';
-    env.OTEL_TRACES_SAMPLER_ARG = '0.1';
+    env.OTEL_TRACES_SAMPLER_ARG = String(plan.sampling);
   }
   collector.respond({ status: mode === 'outage' ? 503 : 200 });
   let child, backend, mcp;
@@ -145,12 +150,33 @@ async function run(mode, round) {
         throughput: completed / ((performance.now() - start) / 1000),
       };
     }
-    await batch(plan.warmupRequests, false);
-    await delay(plan.settleMs);
+    async function paced(count) {
+      return pacedRequests({
+        count,
+        concurrency: plan.concurrency,
+        intervalMs: plan.memory.batchIntervalMs,
+        request: async (index) => {
+          if (index % 100 < 80) {
+            await mcp.listTools();
+          } else if (index % 100 < 99) {
+            const result = await mcp.callTool({ name: settings.echoTool, arguments: { message: 'x'.repeat(4096) } });
+            assert(!result.isError, 'Echo failed');
+            assert.equal(result.content[0].text, 'x'.repeat(4096), 'Echo result changed');
+          } else {
+            const result = await mcp.callTool({ name: settings.errorTool, arguments: {} });
+            assert(result.isError, 'Expected Tool isError');
+          }
+        },
+      });
+    }
+    let warmup;
+    if (memoryOnly) warmup = await paced(plan.memory.warmupRequests);
+    else await batch(plan.warmupRequests, false);
+    await delay(memoryOnly ? plan.memory.settleMs : plan.settleMs);
     // Leave at least one full probe interval after warm-up.
     await delay(300);
     await writeFile(probe, '');
-    const result = await batch(plan.measuredRequests, true);
+    const result = memoryOnly ? await paced(plan.memory.measuredRequests) : await batch(plan.measuredRequests, true);
     await delay(300);
     await mcp.close();
     assert((await fetch(config.healthUrl)).ok, 'Readiness changed during workload');
@@ -161,10 +187,26 @@ async function run(mode, round) {
       .map((line) => JSON.parse(line))
       .filter((sample) => sample.pid === child.pid);
     assert(readings.length > 0, 'No runtime RSS/event-loop samples; acceptance incomplete');
+    if (memoryOnly) {
+      await writeFile(
+        `${output}.${round}.${mode}.probe.jsonl`,
+        readings.map((sample) => JSON.stringify(sample)).join('\n') + '\n',
+      );
+    }
+    if (memoryOnly && mode === 'healthy') {
+      for (const path of ['/v1/traces', '/v1/metrics']) {
+        assert(
+          collector.requests.some((request) => request.path === path && request.body.length > 0),
+          `Missing healthy export: ${path}`,
+        );
+      }
+    }
     return {
       mode,
       round,
       ...result,
+      ...(memoryOnly ? { warmup } : {}),
+      sampleCount: readings.length,
       rss: Math.max(...readings.map((v) => v.rss)),
       eventLoopP99Ms: Math.max(...readings.map((v) => v.eventLoopP99Ms)),
     };
@@ -190,6 +232,7 @@ async function run(mode, round) {
           await rm(temporary, { recursive: true, force: true });
         } finally {
           isolated.cleanup();
+          await collector.close();
         }
       }
     }
@@ -197,22 +240,19 @@ async function run(mode, round) {
 }
 try {
   for (let round = 0; round < settings.repetitions; round++) {
-    const order = [...plan.order.slice(round % 4), ...plan.order.slice(0, round % 4)];
+    const order = [...modes.slice(round % modes.length), ...modes.slice(0, round % modes.length)];
     for (const mode of order) {
+      report.current = { round, mode };
+      await writeFile(output, JSON.stringify(report, null, 2));
       report.samples.push(await run(mode, round));
       await writeFile(output, JSON.stringify(report, null, 2));
     }
   }
-  // Conservative paired 95% interval. Student-t critical values (two-sided).
-  const critical = (n) => (n < 4 ? 4.303 : n < 5 ? 3.182 : n < 6 ? 2.776 : n < 11 ? 2.571 : n < 31 ? 2.262 : 2.042);
-  const interval = (values) => {
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1);
-    const width = critical(values.length) * Math.sqrt(variance / values.length);
-    return { mean, lower: mean - width, upper: mean + width };
-  };
   report.comparisons = [];
-  for (const [mode, budget] of Object.entries(plan.budgets)) {
+  const budgets = memoryOnly
+    ? { healthy: { relativeTo: 'baseline', rssMiB: plan.budgets.healthy.rssMiB } }
+    : plan.budgets;
+  for (const [mode, budget] of Object.entries(budgets)) {
     const measures = {
       p95Regression: (a, b) => a.p95Ms / b.p95Ms - 1,
       throughputRegression: (a, b) => 1 - a.throughput / b.throughput,
@@ -221,13 +261,15 @@ try {
     };
     for (const [metric, measure] of Object.entries(measures)) {
       if (!(metric in budget)) continue;
+      // Healthy RSS acceptance uses fresh, equal-work paced processes in the memory lane.
+      if (!memoryOnly && mode === 'healthy' && metric === 'rssMiB') continue;
       const values = Array.from({ length: settings.repetitions }, (_, round) =>
         measure(
           report.samples.find((s) => s.mode === mode && s.round === round),
           report.samples.find((s) => s.mode === budget.relativeTo && s.round === round),
         ),
       );
-      const bounds = interval(values);
+      const bounds = pairedInterval(values);
       report.comparisons.push({
         mode,
         metric,
@@ -242,8 +284,11 @@ try {
     : report.comparisons.every((c) => c.verdict === 'pass')
       ? 'pass'
       : 'inconclusive';
+} catch (error) {
+  report.error = error.message;
+  report.verdict = 'fail';
+  throw error;
 } finally {
-  await collector.close();
   await writeFile(output, JSON.stringify(report, null, 2));
 }
 if (report.verdict !== 'pass') process.exitCode = 1;

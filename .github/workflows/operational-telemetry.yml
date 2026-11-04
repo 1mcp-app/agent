@@ -94,7 +94,7 @@ jobs:
           tar -xzf "$archive"
           echo "OTELCOL_BINARY=$RUNNER_TEMP/telemetry-collector/otelcol" >> "$GITHUB_ENV"
       - name: Verify fake and real Collector fixtures
-        run: node --test test/telemetry/collector.test.mjs test/telemetry/real-collector.test.mjs test/telemetry/capacity-startup.test.mjs test/telemetry/capacity-owners.test.mjs
+        run: node --test test/telemetry/collector.test.mjs test/telemetry/real-collector.test.mjs test/telemetry/capacity-startup.test.mjs test/telemetry/capacity-owners.test.mjs test/telemetry/memory-measurement.test.mjs
       - name: Verify runtime export and privacy
         run: pnpm exec vitest run --config test/telemetry/vitest.config.ts
 
@@ -106,7 +106,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [capacity, performance]
+        mode: [capacity, performance, memory]
     steps:
       - name: Initialize evidence directory
         run: |
@@ -148,7 +148,7 @@ jobs:
             "$EVIDENCE/capacity.json" > "$EVIDENCE/capacity.log" 2>&1
       - name: Prepare matched baseline from the same build
         id: preparation
-        if: matrix.mode == 'performance'
+        if: matrix.mode != 'capacity'
         continue-on-error: true
         run: |
           node scripts/telemetry/prepare-performance.mjs "$RUNNER_TEMP/telemetry-performance" 3 \
@@ -161,18 +161,27 @@ jobs:
           timeout --kill-after=15s 45m node scripts/telemetry/measure.mjs \
             "$RUNNER_TEMP/telemetry-performance/run.json" "$EVIDENCE/performance.json" \
             > "$EVIDENCE/performance.log" 2>&1
+      - name: Matched telemetry memory overhead
+        id: memory
+        if: ${{ !cancelled() && matrix.mode == 'memory' && steps.preparation.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          timeout --kill-after=15s 30m node scripts/telemetry/measure.mjs \
+            "$RUNNER_TEMP/telemetry-performance/run.json" "$EVIDENCE/memory.json" --memory \
+            > "$EVIDENCE/memory.log" 2>&1
       - name: Require selected acceptance verdict
         if: ${{ !cancelled() }}
         env:
           MODE: ${{ matrix.mode }}
           CAPACITY_OUTCOME: ${{ steps.capacity.outcome }}
+          MEMORY_OUTCOME: ${{ steps.memory.outcome }}
           PERFORMANCE_OUTCOME: ${{ steps.performance.outcome }}
         run: |
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
           const name = process.env.MODE;
-          const outcome = name === 'capacity' ? process.env.CAPACITY_OUTCOME : process.env.PERFORMANCE_OUTCOME;
+          const outcome = process.env[`${name.toUpperCase()}_OUTCOME`];
           assert.equal(outcome, 'success', `${name} execution failed or did not complete`);
           const report = JSON.parse(readFileSync(`${process.env.EVIDENCE}/${name}.json`, 'utf8'));
           assert.equal(report.verdict, 'pass', `${name} failed or was inconclusive`);

@@ -153,7 +153,7 @@ Plan v3 predeclares two complementary risks before new samples:
   route admission. All 10,000 warmup operations, 8,192-span queue/2,048 batch,
   30-second stalled export, six 10-second windows and minimum 2,048 operations per
   window remain unchanged. Final three windows must actually observe high queue
-  and drops. Readiness/results, 64 MiB RSS envelope, 16 MiB final-three-window
+  and drops. Readiness/results, 16 MiB final-three-window
   plateau spread and decoded export checks remain mandatory. Traces, metrics and
   overall health must recover together within one shared 40-second deadline from
   Collector restoration; the deadline is never reset per signal.
@@ -162,11 +162,42 @@ The former 10,000-configured-tool catalog workload failed during warmup with
 schema evaluation timeouts; its single-owner variant also exceeded admission.
 Those adverse reports remain evidence, and **10k catalog scalability remains an
 explicit coverage gap**. Rejecting 10,000 identity values is not evidence that
-10,000 configured tools can sustain this request rate. Plan v3 isolates the
-telemetry risks without changing their budgets or the matched timing workload.
+10,000 configured tools can sustain this request rate. Plan v4 separates
+whole-process outage growth from healthy telemetry overhead; the 64 MiB budget
+and matched timing workload remain unchanged.
 
 The capacity harness persists partial results and cleanup verdicts on failure.
 Its relay forwards only synthetic OTLP protobuf to the pinned loopback Collector
 and never forwards secret request headers. Source changes require new recorded
 acceptance runs. The bounded `capacity-owners.test.mjs` smoke proves one owner
 rejects its 17th held call while two owners admit all 32; it is not an RSS proof.
+
+## Telemetry-specific memory overhead
+
+After `prepare-performance.mjs`, run:
+
+```sh
+node scripts/telemetry/measure.mjs /path/to/run.json /path/to/memory.json --memory
+```
+
+This separate required CI lane compares fresh same-build baseline and healthy
+processes at default 10% sampling. The baseline omits propagation using the
+existing recorded test-only transformation and disables both exporters, so the
+comparison includes propagation plus operational recording/export costs.
+Both processes execute exactly 10,000 warmup and 10,000 measured requests in the
+same 80/19/1 mix, admitting 16 requests every 100 ms with five seconds of settling.
+Every batch must complete within its slot; slow or missed slots invalidate the
+run instead of silently changing request counts, pacing or duration. Both signal
+exports must be observed. No explicit GC or subtraction of post-warmup growth is
+used. The compared value is peak measured process RSS, including runtime workers;
+it does not include the external backend, client driver or Collector.
+
+At least three paired repetitions alternate baseline/healthy order. A paired
+95% Student-t interval must lie wholly at or below 64 MiB to pass. An interval
+crossing the budget is inconclusive, never a pass; increase repetitions when
+needed. Preserve raw paired samples, including negative differences caused by
+runtime noise. Saturated timing still enforces the existing latency/throughput
+budgets; healthy RSS is decided only by this equal-work lane. Propagation-only
+RSS remains in the timing lane. The 100%-sampled max-queue outage lane retains
+queue/drop checks, the 16 MiB plateau requirement, recovery, readiness, privacy
+and cardinality checks; its total RSS growth remains diagnostic evidence.

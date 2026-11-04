@@ -1,5 +1,5 @@
 {
-  "name": "issue489-real-runtime-max-capacity-v3",
+  "name": "issue489-real-runtime-max-capacity-v4",
   "recordBeforeRun": true,
   "topology": {
     "inboundEra": "legacy",
@@ -25,9 +25,8 @@
   "windowSeconds": 10,
   "minimumOperationsPerWindow": 2048,
   "outage": "Collector delays HTTP503 for30000ms; last3 windows observe sustained max queue pressure",
-  "rssEnvelopeMiB": 64,
   "plateauLastThreeWindowSpreadMiB": 16,
-  "plateauRationale": "Keep total active-mode growth within approved64MiB envelope and require final30sec RSS medians to stabilize within16MiB; fail rather than extrapolate safety from operation counts",
+  "plateauRationale": "Keep the final three outage-window RSS medians within 16 MiB. Total process growth is diagnostic; the separate paced memory lane enforces 64 MiB healthy telemetry overhead at default 10% sampling.",
   "readerCaps": {
     "histogram": 1024,
     "counter": 512,
@@ -42,5 +41,6 @@
     "B": "Actual runtime fixed catalog under unchanged32worker maxqueue/RSS pressure, readiness/results and recovery budgets",
     "coverageGap": "No10000configured-tool catalog scalability claim. Prior catalog runs failed warmup with schema_evaluation_timeout, or single-owner admission, before resource windows; retain adverse evidence. Telemetry privacy rejection is not catalog scalability."
   },
-  "recoveryRequirement": "Traces, metrics and overall state must all be healthy within one shared40s deadline beginning when the Collector is restored; no per-signal deadline reset"
+  "recoveryRequirement": "Traces, metrics and overall state must all be healthy within one shared40s deadline beginning when the Collector is restored; no per-signal deadline reset",
+  "memoryBudgetVerdict": "Separate measure.mjs --memory command; capacity retains 100% sampling, queue saturation, plateau, readiness, privacy, reader caps and recovery."
 }

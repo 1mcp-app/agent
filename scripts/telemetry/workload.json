@@ -60,5 +60,14 @@
   },
   "minimumMeasuredSeconds": 60,
   "settleMs": 65000,
-  "settleReason": "All four modes settle equally after the same warmup to match process age, background JIT and timer activity before measurement"
+  "settleReason": "All four modes settle equally after the same warmup to match process age, background JIT and timer activity before measurement",
+  "memory": {
+    "warmupRequests": 10000,
+    "measuredRequests": 10000,
+    "batchIntervalMs": 100,
+    "settleMs": 5000,
+    "method": "Fresh baseline and healthy processes; identical 16-request batches every 100ms, exact counts and operation mix; alternate pair order. Reject any batch that overruns its slot. Compare peak RSS in paired 95% intervals; no forced GC or baseline-growth subtraction.",
+    "baseline": "Same-build test-only propagation-disabled baseline; includes propagation plus recording/export overhead at default 10% sampling.",
+    "budget": "healthy.rssMiB remains 64; saturated timing and max-queue outage stress are separate gates."
+  }
 }
