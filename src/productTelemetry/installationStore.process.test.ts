@@ -1,5 +1,6 @@
 import { type ChildProcess, fork } from 'node:child_process';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -7,13 +8,15 @@ import { build } from 'esbuild';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { createTestProcessEnvironment } from '../../scripts/test-process-environment.mjs';
+import type { Summary } from './contract.js';
+import { coordinationScope } from './coordinationScope.js';
 import { type AdmissionTicket, InstallationStore } from './installationStore.js';
 
 let directory: string;
 let bundle: string;
 const children: ChildProcess[] = [];
 const fixtureRoots: string[] = [];
-const facts = {
+const facts: Omit<Summary, 'installation_id'> = {
   occurred_at: '2026-10-27T10:00:00Z',
   version: '0.39.3',
   os: 'darwin',
@@ -161,6 +164,131 @@ describe('owned OS process installation transactions', () => {
     },
     30000,
   );
+  it.each(['guard-owned', 'lock-owned'])(
+    'recovers an abandoned %s with concurrent contenders without resetting state',
+    async (phase) => {
+      const { root, store } = await fixture();
+      const ticket = (await store.admit())!;
+      await store.append(ticket, facts);
+      const child = await worker(root, phase);
+      const checkpoint = waitFor(child, (m) => m.checkpoint === phase);
+      child.send({ id: ++requestId, action: 'admit' });
+      await checkpoint;
+      await stop(child);
+      expect(await store.status()).toMatchObject({ recovery: 'automatic' });
+      const contenders = await Promise.all(Array.from({ length: 4 }, () => worker(root)));
+      const results = await Promise.all(contenders.map((contender) => request(contender, 'admit')));
+      expect(results.every((result) => !result.error)).toBe(true);
+      expect(results.map((result) => result.result)).toEqual(Array(4).fill(ticket));
+      expect(await store.status()).toMatchObject({ queuedSummaries: 1, coordination: 'available' });
+    },
+    30000,
+  );
+  it.each(['recovery-created', 'recovery-numbered'])(
+    'recovers when a guard reaper dies at %s and preserves a disabled preference',
+    async (phase) => {
+      const { root, store } = await fixture();
+      await store.control('disable');
+      const before = await readFile(path.join(root, 'state.json'), 'utf8');
+      const owner = await worker(root, 'guard-owned');
+      const owned = waitFor(owner, (m) => m.checkpoint === 'guard-owned');
+      owner.send({ id: ++requestId, action: 'admit' });
+      await owned;
+      await stop(owner);
+      const reaper = await worker(root, phase);
+      const reaping = waitFor(reaper, (m) => m.checkpoint === phase);
+      reaper.send({ id: ++requestId, action: 'admit' });
+      await reaping;
+      await stop(reaper);
+      expect(await store.admit()).toBeUndefined();
+      expect(await readFile(path.join(root, 'state.json'), 'utf8')).toBe(before);
+      expect(await store.status()).toMatchObject({ coordination: 'available', recovery: 'not-needed' });
+      expect((await readdir(root)).filter((name) => name.startsWith('recovery-'))).toEqual([]);
+    },
+    30000,
+  );
+  it('does not reclaim a live guard even while concurrent callers time out', async () => {
+    const { root, store } = await fixture();
+    const owner = await worker(root, 'guard-owned');
+    const owned = waitFor(owner, (m) => m.checkpoint === 'guard-owned');
+    owner.send({ id: ++requestId, action: 'admit' });
+    await owned;
+    const before = await readFile(path.join(root, 'guard/owner.json'), 'utf8');
+    expect(await store.status()).toMatchObject({ recovery: 'wait' });
+    await expect(store.admit()).rejects.toThrow('offline recovery');
+    expect(await readFile(path.join(root, 'guard/owner.json'), 'utf8')).toBe(before);
+    await stop(owner);
+    expect(await store.admit()).toBeDefined();
+  });
+  it.each(['recovery-numbered', 'recovery-removing'])('waits for a live recovery contender at %s', async (phase) => {
+    const { root, store } = await fixture();
+    const ticket = (await store.admit())!;
+    const owner = await worker(root, 'guard-owned');
+    const owned = waitFor(owner, (m) => m.checkpoint === 'guard-owned');
+    owner.send({ id: ++requestId, action: 'admit' });
+    await owned;
+    await stop(owner);
+    const before = await readFile(path.join(root, 'guard/owner.json'), 'utf8');
+    const reaper = await worker(root, phase);
+    const reaping = waitFor(reaper, (m) => m.checkpoint === phase);
+    reaper.send({ id: ++requestId, action: 'admit' });
+    await reaping;
+    await expect(store.admit()).rejects.toThrow('recovery busy');
+    expect(await readFile(path.join(root, 'guard/owner.json'), 'utf8')).toBe(before);
+    await stop(reaper);
+    expect(await store.admit()).toEqual(ticket);
+  });
+  it('recovers at the 256-entry directory boundary', async () => {
+    const { root, store } = await fixture();
+    const ticket = (await store.admit())!;
+    const owner = await worker(root, 'guard-owned');
+    const owned = waitFor(owner, (m) => m.checkpoint === 'guard-owned');
+    owner.send({ id: ++requestId, action: 'admit' });
+    await owned;
+    await stop(owner);
+    for (let i = (await readdir(root)).length; i < 256; i++) {
+      await writeFile(path.join(root, `state-${randomUUID()}.tmp`), '', { mode: 0o600 });
+    }
+    expect(await store.admit()).toEqual(ticket);
+    expect(await store.status()).toMatchObject({ recovery: 'not-needed' });
+  });
+  it.each(['foreign', 'legacy'])('retains a dead PID with %s execution-context evidence', async (kind) => {
+    const { root, store } = await fixture();
+    await store.admit();
+    const owner = await worker(root, 'guard-owned');
+    const owned = waitFor(owner, (m) => m.checkpoint === 'guard-owned');
+    owner.send({ id: ++requestId, action: 'admit' });
+    await owned;
+    await stop(owner);
+    const file = path.join(root, 'guard/owner.json');
+    const record = JSON.parse(await readFile(file, 'utf8'));
+    if (kind === 'foreign') record.scope = '0'.repeat(64);
+    else delete record.scope;
+    await writeFile(file, JSON.stringify(record), { mode: 0o600 });
+    const before = await readFile(file, 'utf8');
+    expect(await store.status()).toMatchObject({ recovery: 'offline-required' });
+    await expect(store.admit()).rejects.toThrow('offline recovery');
+    expect(await readFile(file, 'utf8')).toBe(before);
+  });
+  it('reports invalid live recovery tickets without modifying them', async () => {
+    const { root, store } = await fixture();
+    const ticket = await store.admit();
+    const directory = path.join(root, `recovery-${process.pid}-${randomUUID()}-${await coordinationScope()}`);
+    await mkdir(directory, { mode: 0o700 });
+    await writeFile(path.join(directory, 'ticket'), 'invalid', { mode: 0o600 });
+    expect(await store.status()).toMatchObject({ recovery: 'not-needed' });
+    expect(await store.admit()).toEqual(ticket);
+    const owner = await worker(root, 'guard-owned');
+    const owned = waitFor(owner, (m) => m.checkpoint === 'guard-owned');
+    owner.send({ id: ++requestId, action: 'admit' });
+    await owned;
+    await stop(owner);
+    expect(await store.status()).toMatchObject({ recovery: 'offline-required' });
+    const guardBefore = await readFile(path.join(root, 'guard/owner.json'), 'utf8');
+    await expect(store.admit()).rejects.toThrow('Invalid product telemetry recovery ticket');
+    expect(await readFile(path.join(root, 'guard/owner.json'), 'utf8')).toBe(guardBefore);
+    expect(await readFile(path.join(directory, 'ticket'), 'utf8')).toBe('invalid');
+  });
   it.each(['before-owner', 'guard-created'])(
     'fails closed at ambiguous %s and supports explicit offline coordination cleanup',
     async (phase) => {
@@ -171,7 +299,7 @@ describe('owned OS process installation transactions', () => {
       child.send({ id: ++requestId, action: 'admit' });
       await checkpoint;
       await stop(child);
-      expect(await store.status()).toMatchObject({ coordination: 'busy-or-ambiguous' });
+      expect(await store.status()).toMatchObject({ coordination: 'busy-or-ambiguous', recovery: 'offline-required' });
       await expect(store.admit()).rejects.toThrow('offline recovery');
       // All owned producers are stopped. Remove coordination only, retain authoritative state/tombstone.
       await rm(path.join(root, 'lock'), { recursive: true, force: true });

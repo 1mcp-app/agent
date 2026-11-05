@@ -2,6 +2,7 @@ import { runCliCommand } from '@src/commands/shared/commandRunner.js';
 import { getProductCollectionPolicy } from '@src/config/productTelemetryBootstrap.js';
 import { withGlobalOptions } from '@src/globalOptions.js';
 import { localInstallationStore } from '@src/productTelemetry/index.js';
+import type { InstallationStatus } from '@src/productTelemetry/installationStore.js';
 import { collectionEnabled } from '@src/productTelemetry/policy.js';
 
 import type { Argv } from 'yargs';
@@ -37,8 +38,21 @@ export function setupTelemetryCommands(yargs: Argv): Argv {
         if (argv.json) process.stdout.write(`${JSON.stringify(result)}\n`);
         else
           process.stdout.write(
-            `Product Usage Telemetry: ${enabled ? 'enabled' : 'disabled'}\nStored preference: ${status.preference}\nLocal identity: ${status.identityPresent ? 'present' : 'absent'}\nQueued summaries: ${status.queuedSummaries}\nCoordination: ${status.coordination}\n`,
+            `Product Usage Telemetry: ${enabled ? 'enabled' : 'disabled'}\nStored preference: ${status.preference}\nLocal identity: ${status.identityPresent ? 'present' : 'absent'}\nQueued summaries: ${status.queuedSummaries}\nCoordination: ${status.coordination}\nRecovery: ${status.recovery}\n${recoveryGuidance(status.recovery)}`,
           );
       }),
   );
+}
+
+function recoveryGuidance(recovery: InstallationStatus['recovery']): string {
+  switch (recovery) {
+    case 'automatic':
+      return 'A previous owner exited. The next collection or control operation will attempt safe recovery.\n';
+    case 'offline-required':
+      return 'Collection is blocked by uncertain ownership. Stop all local 1MCP producers before offline repair; preserve state.json. See https://docs.1mcp.app/commands/telemetry#busy-or-ambiguous-coordination\n';
+    case 'wait':
+      return 'An owner is active or its process cannot be verified. Retry status after current operations finish.\n';
+    default:
+      return '';
+  }
 }

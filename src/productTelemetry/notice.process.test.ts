@@ -49,7 +49,13 @@ it('contains a broken stderr notice without admitting identity or changing the f
     expect(messages).toEqual([
       {
         failed: true,
-        status: { preference: 'default', identityPresent: false, queuedSummaries: 0, coordination: 'available' },
+        status: {
+          preference: 'default',
+          identityPresent: false,
+          queuedSummaries: 0,
+          coordination: 'available',
+          recovery: 'not-needed',
+        },
       },
     ]);
   } finally {
