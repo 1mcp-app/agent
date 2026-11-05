@@ -5,9 +5,13 @@ import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeC
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { filterConnectionsForSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { resolveResourceRoute } from '@src/core/protocol/resourceTemplateRouting.js';
+import { changeTelemetryQueueDepth } from '@src/core/server/runtimeTelemetryMeasurements.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type InboundConnectionConfig, type OutboundConnection } from '@src/core/types/index.js';
 import { ownData } from '@src/observability/privacy/fields.js';
+import { type OperationOutcome, recordTelemetryMeasurement } from '@src/observability/telemetry.js';
+import { markProtocolTelemetryOutcome, withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
+import { telemetryErrorOutcome } from '@src/observability/telemetryOutcome.js';
 import { beginProductOperation } from '@src/productTelemetry/index.js';
 import { productClientFamily } from '@src/productTelemetry/operation.js';
 import type { CommandCompletion } from '@src/productTelemetry/producer.js';
@@ -222,7 +226,7 @@ class ModernSubscription {
       });
     }
   }
-  async setup(filter: Filter, createBridge: ModernInboundBridgeFactory): Promise<void> {
+  async setup(filter: Filter, createBridge: ModernInboundBridgeFactory): Promise<OperationOutcome> {
     const timeout = setTimeout(() => this.close(false), 30_000);
     timeout.unref();
     try {
@@ -237,23 +241,23 @@ class ModernSubscription {
       });
       if (this.stopped) {
         await this.bridge.close();
-        return;
+        return this.signal.aborted ? 'cancelled' : 'upstream-error';
       }
       if (!this.bridge.subscribe || !this.bridge.prepareSubscriptions)
         throw new Error('Subscription bridge unavailable');
       this.filter = (await this.bridge.prepareSubscriptions(filter)) as Filter;
-      if (this.stopped) return;
+      if (this.stopped) return this.signal.aborted ? 'cancelled' : 'upstream-error';
       const uris = [...new Set(filter.resourceSubscriptions ?? [])];
       if (uris.length) this.filter.resourceSubscriptions = uris;
       await this.captureSources(this.filter);
-      if (this.stopped) return;
+      if (this.stopped) return this.signal.aborted ? 'cancelled' : 'upstream-error';
       for (const uri of uris) {
         await this.bridge.subscribe(uri, this.controller.signal);
-        if (this.stopped) return;
+        if (this.stopped) return this.signal.aborted ? 'cancelled' : 'upstream-error';
       }
       if (!(await this.authorized())) {
         this.close(false);
-        return;
+        return this.signal.aborted ? 'cancelled' : 'denied';
       }
       this.res.status(200).set({
         'Content-Type': 'text/event-stream',
@@ -269,20 +273,22 @@ class ModernSubscription {
           _meta: { [subscriptionIdKey]: this.id },
         },
       });
-      if (this.stopped) return;
+      if (this.stopped) return this.signal.aborted ? 'cancelled' : 'upstream-error';
       this.ready = true;
       this.timer = setInterval(() => {
         void this.checkCoverage();
       }, 1000);
       this.timer.unref();
       void this.pump();
-    } catch {
+      return 'success';
+    } catch (error) {
       if (!this.res.headersSent && !this.stopped) {
         this.res
           .status(400)
           .json({ jsonrpc: '2.0', id: this.id, error: { code: -32602, message: 'Subscription coverage unavailable' } });
       }
       this.close(false);
+      return this.signal.aborted ? 'cancelled' : telemetryErrorOutcome(error);
     } finally {
       clearTimeout(timeout);
     }
@@ -303,11 +309,13 @@ class ModernSubscription {
     if (this.stopped) return;
     const bytes = Buffer.byteLength(JSON.stringify(notification));
     if (this.queue.length >= MAX_EVENTS || this.bytes + bytes > MAX_BYTES) {
+      recordTelemetryMeasurement('gateway.queue.overflow', 1, { queue: 'subscription' });
       this.close(false);
       return;
     }
     // Capture upstream plain data so later mutations cannot change queued delivery.
     this.queue.push({ notification: structuredClone(notification), bytes });
+    changeTelemetryQueueDepth('subscription', 1);
     this.bytes += bytes;
     if (this.ready) void this.pump();
   }
@@ -330,6 +338,7 @@ class ModernSubscription {
     try {
       while (this.queue.length && !this.stopped) {
         const item = this.queue.shift()!;
+        changeTelemetryQueueDepth('subscription', -1);
         this.bytes -= item.bytes;
         if (!this.accepts(item.notification)) continue;
         if (!(await this.authorized())) {
@@ -380,6 +389,7 @@ class ModernSubscription {
     clearInterval(this.timer);
     this.signal.removeEventListener('abort', this.onAbort);
     this.controller.abort();
+    changeTelemetryQueueDepth('subscription', -this.queue.length);
     this.queue = [];
     this.bytes = 0;
     if (graceful && this.ready && !this.res.destroyed && this.res.writableLength < MAX_BYTES) {
@@ -449,11 +459,33 @@ export async function serveModernSubscription(
   const owner = new ModernSubscription(manager, parsed.data.id, res, config, signal, resourceOwner, completion);
   setups++;
   try {
-    await owner.setup(parsed.data.params.notifications, createBridge);
+    const started = await withProtocolTelemetry(
+      {
+        kind: 'server',
+        method: 'subscriptions/listen',
+        inboundEra: 'modern',
+        transport: 'streamable-http',
+        remoteParams: parsed.data.params,
+      },
+      async () => {
+        const outcome = await owner.setup(parsed.data.params.notifications, createBridge);
+        markProtocolTelemetryOutcome(outcome);
+        return outcome === 'success';
+      },
+      signal,
+    );
+    if (!started) {
+      await owner.done;
+      return;
+    }
+    recordTelemetryMeasurement('gateway.subscription.lifecycle', 1, { lifecycle: 'started' });
   } finally {
     setups--;
   }
   await owner.done;
+  recordTelemetryMeasurement('gateway.subscription.lifecycle', 1, {
+    lifecycle: signal.aborted ? 'cancelled' : 'completed',
+  });
 }
 export function cancelModernSubscription(
   req: Request,

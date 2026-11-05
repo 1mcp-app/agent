@@ -391,6 +391,9 @@ function assignTransport(
   validatedTransport: ValidatedTransport,
   backendLogSource?: BackendLogSource,
 ): void {
+  if (validatedTransport.type === 'stdio') transport.telemetryTransport = 'stdio';
+  else if (validatedTransport.type === 'sse') transport.telemetryTransport = 'sse';
+  else transport.telemetryTransport = 'streamable-http';
   transport.connectionTimeout = validatedTransport.connectionTimeout;
   transport.requestTimeout = validatedTransport.requestTimeout;
   transport.timeout = validatedTransport.timeout; // Keep for backward compatibility

@@ -82,6 +82,29 @@ describe('background supervisor state store', () => {
 });
 
 describe('runBackgroundRuntimeSupervisor', () => {
+  it('uses the owned cooperative stop path before platform signal fallback', async () => {
+    const worker = new FakeWorker(190);
+    const stop = deferred<void>();
+    const requestWorkerStop = vi.fn((owned: SupervisedRuntimeWorker) => {
+      expect(owned).toBe(worker);
+      queueMicrotask(() => worker.exit(0));
+    });
+    await runBackgroundRuntimeSupervisor(
+      { configDir: '/scope', workerCommand: '1mcp', workerArgs: ['serve'], supervisorPid: 100 },
+      {
+        spawnWorker: () => worker,
+        waitForReady: async () => {
+          stop.resolve();
+          return true;
+        },
+        writeState: () => {},
+        waitForStop: () => stop.promise,
+        requestWorkerStop,
+      },
+    );
+    expect(requestWorkerStop).toHaveBeenCalledOnce();
+    expect(worker.kill).not.toHaveBeenCalled();
+  });
   it('waits for worker close after an error before scheduling a replacement', async () => {
     const first = new FakeWorker(190);
     const replacement = new FakeWorker(191);

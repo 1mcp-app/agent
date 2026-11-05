@@ -1,3 +1,5 @@
+import { fetchWithTelemetry } from './telemetryFetch.js';
+
 /** Limits bytes retained by the SSE parser before JSON parsing can allocate a message. */
 export const SSE_WIRE_LIMIT_BYTES = 8 * 1024 * 1024;
 
@@ -124,7 +126,7 @@ export function createSseWireLimitedFetch(
   let terminalError: SseWireLimitError | undefined;
   return async (input, init) => {
     if (terminalError) throw terminalError;
-    const response = await (fetchImpl ?? fetch)(input, init);
+    const response = await fetchWithTelemetry(fetchImpl ?? fetch, input, init);
     if (
       !response.body ||
       response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'text/event-stream'

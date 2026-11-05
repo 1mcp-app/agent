@@ -1,0 +1,9 @@
+services:
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.163.1
+    command: ['--config=/etc/otelcol/collector.yaml']
+    ports: ['127.0.0.1:14318:4318']
+    volumes:
+      - ./collector.yaml:/etc/otelcol/collector.yaml:ro
+      - ${TELEMETRY_CAPTURE_DIR:?Set an empty writable capture directory}:/capture
+    mem_limit: 192m

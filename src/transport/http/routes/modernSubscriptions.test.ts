@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 
+import * as telemetry from '@src/observability/telemetry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type InboundConnectionConfig } from '@src/core/types/index.js';
@@ -126,6 +127,33 @@ const facts = vi.hoisted(() => ({ begin: vi.fn((..._args: unknown[]) => ({ finis
 vi.mock('@src/productTelemetry/index.js', () => ({ beginProductOperation: facts.begin }));
 
 describe('modern subscription ownership', () => {
+  it.each([
+    { error: { kind: 'invalid-request' }, outcome: 'caller-error', cancel: false },
+    { error: new Error('Coverage unavailable'), outcome: 'internal-error', cancel: false },
+    { error: { code: -32603 }, outcome: 'upstream-error', cancel: false },
+    { error: new Error('Coverage unavailable'), outcome: 'cancelled', cancel: true },
+  ])('records $outcome setup failure without a lifecycle start', async ({ error, outcome, cancel }) => {
+    const end = vi.fn();
+    const operation = vi
+      .spyOn(telemetry, 'startTelemetryOperation')
+      .mockReturnValue({ run: (callback) => callback(), end });
+    const measurement = vi.spyOn(telemetry, 'recordTelemetryMeasurement');
+    try {
+      const value = tracked();
+      value.prepare.mockImplementationOnce(async () => {
+        if (cancel) value.controller.abort();
+        throw error;
+      });
+      await value.start({ toolsListChanged: true });
+      if (!cancel) expect(value.response.statusCode).toBe(400);
+      expect(end).toHaveBeenCalledWith(outcome);
+      expect(measurement.mock.calls.filter(([name]) => name === 'gateway.subscription.lifecycle')).toEqual([]);
+    } finally {
+      operation.mockRestore();
+      measurement.mockRestore();
+    }
+  });
+
   it('counts a gracefully completed admitted subscription once', async () => {
     facts.begin.mockClear();
     const value = tracked();

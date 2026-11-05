@@ -2,6 +2,8 @@ import { PROTOCOL_VERSION_META_KEY, StreamableHTTPClientTransport } from '@model
 
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
+import * as telemetry from '@src/observability/telemetry.js';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SSE_WIRE_LIMIT_BYTES, SseWireLimitError } from './sseWireLimit.js';
@@ -184,6 +186,63 @@ describe('StdioProxyTransport', () => {
   });
 
   describe('message forwarding', () => {
+    it('finishes subscription request spans at acknowledgement without finishing other requests', async () => {
+      const statusSpy = vi.spyOn(telemetry, 'hasTelemetryProvider').mockReturnValue(true);
+      const ends: ReturnType<typeof vi.fn>[] = [];
+      const operationSpy = vi.spyOn(telemetry, 'startTelemetryOperation').mockImplementation(() => {
+        const end = vi.fn();
+        ends.push(end);
+        return { run: (callback) => callback(), end };
+      });
+      try {
+        proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+        await proxy.start();
+        for (const [id, method] of [
+          [7, 'subscriptions/listen'],
+          [8, 'tools/call'],
+        ] as const) {
+          await proxy['stdioTransport'].onmessage!({
+            jsonrpc: '2.0',
+            id,
+            method,
+            params: { _meta: { [PROTOCOL_VERSION_META_KEY]: '2026-07-28' } },
+          });
+        }
+        expect(ends).toHaveLength(6);
+        for (const id of [8, 7]) {
+          await proxy['httpTransport'].onmessage!({
+            jsonrpc: '2.0',
+            method: 'notifications/subscriptions/acknowledged',
+            params: { _meta: { 'io.modelcontextprotocol/subscriptionId': id } },
+          });
+        }
+        expect(ends.slice(0, 3).map((end) => end.mock.calls)).toEqual([[['success']], [['success']], [['success']]]);
+        expect(ends.slice(3).every((end) => end.mock.calls.length === 0)).toBe(true);
+        expect(proxy['pendingTelemetry'].upstream.has(7)).toBe(false);
+        await proxy['stdioTransport'].onmessage!({
+          jsonrpc: '2.0',
+          id: 9,
+          method: 'subscriptions/listen',
+          params: { _meta: { [PROTOCOL_VERSION_META_KEY]: '2026-07-28' } },
+        });
+        vi.mocked(proxy['stdioTransport'].send).mockRejectedValueOnce(new Error('Downstream closed'));
+        await proxy['httpTransport'].onmessage!({
+          jsonrpc: '2.0',
+          method: 'notifications/subscriptions/acknowledged',
+          params: { _meta: { 'io.modelcontextprotocol/subscriptionId': 9 } },
+        });
+        expect(ends.slice(6).map((end) => end.mock.calls)).toEqual([
+          [['transport-error']],
+          [['transport-error']],
+          [['transport-error']],
+        ]);
+        await proxy.close();
+      } finally {
+        operationSpy.mockRestore();
+        statusSpy.mockRestore();
+      }
+    });
+
     it('should forward messages from STDIO to HTTP with _meta field', async () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',
@@ -461,6 +520,23 @@ describe('StdioProxyTransport', () => {
 
       // Verify forwarded to STDIO transport
       expect(proxy['stdioTransport'].send).toHaveBeenCalledWith(message);
+    });
+
+    it('answers a failed HTTP request send with a sanitized error instead of leaving initialization pending', async () => {
+      proxy = new StdioProxyTransport({ serverUrl: 'http://localhost:3050/mcp' });
+      await proxy.start();
+      proxy['httpTransport'].send = vi.fn().mockRejectedValue(new Error('private endpoint/token failure'));
+      await proxy['stdioTransport'].onmessage!({
+        jsonrpc: '2.0',
+        id: 42,
+        method: 'initialize',
+        params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'test', version: '1' } },
+      });
+      expect(proxy['stdioTransport'].send).toHaveBeenCalledWith({
+        jsonrpc: '2.0',
+        id: 42,
+        error: { code: -32603, message: 'Proxy forwarding failed', data: { code: 'gateway_transport_error' } },
+      });
     });
 
     it('should handle errors during STDIO to HTTP forwarding', async () => {

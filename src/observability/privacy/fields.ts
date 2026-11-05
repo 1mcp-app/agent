@@ -105,6 +105,9 @@ export function boundedDescription(value: string): string {
 }
 
 export const CLOSED_VALUES = {
+  telemetrySignal: ['traces', 'metrics', 'other'],
+  telemetryCategory: ['export', 'queue', 'cardinality', 'shutdown', 'configuration', 'other'],
+  telemetryEvent: ['telemetry.failure', 'telemetry.recovered', 'telemetry.configuration', 'other'],
   method: [
     'GET',
     'POST',

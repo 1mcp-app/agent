@@ -52,6 +52,8 @@ export interface BackgroundSupervisorOptions {
 export interface BackgroundSupervisorDependencies {
   spawnWorker?: (command: string, args: readonly string[], options: SpawnOptions) => SupervisedRuntimeWorker;
   waitForReady: (worker: SupervisedRuntimeWorker) => Promise<boolean>;
+  /** Private owner channel when available; absent owners retain the signal fallback. */
+  requestWorkerStop?: (worker: SupervisedRuntimeWorker) => void;
   beforeSpawn?: () => Promise<void>;
   writeState?: (state: BackgroundSupervisorState) => void;
   appendEvent?: (event: BackgroundSupervisorEvent) => void;
@@ -212,7 +214,8 @@ export async function runBackgroundRuntimeSupervisor(
       const stopWorker = async (): Promise<void> => {
         persist({ status: 'stopping', nextRetryAt: null });
         record({ event: 'supervisor-stopping', runtimePid });
-        worker.kill('SIGTERM');
+        if (dependencies.requestWorkerStop) dependencies.requestWorkerStop(worker);
+        else worker.kill('SIGTERM');
         await exitPromise;
       };
 
@@ -342,7 +345,8 @@ export async function runBackgroundRuntimeSupervisor(
   } catch (error) {
     if (activeWorker && activeExitPromise) {
       try {
-        activeWorker.kill('SIGTERM');
+        if (dependencies.requestWorkerStop) dependencies.requestWorkerStop(activeWorker);
+        else activeWorker.kill('SIGTERM');
       } catch {
         // Keep ownership held until the tracked worker's exit can be observed.
       }

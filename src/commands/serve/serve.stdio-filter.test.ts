@@ -27,6 +27,10 @@ vi.mock('@src/config/configManager.js', () => ({
 }));
 vi.mock('@src/domains/preset/manager/presetManager.js');
 vi.mock('@src/server.js');
+vi.mock('@src/core/server/runtimeTelemetry.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@src/core/server/runtimeTelemetry.js')>()),
+  startForegroundTelemetryStatus: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('@src/config/configContext.js', () => ({
   default: {
     getInstance: vi.fn().mockReturnValue({

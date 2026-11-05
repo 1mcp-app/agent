@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
 import { types } from 'node:util';
 
+import { changeTelemetryQueueDepth } from '@src/core/server/runtimeTelemetryMeasurements.js';
 import { captureJson } from '@src/core/validation/schemaPolicy.js';
+import { recordTelemetryMeasurement } from '@src/observability/telemetry.js';
+import { withProtocolTelemetry } from '@src/observability/telemetryOperation.js';
 import { captureTraceContext, stripBaggage } from '@src/observability/tracing/context.js';
 
 import { createGatewayFailure, type ImmutableJsonValue, toImmutableJsonValue } from '../contracts/index.js';
@@ -78,6 +81,7 @@ export class InteractionBroker {
   ): Promise<ImmutableJsonValue> {
     if (!this.options.authorize(binding)) throw rejected();
     const operation = this.owner.start(binding, deadline);
+    recordTelemetryMeasurement('gateway.interaction.lifecycle', 1, { lifecycle: 'started' });
     const flow: Flow = { ...operation, binding, queue: [], sequence: 0, pendingInputs: 0 };
     this.flows.set(flow.id, flow);
     const abort = () => this.owner.cancel(flow.id);
@@ -109,7 +113,11 @@ export class InteractionBroker {
         (error: unknown) => this.complete(flow, { error }),
       );
     try {
-      return await this.next(flow);
+      return await withProtocolTelemetry(
+        { kind: 'internal', phase: 'interaction' },
+        () => this.next(flow),
+        callerSignal,
+      );
     } finally {
       callerSignal?.removeEventListener('abort', abort);
     }
@@ -191,7 +199,11 @@ export class InteractionBroker {
       delete flow.current;
       flow.reserved = flow.queue.length > 0;
       flow.queue.shift()?.();
-      return await this.next(flow);
+      return await withProtocolTelemetry(
+        { kind: 'internal', phase: 'interaction' },
+        () => this.next(flow),
+        callerSignal,
+      );
     } finally {
       current.resuming = false;
       callerSignal?.removeEventListener('abort', abort);
@@ -229,10 +241,12 @@ export class InteractionBroker {
     if (inputCount === 0) throw rejected();
     // Reserve actual inputs before copying payloads or suspending behind an active round.
     if (inputCount > 32 || flow.pendingInputs + inputCount > 32) {
+      recordTelemetryMeasurement('gateway.queue.overflow', 1, { queue: 'interaction' });
       this.owner.cancel(flow.id, 'capacity_exceeded');
       throw rejected();
     }
     flow.pendingInputs += inputCount;
+    changeTelemetryQueueDepth('interaction', inputCount);
     try {
       const requests = captureJson(inputs, false).value as GatewayInteractionRound;
       const entries = Object.entries(requests);
@@ -275,6 +289,7 @@ export class InteractionBroker {
       return (await round.response) as Readonly<Record<string, ImmutableJsonValue>>;
     } finally {
       flow.pendingInputs -= inputCount;
+      changeTelemetryQueueDepth('interaction', -inputCount);
     }
   }
 
@@ -303,6 +318,9 @@ export class InteractionBroker {
 
   private complete(flow: Flow, result: Result): void {
     if (!this.flows.has(flow.id)) return;
+    recordTelemetryMeasurement('gateway.interaction.lifecycle', 1, {
+      lifecycle: 'error' in result ? 'cancelled' : 'completed',
+    });
     this.publish(flow, result);
     this.forget(flow);
     this.owner.finish(flow.id);

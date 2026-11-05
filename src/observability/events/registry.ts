@@ -2,6 +2,15 @@ import type { FieldRule } from '../privacy/fields.js';
 
 /** Registered local instrumentation only; backend diagnostics are isolated. */
 export const EVENT_REGISTRY = {
+  'telemetry.diagnostic': {
+    message: 'Operational telemetry diagnostic',
+    fields: {
+      diagnosticEvent: 'telemetryEvent',
+      signal: 'telemetrySignal',
+      category: 'telemetryCategory',
+      suppressed: 'number',
+    },
+  },
   'processIdentity.acquisition-failed': {
     message: 'Process birth evidence acquisition failed',
     fields: {

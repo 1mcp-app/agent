@@ -36,6 +36,7 @@ import { mcpAuthRouter } from '@src/sdk/legacy/server/auth/router.js';
 import { createModernInboundLegacyBridge } from '@src/sdk/legacy/transport/http/modernInboundLegacyBridge.js';
 import errorHandler from '@src/transport/http/middlewares/errorHandler.js';
 import { httpRequestBodyLogger, httpRequestLogger } from '@src/transport/http/middlewares/httpRequestLogger.js';
+import { httpTelemetry } from '@src/transport/http/middlewares/httpTelemetry.js';
 import { createMcpAvailabilityMiddleware } from '@src/transport/http/middlewares/mcpAvailabilityMiddleware.js';
 import { createScopeAuthMiddleware } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import { setupSecurityMiddleware } from '@src/transport/http/middlewares/securityMiddleware.js';
@@ -349,6 +350,7 @@ export class ExpressServer {
     }
 
     // Add HTTP request logging middleware (early in the stack for complete coverage)
+    this.app.use(httpTelemetry);
     this.app.use(httpRequestLogger);
     this.app.use(createLoopbackRequestGuard(this.configManager));
 
