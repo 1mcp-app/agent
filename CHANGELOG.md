@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.40.0-beta.1] - 2026-11-02
+## [0.40.0-beta.2] - 2026-11-05
 
 ### 🚀 Features
 - Spill oversized results to a configurable directory by @xizhibei in [#725](https://github.com/1mcp-app/agent/pull/725)
@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bind project selections to individual calls by @xizhibei in [#636](https://github.com/1mcp-app/agent/pull/636)
 
 ### 🐛 Bug Fixes
+- Recover abandoned acquisition guards safely by @xizhibei in [#738](https://github.com/1mcp-app/agent/pull/738)
 - Run Windows binary smoke without PowerShell jobs by @xizhibei
 - Honor tool output budgets across result capture by @xizhibei in [#726](https://github.com/1mcp-app/agent/pull/726)
 - Return 400 when a POST omits the Mcp-Session-Id header by @sarankumar1325 in [#722](https://github.com/1mcp-app/agent/pull/722)
@@ -1329,7 +1330,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[0.40.0-beta.1]: https://github.com/1mcp-app/agent/compare/v0.39.2..v0.40.0-beta.1
+[0.40.0-beta.2]: https://github.com/1mcp-app/agent/compare/v0.39.2..v0.40.0-beta.2
 [0.39.2]: https://github.com/1mcp-app/agent/compare/v0.39.1..v0.39.2
 [0.39.1]: https://github.com/1mcp-app/agent/compare/v0.39.0..v0.39.1
 [0.39.0]: https://github.com/1mcp-app/agent/compare/v0.38.2..v0.39.0
