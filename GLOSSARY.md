@@ -224,7 +224,7 @@ The MCP Streamable HTTP session identified by `mcp-session-id` for transport con
 _Avoid_: HTTP session, Request Session, connection id
 
 **Streamable Transport Session Lifecycle**:
-The transport-level process that resolves creation, active use, restoration, initialize recovery, and deletion for a **Streamable Transport Session**.
+The transport-level process that resolves creation, active use, idle expiration, restoration, initialize recovery, and deletion for a **Streamable Transport Session**.
 _Avoid_: route session handling, HTTP route logic
 
 **Template Server**:
@@ -372,6 +372,10 @@ _Avoid_: OAuth route logic, storage mutation, token helper
 **Upstream OAuth Authority**:
 The authorization identity under which a **Runtime Scope** uses credentials for a configured upstream source, validated issuer, protected resource, and destination. It is independent of display names and inbound client or session identity.
 _Avoid_: OAuth server name, incoming client token, transport credentials
+
+**Upstream OAuth Resource Mapping**:
+An explicit association between one configured upstream transport URL and the OAuth resource identifier intended for access through that URL. The transport URL and resource identifier are distinct parts of the **Upstream OAuth Authority**.
+_Avoid_: ignore-query mode, URL cleanup, automatic resource inference
 
 **Upstream Authorization Attempt**:
 One pending outbound OAuth authorization with its **Upstream OAuth Authority**, callback state, PKCE verifier, redirect, and expiry. It is distinct from inbound consent and process-local Tool interactions.
