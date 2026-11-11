@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { createTestProcessEnvironment, isolatedTestEnvironment } from '../../scripts/test-process-environment.mjs';
+
 const worker = fileURLToPath(new URL('./fixtures/upstream-refresh-worker.mjs', import.meta.url));
 let directory: string;
 let artifact: string;
@@ -121,30 +123,20 @@ for (const era of ['legacy', 'modern'])
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('No fixture port');
       base = `http://127.0.0.1:${address.port}`;
-      const child = spawn(process.execPath, [worker, artifact, base + '/mcp', era], {
-        env: {
-          ...process.env,
-          ONE_MCP_CONFIG_DIR: path.join(directory, era),
-          CODEX_THREAD_ID: '',
-          CODEX_SESSION_ID: '',
-        },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      let stdout = '';
-      let stderr = '';
-      child.stdout.on('data', (chunk) => {
-        stdout += String(chunk);
-      });
-      child.stderr.on('data', (chunk) => {
-        stderr += String(chunk);
-      });
+      const isolated = isolatedTestEnvironment();
+      const environment = createTestProcessEnvironment({}, isolated.env);
+      expect(environment.ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED).toBe('true');
+      expect(environment.HOME).not.toBe(process.env.HOME);
+
       try {
-        const exit = await new Promise<number | null>((resolve, reject) => {
-          child.once('exit', resolve);
-          child.once('error', reject);
-        });
-        expect(exit, stderr + stdout).toBe(0);
-        expect(stdout).toContain('"refreshed":true');
+        const result = await runOwnedWorker(
+          process.execPath,
+          [worker, artifact, base + '/mcp', era],
+          environment,
+          20_000,
+        );
+        expect(result.code, result.stderr + result.stdout).toBe(0);
+        expect(result.stdout).toContain('"refreshed":true');
         expect(refreshes).toBe(1);
         expect(resourceBodies).toHaveLength(4);
         expect(
@@ -159,9 +151,63 @@ for (const era of ['legacy', 'modern'])
             .sort(),
         );
       } finally {
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
         server.closeAllConnections();
         await new Promise<void>((resolve) => server.close(() => resolve()));
+        isolated.cleanup();
       }
     }, 30_000);
   });
+
+async function runOwnedWorker(
+  command: string,
+  args: string[],
+  env: Record<string, string | undefined>,
+  timeout: number,
+) {
+  const child = spawn(command, args, { env, timeout, killSignal: 'SIGKILL', stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => {
+    stdout += String(chunk);
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += String(chunk);
+  });
+  const closed = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+    child.once('close', (code, signal) => resolve({ code, signal }));
+  });
+  let onError!: (error: Error) => void;
+  const failed = new Promise<never>((_, reject) => {
+    onError = reject;
+    child.once('error', onError);
+  });
+  try {
+    const result = await Promise.race([closed, failed]);
+    return { ...result, stdout, stderr };
+  } finally {
+    if (child.pid && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await closed;
+    child.removeListener('error', onError);
+  }
+}
+
+it('terminates a stalled owned worker before its test deadline', async () => {
+  const isolated = isolatedTestEnvironment();
+  try {
+    const result = await runOwnedWorker(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], isolated.env, 250);
+    expect(result.signal).toBe('SIGKILL');
+  } finally {
+    isolated.cleanup();
+  }
+});
+
+it('settles a spawn failure before removing its owned scope', async () => {
+  const isolated = isolatedTestEnvironment();
+  try {
+    await expect(
+      runOwnedWorker(path.join(directory, 'missing-executable'), [], isolated.env, 250),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    isolated.cleanup();
+  }
+});

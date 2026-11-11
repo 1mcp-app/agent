@@ -214,16 +214,18 @@ export class ClientSessionRepository {
     slot: string,
     expected: { generation: string; revision: number },
     signal?: AbortSignal,
-  ): Promise<void> {
-    await this.storage.withExclusiveLock(`oauth-${slot}`, () => {
+  ): Promise<boolean> {
+    return this.storage.withExclusiveLock(`oauth-${slot}`, () => {
       signal?.throwIfAborted();
       const record = this.getBound(slot);
       const claim = this.getClaim(slot);
-      if (!record || claim?.generation !== expected.generation || record.generation !== expected.generation) return;
-      if (record.revision !== expected.revision) return;
+      if (!record || claim?.generation !== expected.generation || record.generation !== expected.generation)
+        return false;
+      if (record.revision !== expected.revision) return false;
       record.tokens = undefined;
       record.revision++;
       this.storage.writeDataDurable('oauth-bound-', slot, record);
+      return true;
     });
   }
 

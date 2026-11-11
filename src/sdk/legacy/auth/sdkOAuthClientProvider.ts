@@ -67,6 +67,7 @@ interface AuthorizationFlight {
   intent: AuthorizationIntent;
 }
 const authorizations = new Map<string, AuthorizationFlight>();
+const authorizationLanes = new Map<string, Promise<void>>();
 const pendingRedirects = new Map<string, AuthorizationOutcome>();
 
 /** Shared by the released modern and legacy SDK adapters. SDK cache objects are never authority. */
@@ -244,8 +245,8 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
           return { result, generation: this.claim!, authorizationAttempt: this.authorizationAttempt };
         },
       );
-    if (callback) return (await run()).result;
-    const key = JSON.stringify([this.fileStorage.getActivationKey(), this.slot, this.context]);
+    if (callback) return (await this.untilShutdown(this.serializeAuthorization(run))).result;
+    const key = this.authorizationKey();
     const cached = pendingRedirects.get(key);
     if (cached) {
       try {
@@ -260,7 +261,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     let flight = authorizations.get(key);
     const joined = flight !== undefined;
     if (!flight) {
-      flight = { promise: this.untilShutdown(run()), intent };
+      flight = { promise: this.untilShutdown(this.serializeAuthorization(run)), intent };
       authorizations.set(key, flight);
       const owned = flight;
       void flight.promise
@@ -278,6 +279,40 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       pendingRedirects.set(key, outcome);
     }
     return outcome.result;
+  }
+
+  private authorizationKey(): string {
+    return JSON.stringify([this.fileStorage.getActivationKey(), this.slot, this.context]);
+  }
+
+  /** Serialization covers credential writers; only ordinary auth callers share results. */
+  private async serializeAuthorization<T>(operation: () => Promise<T>): Promise<T> {
+    const key = this.authorizationKey();
+    const generation = this.claim;
+    const previous = authorizationLanes.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const owned = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => owned);
+    authorizationLanes.set(key, tail);
+    void tail.then(() => {
+      if (authorizationLanes.get(key) === tail) authorizationLanes.delete(key);
+    });
+    try {
+      await this.untilShutdown(previous);
+      this.shutdownSignal.signal.throwIfAborted();
+      if (
+        !this.slot ||
+        this.claim !== generation ||
+        this.sessionRepository.getClaim(this.slot)?.generation !== generation
+      )
+        throw oauthAuthorityError();
+      this.current();
+      return await operation();
+    } finally {
+      release();
+    }
   }
 
   private authorizationSatisfies(
@@ -477,9 +512,12 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     return record ? { generation: record.generation, revision: record.revision } : undefined;
   }
 
-  async invalidateRejectedTokens(expected: { generation: string; revision: number } | undefined): Promise<void> {
-    if (!expected || !this.slot) return;
-    await this.sessionRepository.invalidateBoundTokens(this.slot, expected, this.shutdownSignal.signal);
+  async invalidateRejectedTokens(expected: { generation: string; revision: number } | undefined): Promise<boolean> {
+    await this.migration;
+    if (!expected || !this.slot) return false;
+    return this.serializeAuthorization(() =>
+      this.sessionRepository.invalidateBoundTokens(this.slot!, expected, this.shutdownSignal.signal),
+    );
   }
 
   state(): string {

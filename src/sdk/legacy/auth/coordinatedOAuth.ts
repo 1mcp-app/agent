@@ -89,7 +89,8 @@ export function createCoordinatedOAuthFetch(
           continue;
         }
         if (refreshes > 0) {
-          await provider.invalidateRejectedTokens(credential);
+          const invalidated = await provider.invalidateRejectedTokens(credential);
+          if (!invalidated) throw new Error('OAuth credentials changed during the request; retry the request');
           throw terminalAuthFailure(legacy, 401, 'Server returned 401 after successful authentication');
         }
         refreshes++;
@@ -99,6 +100,7 @@ export function createCoordinatedOAuthFetch(
         stepUps++;
       }
       const scope = legacy ? challenge.scope : computeScopeUnion(provider.tokens()?.scope, challenge.scope);
+      init?.signal?.throwIfAborted();
       const authorization = authorizeUpstream(provider, legacy, {
         serverUrl,
         resourceMetadataUrl: challenge.resourceMetadataUrl,
@@ -146,7 +148,10 @@ export function bindCoordinatedOAuthTransport(
 
 async function waitForAuthorization<T>(operation: Promise<T>, signal?: AbortSignal | null): Promise<T> {
   if (!signal) return operation;
-  signal.throwIfAborted();
+  if (signal.aborted) {
+    void operation.catch(() => undefined);
+    signal.throwIfAborted();
+  }
   let abort!: () => void;
   const stopped = new Promise<never>((_, reject) => {
     abort = () => reject(signal.reason);

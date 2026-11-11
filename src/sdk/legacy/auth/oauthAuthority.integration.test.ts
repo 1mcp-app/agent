@@ -18,9 +18,16 @@ import { StreamableHTTPClientTransport as LegacyTransport } from '@modelcontextp
 import { authoritySlot, oauthDigest } from '@src/auth/oauthAuthority.js';
 import { ClientSessionRepository } from '@src/auth/storage/clientSessionRepository.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
+import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
+import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { ClientFactory } from '../client/runtime/clientFactory.js';
+import { bindLegacySdkConnection, LegacySdkClientAdapter } from '../client/runtime/legacySdkClientAdapter.js';
+import type { AuthProviderTransport } from '../client/runtime/legacyTransport.js';
+import { ModernSdkClientAdapter } from '../client/runtime/modernSdkClientAdapter.js';
 import { authorizeUpstream, bindCoordinatedOAuthTransport, createCoordinatedOAuthFetch } from './coordinatedOAuth.js';
 import { type OAuthClientConfig, SDKOAuthClientProvider } from './sdkOAuthClientProvider.js';
 
@@ -701,7 +708,9 @@ for (const legacy of [true, false])
       expect(other.getAuthorizationUrl()).toBe(f.provider.getAuthorizationUrl());
       expect(await f.authorize(other)).toBe('REDIRECT');
       expect(held.count()).toBe(1);
-      const repository = new ClientSessionRepository(new FileStorageService(f.dir, 'client'));
+      const repository = new ClientSessionRepository(
+        new FileStorageService(f.dir, 'client', { manageLifecycle: false }),
+      );
       const attempts = repository.getBound(authoritySlot(f.config.authority!))!.attempts;
       expect(Object.values(attempts).filter((attempt) => !attempt.consumed)).toHaveLength(1);
     });
@@ -713,7 +722,9 @@ for (const legacy of [true, false])
       const held = heldTokens(f);
       const pending = f.authorize();
       await held.request;
-      const repository = new ClientSessionRepository(new FileStorageService(f.dir, 'client'));
+      const repository = new ClientSessionRepository(
+        new FileStorageService(f.dir, 'client', { manageLifecycle: false }),
+      );
       await repository.updateBound(authoritySlot(f.config.authority!), snapshot.generation, (record) => {
         record.tokens = JSON.stringify({ access_token: 'newer', refresh_token: 'newer-refresh', token_type: 'Bearer' });
         record.revision++;
@@ -950,7 +961,7 @@ for (const legacy of [true, false])
     const f = await fixture(legacy, {}, true);
     await login(f);
     const snapshot = f.provider.credentialSnapshot()!;
-    const repository = new ClientSessionRepository(new FileStorageService(f.dir, 'client'));
+    const repository = new ClientSessionRepository(new FileStorageService(f.dir, 'client', { manageLifecycle: false }));
     const fetch = f.provider.fetch;
     let intercepted = false;
     Object.assign(f.provider, {
@@ -1165,4 +1176,380 @@ for (const legacy of [true, false])
     await expect(f.authorize()).rejects.toThrow();
     expect(f.provider.tokens()?.refresh_token).toBe('opaque-refresh');
     expect(f.provider.getPendingAuthorizationUrl()).toBeUndefined();
+  });
+
+function fixtureRepository(f: Awaited<ReturnType<typeof fixture>>) {
+  return new ClientSessionRepository(new FileStorageService(f.dir, 'client', { manageLifecycle: false }));
+}
+
+async function pendingWithTokens(f: Awaited<ReturnType<typeof fixture>>, legacy: boolean, code: string) {
+  expect(await authorizeUpstream(f.provider, legacy, { serverUrl: f.base + '/mcp', scope: 'read' })).toBe('REDIRECT');
+  const redirect = new URL(f.provider.getPendingAuthorizationUrl()!);
+  const snapshot = f.provider.credentialSnapshot()!;
+  await fixtureRepository(f).updateBound(authoritySlot(f.config.authority!), snapshot.generation, (record) => {
+    record.tokens = JSON.stringify({
+      access_token: 'old-access',
+      refresh_token: 'old-refresh',
+      token_type: 'Bearer',
+      scope: 'read',
+    });
+    record.revision++;
+  });
+  return new URLSearchParams({ state: redirect.searchParams.get('state')!, code, iss: f.base });
+}
+
+function finishOwned(
+  f: Awaited<ReturnType<typeof fixture>>,
+  legacy: boolean,
+  provider: SDKOAuthClientProvider,
+  callback: URLSearchParams,
+) {
+  return provider.withAuthorizationCallback(callback, () =>
+    authorizeUpstream(provider, legacy, {
+      serverUrl: f.base + '/mcp',
+      authorizationCode: callback.get('code')!,
+      iss: callback.get('iss')!,
+    }),
+  );
+}
+
+for (const legacy of [true, false])
+  describe(`${legacy ? 'legacy' : 'modern'} authority mutation lane`, () => {
+    it('holds ordinary refresh behind a callback without sharing the callback outcome', async () => {
+      const f = await fixture(legacy, { scopes: ['read', 'write'] }, true);
+      const callback = await pendingWithTokens(f, legacy, 'callback-code');
+      const other = f.create();
+      await other.authorize(async () => 'AUTHORIZED');
+      const held = heldTokens(f);
+      const finishing = finishOwned(f, legacy, f.provider, callback);
+      await held.request;
+      const discovery = vi.spyOn(other, 'discoveryState');
+      const ordinary = f.authorize(other);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(discovery).not.toHaveBeenCalled();
+      let refreshed!: () => void;
+      const refresh = new Promise<void>((resolve) => {
+        refreshed = resolve;
+      });
+      f.behavior.tokenHandler = (body, response) => {
+        expect(new URLSearchParams(body).get('refresh_token')).toBe('callback-refresh');
+        response.end(
+          JSON.stringify({
+            access_token: 'ordinary-access',
+            refresh_token: 'ordinary-refresh',
+            token_type: 'Bearer',
+            scope: 'read',
+          }),
+        );
+        refreshed();
+      };
+      held.respond({
+        access_token: 'callback-access',
+        refresh_token: 'callback-refresh',
+        token_type: 'Bearer',
+        scope: 'read',
+      });
+      expect(await finishing).toBe('AUTHORIZED');
+      await refresh;
+      expect(await ordinary).toBe('AUTHORIZED');
+      expect(f.provider.tokens()?.refresh_token).toBe('ordinary-refresh');
+    });
+
+    it('holds a callback behind ordinary refresh and executes its own code exchange', async () => {
+      const f = await fixture(legacy, { scopes: ['read', 'write'] }, true);
+      const callback = await pendingWithTokens(f, legacy, 'callback-after-refresh');
+      const held = heldTokens(f);
+      const ordinary = authorizeUpstream(f.provider, legacy, { serverUrl: f.base + '/mcp', scope: 'write' });
+      await held.request;
+      const finishing = finishOwned(f, legacy, f.provider, callback);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(held.count()).toBe(1);
+      let exchanged = false;
+      f.behavior.tokenHandler = (body, response) => {
+        expect(new URLSearchParams(body).get('code')).toBe('callback-after-refresh');
+        exchanged = true;
+        response.end(
+          JSON.stringify({
+            access_token: 'callback-winner',
+            refresh_token: 'callback-refresh',
+            token_type: 'Bearer',
+            scope: 'read',
+          }),
+        );
+      };
+      held.respond({
+        access_token: 'ordinary-access',
+        refresh_token: 'ordinary-refresh',
+        token_type: 'Bearer',
+        scope: 'read',
+      });
+      expect(await ordinary).toBe('AUTHORIZED');
+      expect(await finishing).toBe('AUTHORIZED');
+      expect(exchanged).toBe(true);
+      expect(f.provider.tokens()?.access_token).toBe('callback-winner');
+    });
+
+    it('queues post-auth invalidation behind callback publication and skips its obsolete revision', async () => {
+      const f = await fixture(legacy, {}, true);
+      const callback = await pendingWithTokens(f, legacy, 'callback-before-invalidation');
+      const snapshot = f.provider.credentialSnapshot()!;
+      const held = heldTokens(f);
+      const finishing = finishOwned(f, legacy, f.provider, callback);
+      await held.request;
+      let invalidationFinished = false;
+      const invalidation = f.provider.invalidateRejectedTokens(snapshot).then((value) => {
+        invalidationFinished = true;
+        return value;
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(invalidationFinished).toBe(false);
+      held.respond({ access_token: 'callback-winner', refresh_token: 'callback-refresh', token_type: 'Bearer' });
+      expect(await finishing).toBe('AUTHORIZED');
+      expect(await invalidation).toBe(false);
+      expect(f.provider.tokens()?.access_token).toBe('callback-winner');
+    });
+  });
+
+for (const legacy of [true, false])
+  it(`${legacy ? 'legacy' : 'modern'} observes an authorization rejection when abort precedes waiter attachment`, async () => {
+    const f = await fixture(legacy, {}, true);
+    await login(f);
+    const controller = new AbortController();
+    Object.assign(f.provider, {
+      fetch: async () => new Response('{}', { status: 401 }),
+      authorize: async () => {
+        controller.abort();
+        throw new Error('controlled authorization failure');
+      },
+    });
+    await expect(
+      createCoordinatedOAuthFetch(f.provider, legacy, f.base + '/mcp')(f.base + '/mcp', { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  });
+
+for (const legacy of [true, false])
+  describe(`${legacy ? 'legacy' : 'modern'} adapter rejection ownership`, () => {
+    it.each(['current', 'lock-race', 'exhausted-replay'] as const)(
+      'keeps adapter recovery conditional on atomic invalidation (newer revision: %s)',
+      async (mode) => {
+        const newer = mode !== 'current';
+        let rejected = 0;
+        const f = await fixture(legacy, {}, true);
+        await login(f);
+        let allowLatest = false;
+        f.behavior.resourceHandler = async (request, response) => {
+          const message = JSON.parse(f.requests.at(-1)?.body || '{}') as {
+            id?: string | number;
+            method?: string;
+            params?: { protocolVersion?: string };
+          };
+          if (message.method === 'initialize' || message.method === 'server/discover') {
+            response.end(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  ...(message.method === 'initialize'
+                    ? { protocolVersion: message.params?.protocolVersion }
+                    : { resultType: 'complete', ttlMs: 0, cacheScope: 'private', supportedVersions: ['2026-07-28'] }),
+                  capabilities: { tools: {} },
+                  serverInfo: { name: 'owned-rejection', version: '1' },
+                },
+              }),
+            );
+            return;
+          }
+          if (message.method === 'tools/list') {
+            if (allowLatest && request.headers.authorization === 'Bearer latest') {
+              response.end(
+                JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: message.id,
+                  result: {
+                    ...(!legacy ? { resultType: 'complete', ttlMs: 0, cacheScope: 'private' } : {}),
+                    tools: [],
+                  },
+                }),
+              );
+              return;
+            }
+            rejected++;
+            if (mode === 'exhausted-replay' && (rejected === 1 || rejected === 3)) {
+              const snapshot = f.provider.credentialSnapshot()!;
+              await fixtureRepository(f).updateBound(
+                authoritySlot(f.config.authority!),
+                snapshot.generation,
+                (record) => {
+                  record.tokens = JSON.stringify({
+                    access_token: rejected === 3 ? 'latest' : 'intermediate',
+                    refresh_token: 'latest-refresh',
+                    token_type: 'Bearer',
+                  });
+                  record.revision++;
+                },
+              );
+            }
+            response.statusCode = 401;
+            response.end('{}');
+            return;
+          }
+          response.statusCode = request.method === 'GET' ? 405 : 202;
+          response.end();
+        };
+        const Transport = legacy ? LegacyTransport : ModernTransport;
+        const wire = new Transport(new URL(f.base + '/mcp'), {
+          fetch: createCoordinatedOAuthFetch(f.provider, legacy, f.base + '/mcp'),
+        });
+        const transport = wire as unknown as AuthProviderTransport;
+        transport.oauthProvider = f.provider;
+        transport.outboundProtocolVersion = legacy ? 'legacy' : '2026-07-28';
+        const client = new ClientFactory().createClient(transport);
+        await client.connect(wire as never);
+        const adapter = legacy
+          ? new LegacySdkClientAdapter(client as never, transport)
+          : new ModernSdkClientAdapter(client as never, transport);
+        const connection: OutboundConnection = {
+          name: 'owned-rejection',
+          adapter,
+          status: ClientStatus.Connected,
+          tags: [],
+          requiresOAuth: true,
+        };
+        if (legacy) bindLegacySdkConnection(adapter, connection);
+        const close = vi.spyOn(client, 'close');
+        const closeTransport = vi.spyOn(wire, 'close');
+        cleanups.push(() => adapter.close());
+        if (mode === 'lock-race') {
+          const invalidate = f.provider.invalidateRejectedTokens.bind(f.provider);
+          vi.spyOn(f.provider, 'invalidateRejectedTokens').mockImplementation(async (expected) => {
+            await fixtureRepository(f).updateBound(
+              authoritySlot(f.config.authority!),
+              expected!.generation,
+              (record) => {
+                record.tokens = JSON.stringify({
+                  access_token: 'latest',
+                  refresh_token: 'latest-refresh',
+                  token_type: 'Bearer',
+                });
+                record.revision++;
+              },
+            );
+            return invalidate(expected);
+          });
+        }
+        const request = () =>
+          executeWithPostAuthOAuthRecovery('owned-rejection', connection, () =>
+            requestLegacyAdapter(adapter, 'tools/list'),
+          );
+        const failure = await request().catch((error: unknown) => error);
+        expect(failure).toBeDefined();
+        if (!newer) {
+          expect(connection.status, JSON.stringify(failure)).toBe(ClientStatus.AwaitingOAuth);
+          expect(close).toHaveBeenCalled();
+          expect(f.provider.tokens()).toBeUndefined();
+          return;
+        }
+        expect(connection.status).toBe(ClientStatus.Connected);
+        expect(close).not.toHaveBeenCalled();
+        expect(closeTransport).not.toHaveBeenCalled();
+        expect(f.provider.tokens()?.refresh_token).toBe('latest-refresh');
+        expect(f.provider.getPendingAuthorizationUrl()).toBeUndefined();
+        allowLatest = true;
+        expect(await request()).toMatchObject({ tools: [] });
+        expect(connection.status).toBe(ClientStatus.Connected);
+      },
+    );
+  });
+
+for (const legacy of [true, false])
+  describe(`${legacy ? 'legacy' : 'modern'} callback identity and lane cleanup`, () => {
+    it.each([false, true])(
+      'executes distinct callbacks and recovers after a failed predecessor (failure: %s)',
+      async (failFirst) => {
+        const f = await fixture(legacy);
+        await f.authorize();
+        const firstUrl = new URL(f.provider.getAuthorizationUrl()!);
+        await f.authorize();
+        const secondUrl = new URL(f.provider.getAuthorizationUrl()!);
+        const other = f.create();
+        await (await other.fetch(f.base + '/mcp')).body?.cancel();
+        const firstCallback = new URLSearchParams({
+          state: firstUrl.searchParams.get('state')!,
+          code: 'first-code',
+          iss: f.base,
+        });
+        const secondCallback = new URLSearchParams({
+          state: secondUrl.searchParams.get('state')!,
+          code: 'second-code',
+          iss: f.base,
+        });
+        const savedFirst = vi.spyOn(f.provider, 'saveTokens');
+        const savedSecond = vi.spyOn(other, 'saveTokens');
+        const held = heldTokens(f);
+        const first = finishOwned(f, legacy, f.provider, firstCallback);
+        const firstResult = Promise.allSettled([first]);
+        await held.request;
+        const second = finishOwned(f, legacy, other, secondCallback);
+        const secondResult = Promise.allSettled([second]);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(held.count()).toBe(1);
+        f.behavior.tokenHandler = (body, response) => {
+          expect(new URLSearchParams(body).get('code')).toBe('second-code');
+          response.end(
+            JSON.stringify({ access_token: 'second-access', refresh_token: 'second-refresh', token_type: 'Bearer' }),
+          );
+        };
+        held.respond(
+          failFirst
+            ? { error: 'server_error' }
+            : { access_token: 'first-access', refresh_token: 'first-refresh', token_type: 'Bearer' },
+          failFirst ? 503 : 200,
+        );
+        expect((await firstResult)[0].status).toBe(failFirst ? 'rejected' : 'fulfilled');
+        expect((await secondResult)[0]).toMatchObject({ status: 'fulfilled', value: 'AUTHORIZED' });
+        if (failFirst) expect(savedFirst).not.toHaveBeenCalled();
+        else expect(savedFirst.mock.calls[0][0].access_token).toBe('first-access');
+        expect(savedSecond.mock.calls[0][0].access_token).toBe('second-access');
+        expect(f.provider.tokens()?.access_token).toBe('second-access');
+        const count = f.requests.filter((request) => request.path === '/token').length;
+        await expect(finishOwned(f, legacy, other, firstCallback)).rejects.toThrow();
+        expect(f.requests.filter((request) => request.path === '/token')).toHaveLength(count);
+      },
+    );
+
+    it('terminates a queued caller on shutdown without poisoning callback or later auth', async () => {
+      const f = await fixture(legacy, {}, true);
+      const callback = await pendingWithTokens(f, legacy, 'held-callback');
+      const other = f.create();
+      await (await other.fetch(f.base + '/mcp')).body?.cancel();
+      const held = heldTokens(f);
+      const finishing = finishOwned(f, legacy, f.provider, callback);
+      await held.request;
+      const queued = Promise.allSettled([f.authorize(other)]);
+      await other.shutdown();
+      expect((await queued)[0].status).toBe('rejected');
+      held.respond({ access_token: 'callback-access', refresh_token: 'callback-refresh', token_type: 'Bearer' });
+      expect(await finishing).toBe('AUTHORIZED');
+      f.behavior.tokenHandler = undefined;
+      expect(await f.authorize(f.create())).toBe('AUTHORIZED');
+    });
+  });
+
+for (const legacy of [true, false])
+  it(`${legacy ? 'legacy' : 'modern'} avoids starting authorization when body cancellation aborts the caller`, async () => {
+    const f = await fixture(legacy, {}, true);
+    await login(f);
+    const controller = new AbortController();
+    const authorize = vi.spyOn(f.provider, 'authorize');
+    const fetch = f.provider.fetch;
+    Object.assign(f.provider, {
+      fetch: async () => new Response(new ReadableStream({ cancel: () => controller.abort() }), { status: 401 }),
+    });
+    await expect(
+      createCoordinatedOAuthFetch(f.provider, legacy, f.base + '/mcp')(f.base + '/mcp', { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(authorize).not.toHaveBeenCalled();
+    Object.assign(f.provider, { fetch });
+    expect(await f.authorize()).toBe('AUTHORIZED');
   });
