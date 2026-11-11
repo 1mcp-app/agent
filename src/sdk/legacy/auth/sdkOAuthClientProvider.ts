@@ -245,7 +245,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
         },
       );
     if (callback) return (await run()).result;
-    const key = JSON.stringify([this.fileStorage.getActivationKey(), this.slot, oauthDigest(this.context)]);
+    const key = JSON.stringify([this.fileStorage.getActivationKey(), this.slot, this.context]);
     const cached = pendingRedirects.get(key);
     if (cached) {
       try {
