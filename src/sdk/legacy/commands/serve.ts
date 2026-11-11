@@ -77,6 +77,7 @@ export interface ServeOptions {
   'log-level'?: 'debug' | 'info' | 'warn' | 'error';
   'log-file'?: string;
   transport?: string;
+  'inbound-http-era'?: 'dual' | 'legacy-only';
   port?: number;
   host?: string;
   'external-url'?: string;
@@ -536,6 +537,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     );
 
     serverConfigManager.updateConfig({
+      inboundHttpEra: parsedArgv['inbound-http-era'] ?? appConfig.inboundHttpEra ?? 'dual',
       host: effectiveHost,
       port: effectivePort,
       externalUrl: parsedArgv['external-url'],

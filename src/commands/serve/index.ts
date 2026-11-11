@@ -73,6 +73,11 @@ export const serverOptions = {
     type: 'string' as const,
     choices: ['stdio', 'http', 'sse'] as const,
   },
+  'inbound-http-era': {
+    describe: 'Inbound HTTP protocol eras (dual or legacy-only); independent of upstream protocolVersion',
+    type: 'string' as const,
+    choices: ['dual', 'legacy-only'] as const,
+  },
   port: {
     alias: 'P',
     describe: 'HTTP port to listen on, applicable when transport is http',
@@ -347,7 +352,7 @@ export function setupServeCommand(yargs: Argv): Argv {
       return yargs
         .options(serverOptions)
         .group(['status', 'background', 'stop', 'restart', 'drain-timeout', 'on-drain-timeout'], 'Runtime:')
-        .group(['transport', 'port', 'host', 'external-url'], 'Transport:')
+        .group(['transport', 'inbound-http-era', 'port', 'host', 'external-url'], 'Transport:')
         .group(['filter', 'preset', 'pagination', 'enable-internal-tools', 'internal-tools'], 'Filtering:')
         .group(
           [

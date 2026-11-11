@@ -68,6 +68,7 @@ Agent 支持三种配置方法，按以下优先级顺序应用：
 | 选项 (CLI)                             | 环境变量                                     | 描述                                                              |   默认值   |
 | :------------------------------------- | :------------------------------------------- | :---------------------------------------------------------------- | :--------: |
 | `--transport`, `-t`                    | `ONE_MCP_TRANSPORT`                          | 选择传输类型（"stdio"、"http" 或 "sse"）                          |   "http"   |
+| `--inbound-http-era`                   | `ONE_MCP_INBOUND_HTTP_ERA`                   | 入站 HTTP 协议系列：`dual` 或 `legacy-only`；独立于上游 `protocolVersion` |   `dual`   |
 | `--config`, `-c`                       | `ONE_MCP_CONFIG`                             | 使用特定的配置文件                                                |            |
 | `--config-dir`, `-d`                   | `ONE_MCP_CONFIG_DIR`                         | 配置目录路径（覆盖默认配置位置）                                  |            |
 | `--cli-session-cache-path`             | `ONE_MCP_CLI_SESSION_CACHE_PATH`             | `run` / `inspect` CLI 会话缓存路径模板，支持 `{pid}` 与 `{scope}` |            |
@@ -947,3 +948,5 @@ npx -y @1mcp/agent \
 - **[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)** - 公开 HTTPS 部署路径
 - **[健康检查参考](/zh/reference/health-check)** - 监控和健康端点
 - **[安全指南](/zh/reference/security)** - 安全最佳实践
+
+如需对整个端点启用旧版兼容模式，请在 `config.toml` 顶层设置 `inboundHttpEra = "legacy-only"`；省略时保持 `dual`。有关状态连续性限制、客户端固定旧版的方法及现代功能取舍，请参阅[仅限旧版的入站 HTTP 兼容模式](/zh/commands/serve#仅限旧版的入站-http-兼容模式)。

@@ -1,4 +1,5 @@
 import {
+  classifyInboundRequest,
   createMcpHandler,
   fromJsonSchema,
   hostHeaderValidationResponse,
@@ -20,7 +21,13 @@ import {
   revalidatePreparationAuthentication,
   withPreparationRequestScope,
 } from '@src/application/backendPreparationAdmission.js';
-import { MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
+import {
+  MCP_SERVER_NAME,
+  MCP_SERVER_VERSION,
+  MESSAGES_ENDPOINT,
+  SSE_ENDPOINT,
+  STREAMABLE_HTTP_ENDPOINT,
+} from '@src/constants.js';
 import {
   type CatalogCursorOwner,
   createCatalogCursorOwner,
@@ -53,7 +60,7 @@ import {
   gatewayFailureToMcp,
   type ImmutableJsonValue,
 } from '@src/gateway/contracts/index.js';
-import { MODERN_PROTOCOL_REVISION } from '@src/gateway/contracts/protocolEra.js';
+import { LEGACY_PROTOCOL_REVISIONS, MODERN_PROTOCOL_REVISION } from '@src/gateway/contracts/protocolEra.js';
 import { GatewayDispatcher } from '@src/gateway/core/gatewayDispatcher.js';
 import { GatewaySession } from '@src/gateway/core/gatewaySession.js';
 import { InteractionBroker } from '@src/gateway/interactions/interactionBroker.js';
@@ -364,7 +371,62 @@ export function setupModernHttpRoutes(
   createBridge: ModernInboundBridgeFactory,
   requestPolicy: ModernHttpRequestPolicy,
   requestTimeoutMs = DEFAULT_MODERN_REQUEST_TIMEOUT_MS,
+  inboundHttpEra: 'dual' | 'legacy-only' = 'dual',
 ): void {
+  if (inboundHttpEra === 'legacy-only') {
+    const rejectModern: RequestHandler = async (req, res) => {
+      const request = webRequest(req);
+      if (!requestPolicy.allowsHost(req.get('host'))) {
+        const rejected = hostHeaderValidationResponse(request, []);
+        if (rejected) await writeWebResponse(rejected, res);
+        return;
+      }
+      if (!requestPolicy.allowsOrigin(req.get('origin'), req.get('host'))) {
+        const rejected = originValidationResponse(request, []);
+        if (rejected) await writeWebResponse(rejected, res);
+        return;
+      }
+      const body = req.body as { id?: unknown; method?: unknown } | undefined;
+      const id =
+        typeof body?.method === 'string' && (typeof body.id === 'string' || typeof body.id === 'number')
+          ? body.id
+          : null;
+      const classified = classifyInboundRequest({
+        httpMethod: req.method,
+        protocolVersionHeader: req.get('mcp-protocol-version'),
+        mcpMethodHeader: req.get('mcp-method'),
+        mcpNameHeader: req.get('mcp-name'),
+        body: req.body,
+      });
+      if (classified.kind === 'reject') {
+        res.status(classified.httpStatus).json({
+          jsonrpc: '2.0',
+          id,
+          error: { code: classified.code, message: classified.message, data: classified.data },
+        });
+        return;
+      }
+      res.status(400).json({
+        jsonrpc: '2.0',
+        id,
+        error: {
+          code: -32022,
+          message: 'Modern inbound HTTP is disabled: this endpoint supports legacy MCP only',
+          data: {
+            supported: [...LEGACY_PROTOCOL_REVISIONS],
+            requested:
+              classified.kind === 'modern'
+                ? (classified.classification.revision ?? MODERN_PROTOCOL_REVISION)
+                : (req.get('mcp-protocol-version') ?? MODERN_PROTOCOL_REVISION),
+          },
+        },
+      });
+    };
+    router.get([STREAMABLE_HTTP_ENDPOINT, SSE_ENDPOINT], modernAdmission, ...middlewares, rejectModern);
+    router.delete(STREAMABLE_HTTP_ENDPOINT, modernAdmission, ...middlewares, rejectModern);
+    router.post([STREAMABLE_HTTP_ENDPOINT, MESSAGES_ENDPOINT], modernAdmission, ...middlewares, rejectModern);
+    return;
+  }
   const templateContexts = new ModernTemplateContextSessions();
   const catalogOwners = new Map<
     string,

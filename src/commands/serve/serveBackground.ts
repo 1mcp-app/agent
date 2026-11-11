@@ -57,6 +57,7 @@ const BACKGROUND_STARTUP_OPTION_KEYS = [
   'log-level',
   'log-file',
   'transport',
+  'inbound-http-era',
   'port',
   'host',
   'external-url',
