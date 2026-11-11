@@ -30,6 +30,7 @@ export class StreamableSessionRepository {
   private inMemorySessions = new Map<string, StreamableSessionData>();
 
   private readonly protectedSessions = new Map<string, number>();
+  private readonly protectedPersistedExpiries = new Map<string, number>();
   private expirationHandler?: (sessionIds: string[]) => Promise<void>;
 
   setExpirationHandler(handler: (sessionIds: string[]) => Promise<void>): void {
@@ -51,6 +52,7 @@ export class StreamableSessionRepository {
   protectSession(sessionId: string): (accepted?: boolean) => void {
     const session = this.inMemorySessions.get(sessionId);
     this.protectedSessions.set(sessionId, (this.protectedSessions.get(sessionId) ?? 0) + 1);
+    this.refreshProtectedSession(sessionId);
     let released = false;
     return (accepted = true) => {
       if (released) return;
@@ -61,6 +63,21 @@ export class StreamableSessionRepository {
       else this.protectedSessions.delete(sessionId);
       // Work that stayed active beyond the TTL gets a full idle interval after completion.
       if (accepted && this.inMemorySessions.has(sessionId)) this.updateAccess(sessionId);
+      if (remaining > 0) return;
+      if (!session) return;
+      if (!this.protectedPersistedExpiries.has(sessionId)) return;
+      // Restore the real idle deadline, including an unchanged deadline for rejected work.
+      this.lastAccessTimes.set(sessionId, session.lastAccessedAt);
+      this.dirtySessionIds.add(sessionId);
+      try {
+        this.persistSessionAccess(sessionId, session.lastAccessedAt);
+      } catch (error) {
+        logError('streamableSessionRepository.failed.to.persist.background.session.access.f1b04c62', {
+          method: 'releaseProtection',
+          sessionId,
+          error,
+        });
+      }
     };
   }
 
@@ -101,7 +118,7 @@ export class StreamableSessionRepository {
     // Conditionally persist to disk
     const agentConfig = AgentConfigManager.getInstance();
     if (agentConfig.get('features').sessionPersistence) {
-      this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
+      this.writeSessionData(sessionId, sessionData);
       logger.info('streamableSessionRepository.created.streamable.session.with.persistence.557ffb00');
     } else {
       logger.info('streamableSessionRepository.created.streamable.session.memory.only.177edf2d');
@@ -279,7 +296,7 @@ export class StreamableSessionRepository {
         const agentConfig = AgentConfigManager.getInstance();
         if (agentConfig.get('features').sessionPersistence) {
           try {
-            this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
+            this.writeSessionData(sessionId, sessionData);
           } catch (writeError) {
             logError('streamableSessionRepository.failed.to.persist.initialize.response.to.disk.1670d212', {
               method: 'storeInitializeResponse',
@@ -316,6 +333,7 @@ export class StreamableSessionRepository {
     this.dirtySessionIds.delete(sessionId);
     this.inMemorySessions.delete(sessionId);
     this.protectedSessions.delete(sessionId);
+    this.protectedPersistedExpiries.delete(sessionId);
 
     // Delete from disk if persistence is enabled
     const agentConfig = AgentConfigManager.getInstance();
@@ -328,6 +346,35 @@ export class StreamableSessionRepository {
     } else {
       logger.info('streamableSessionRepository.deleted.streamable.session.from.memory.b7e93c14');
       return true;
+    }
+  }
+
+  private writeSessionData(sessionId: string, data: StreamableSessionData): void {
+    if (!this.protectedSessions.has(sessionId)) {
+      this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, data);
+      this.protectedPersistedExpiries.delete(sessionId);
+      return;
+    }
+    const expires = Math.max(data.expires, Date.now() + this.getSessionTtlMs());
+    this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, { ...data, expires });
+    this.protectedPersistedExpiries.set(sessionId, expires);
+  }
+
+  /** Persist a lease projection without changing the accepted-activity idle deadline. */
+  private refreshProtectedSession(sessionId: string): void {
+    if (!AgentConfigManager.getInstance().get('features').sessionPersistence) return;
+    const data = this.inMemorySessions.get(sessionId);
+    if (!data) return;
+    const expires = this.protectedPersistedExpiries.get(sessionId) ?? data.expires;
+    if (expires > Date.now() + this.getSessionTtlMs() / 2) return;
+    try {
+      this.writeSessionData(sessionId, data);
+    } catch (error) {
+      logError('streamableSessionRepository.failed.to.persist.background.session.access.f1b04c62', {
+        method: 'refreshProtection',
+        sessionId,
+        error,
+      });
     }
   }
 
@@ -357,7 +404,7 @@ export class StreamableSessionRepository {
       sessionData.lastAccessedAt = accessTime;
       // Extend expiration on access
       sessionData.expires = accessTime + this.getSessionTtlMs();
-      this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
+      this.writeSessionData(sessionId, sessionData);
 
       // Reset counters and update persist time
       this.lastPersistTimes.set(sessionId, accessTime);
@@ -408,7 +455,12 @@ export class StreamableSessionRepository {
   private startPeriodicFlush(): void {
     // Get flush interval from config
     const agentConfig = AgentConfigManager.getInstance();
-    const flushIntervalMs = agentConfig.get('sessionPersistence').backgroundFlushSeconds * 1000;
+    let flushIntervalMs = agentConfig.get('sessionPersistence').backgroundFlushSeconds * 1000;
+    if (!Number.isFinite(flushIntervalMs)) flushIntervalMs = 60_000;
+    flushIntervalMs = Math.max(1000, flushIntervalMs);
+    let ttlMs = this.getSessionTtlMs();
+    if (!Number.isFinite(ttlMs)) ttlMs = flushIntervalMs * 2;
+    const intervalMs = Math.max(1000, Math.min(flushIntervalMs, ttlMs / 2));
 
     this.flushInterval = setInterval(() => {
       const expired = this.getExpiredSessionIds();
@@ -418,7 +470,8 @@ export class StreamableSessionRepository {
         for (const sessionId of expired) this.delete(sessionId);
       }
       this.flushDirtySessions();
-    }, flushIntervalMs);
+      for (const sessionId of this.protectedSessions.keys()) this.refreshProtectedSession(sessionId);
+    }, intervalMs);
     this.flushInterval.unref?.();
   }
 

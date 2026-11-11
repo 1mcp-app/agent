@@ -629,20 +629,22 @@ export class StreamableSessionLifecycle {
     const disconnection = this.disconnectingSessions.get(sessionId);
     // Revoke lookup before any asynchronous cleanup or transport onclose callback.
     const retirement = Promise.resolve().then(async () => {
+      let deletionFailed = false;
+      let deletionError: unknown;
       try {
         this.sessionRepository.delete(sessionId);
       } catch (error) {
+        deletionFailed = true;
+        deletionError = error;
         logError('streamableSessionLifecycle.session.deletion.failed.b8bfdce6', {
           method: 'completeExplicitDelete',
           sessionId,
           error,
         });
       }
-      if (disconnection) {
-        await disconnection;
-        return;
-      }
-      await this.serverManager.disconnectTransport(sessionId, true);
+      if (disconnection) await disconnection;
+      else await this.serverManager.disconnectTransport(sessionId, true);
+      if (deletionFailed) throw deletionError;
     });
     this.retiringSessions.set(sessionId, retirement);
     void retirement.then(

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
+import { AUTH_CONFIG } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import type { ServerManager } from '@src/core/server/serverManager.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
@@ -214,5 +215,65 @@ describe.each([false, true])('Streamable idle expiry (persistence=%s)', (session
     await Promise.all([closing, deletion]);
     expect(disconnect).toHaveBeenCalledExactlyOnceWith(sessionId);
     expect(repository.getSessionData(sessionId)).toBeNull();
+  });
+  it.each([false, true])(
+    'keeps protected disk state restorable, then restores idle expiry (accepted=%s)',
+    async (accepted) => {
+      const close = lifecycle.protectSession(sessionId);
+      await vi.advanceTimersByTimeAsync(360_000);
+      storage.cleanupExpiredData();
+      const restartedWhileProtected = new StreamableSessionRepository(storage);
+      const persisted = restartedWhileProtected.getSessionData(sessionId);
+      if (sessionPersistence) expect(persisted?.expires).toBeGreaterThan(Date.now());
+      else expect(persisted).toBeNull();
+      restartedWhileProtected.stopPeriodicFlush();
+      expect(disconnect).not.toHaveBeenCalled();
+      close(accepted);
+      const restartedAfterClose = new StreamableSessionRepository(storage);
+      const afterClose = restartedAfterClose.getSessionData(sessionId);
+      if (sessionPersistence && accepted) expect(afterClose?.expires).toBe(Date.now() + 60_000);
+      else expect(afterClose).toBeNull();
+      restartedAfterClose.stopPeriodicFlush();
+      if (accepted) await vi.advanceTimersByTimeAsync(60_000);
+      await lifecycle.expireIdleSessions();
+      expect(disconnect).toHaveBeenCalledOnce();
+    },
+  );
+
+  if (sessionPersistence) {
+    it('keeps deletion retired when a valid disk restoration record cannot be removed', async () => {
+      repository.storeInitializeResponse(sessionId, {
+        protocolVersion: '2025-11-25',
+        capabilities: {},
+        serverInfo: { name: 'test', version: '1' },
+      });
+      vi.spyOn(storage, 'deleteData').mockImplementation(() => {
+        throw new Error('disk deletion denied');
+      });
+      await expect(lifecycle.completeExplicitDelete(sessionId)).rejects.toThrow('disk deletion denied');
+      expect(disconnect).toHaveBeenCalledExactlyOnceWith(sessionId, true);
+      const restarted = new StreamableSessionRepository(storage);
+      expect(restarted.getSessionData(sessionId)).not.toBeNull(); // The valid file actually remains.
+      restarted.stopPeriodicFlush();
+      expect((await lifecycle.resolveExistingSession(sessionId)).status).toBe(StreamableSessionStatus.Missing);
+      expect(connect).toHaveBeenCalledOnce();
+    });
+  }
+
+  it('treats already absent disk state as a successful idempotent deletion', async () => {
+    if (sessionPersistence) storage.deleteData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId);
+    await expect(lifecycle.completeExplicitDelete(sessionId)).resolves.toBeUndefined();
+    expect(disconnect).toHaveBeenCalledExactlyOnceWith(sessionId, true);
+    expect((await lifecycle.resolveExistingSession(sessionId)).status).toBe(StreamableSessionStatus.Missing);
+  });
+
+  it.each([0, -1, NaN, 0.000001])('bounds the background cadence for tiny or invalid TTL %s', async (ttl) => {
+    vi.mocked(AgentConfigManager.getInstance().getSessionTtlMinutes).mockReturnValue(ttl);
+    const guarded = new StreamableSessionRepository(storage);
+    const sweeps = vi.spyOn(guarded, 'getExpiredSessionIds');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sweeps.mock.calls.length).toBeLessThanOrEqual(60);
+    expect(sweeps).toHaveBeenCalled();
+    guarded.stopPeriodicFlush();
   });
 });
