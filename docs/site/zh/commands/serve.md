@@ -368,7 +368,7 @@ http://127.0.0.1:3051/mcp?app=cursor
 1mcp serve --inbound-http-era legacy-only
 ```
 
-对应的环境变量为 `ONE_MCP_INBOUND_HTTP_ERA=legacy-only`。也可以在 `config.toml` 顶层设置 `inboundHttpEra = "legacy-only"`。显式命令行参数优先于环境变量，环境变量优先于持久化配置。修改后需重启运行时。
+对应的环境变量为 `ONE_MCP_INBOUND_HTTP_ERA=legacy-only`。也可以在 `config.toml` 顶层设置 `inboundHttpEra = "legacy-only"`。显式命令行参数优先于环境变量，环境变量优先于持久化配置。修改后需重启运行时。如果持久化的 `inboundHttpEra` 无效，即使命令行或环境变量提供了覆盖值，运行时也会拒绝启动，以免丢弃有效的身份验证设置。
 
 此设置作用于整个端点：支持自动协商的 SDK 客户端会回退到保留会话的旧版协议，固定使用现代协议的客户端会收到不支持协议版本的错误。此端点的所有客户端都将无法使用现代入站功能。身份验证失败及其他无关错误保持原有行为。每个上游的出站 `protocolVersion` 独立生效，现代出站协议仍受支持。
 

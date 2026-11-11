@@ -378,7 +378,7 @@ Resource subscriptions for the failed backend are lost; healthy backend watches 
 1mcp serve --inbound-http-era legacy-only
 ```
 
-The equivalent environment variable is `ONE_MCP_INBOUND_HTTP_ERA=legacy-only`. In `config.toml`, set the top-level key `inboundHttpEra = "legacy-only"`. Explicit CLI flags override environment variables, which override persisted configuration. Restart the runtime to apply a change.
+The equivalent environment variable is `ONE_MCP_INBOUND_HTTP_ERA=legacy-only`. In `config.toml`, set the top-level key `inboundHttpEra = "legacy-only"`. Explicit CLI flags override environment variables, which override persisted configuration. Restart the runtime to apply a change. An invalid persisted `inboundHttpEra` prevents startup, even when a CLI or environment override is supplied, so valid authentication settings cannot be discarded.
 
 This is endpoint-wide: automatic SDK negotiation falls back to retained legacy sessions, and modern-pinned clients receive an unsupported-protocol-version error. Modern inbound features are unavailable to every client of that endpoint. Authentication and unrelated failures retain their normal errors. Each upstream's outbound `protocolVersion` remains independent, including modern outbound support.
 

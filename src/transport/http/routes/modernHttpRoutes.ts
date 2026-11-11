@@ -3,6 +3,7 @@ import {
   createMcpHandler,
   fromJsonSchema,
   hostHeaderValidationResponse,
+  isJsonContentType,
   isLegacyRequest,
   type JsonSchemaType,
   McpServer,
@@ -391,6 +392,16 @@ export function setupModernHttpRoutes(
         typeof body?.method === 'string' && (typeof body.id === 'string' || typeof body.id === 'number')
           ? body.id
           : null;
+      if (req.method === 'POST') {
+        if (!isJsonContentType(req.get('content-type'))) {
+          res.status(415).json({
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32000, message: 'Unsupported Media Type: Content-Type must be application/json' },
+          });
+          return;
+        }
+      }
       const classified = classifyInboundRequest({
         httpMethod: req.method,
         protocolVersionHeader: req.get('mcp-protocol-version'),

@@ -3,12 +3,15 @@ import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { CommandTestEnvironment, TestProcessManager } from '@test/e2e/utils/index.js';
 
+import { spawnSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
+
+import { createTestProcessEnvironment } from '../../../scripts/test-process-environment.mjs';
 
 describe('built runtime inbound HTTP era', () => {
   let environment: CommandTestEnvironment;
@@ -86,6 +89,47 @@ describe('built runtime inbound HTTP era', () => {
     clients.push(created);
     return created;
   }
+
+  it.each([false, true])(
+    'rejects invalid persisted era before serving with auth enabled (background=%s)',
+    async (background) => {
+      environment = new CommandTestEnvironment({ name: 'inbound-era-invalid', createConfigFile: true });
+      await environment.setup();
+      await writeFile(
+        join(environment.getConfigDir(), 'config.toml'),
+        'inboundHttpEra = "legacy"\n[auth]\nenabled = true',
+      );
+      const socket = createServer();
+      await new Promise<void>((resolve) => socket.listen(0, '127.0.0.1', resolve));
+      const port = (socket.address() as { port: number }).port;
+      await new Promise<void>((resolve) => socket.close(() => resolve()));
+      const result = spawnSync(
+        process.execPath,
+        [
+          'build/index.js',
+          'serve',
+          '--host',
+          '127.0.0.1',
+          '--port',
+          String(port),
+          '--config-dir',
+          environment.getConfigDir(),
+          '--inbound-http-era',
+          'dual',
+          ...(background ? ['--background'] : []),
+        ],
+        { env: createTestProcessEnvironment(environment.getEnvironmentVariables()), encoding: 'utf8', timeout: 15_000 },
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr + result.stdout).toBe(1);
+      const unbound = createServer();
+      await new Promise<void>((resolve, reject) => {
+        unbound.once('error', reject);
+        unbound.listen(port, '127.0.0.1', resolve);
+      });
+      await new Promise<void>((resolve) => unbound.close(() => resolve()));
+    },
+  );
 
   it('keeps modern outbound protocolVersion working behind legacy-only inbound HTTP', async () => {
     const handler = createMcpHandler(

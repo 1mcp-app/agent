@@ -173,6 +173,7 @@ describe('frozen replacement bootstrap', () => {
     ['mcp.json', '{"mcpServers":{"bad":{"command":42}}}'],
     ['mcp.json', '{"mcpServers":{},"serverDefaults":{"timeout":"not-a-number"}}'],
     ['config.toml', 'port = "secret-invalid-port"'],
+    ['config.toml', 'inboundHttpEra = "secret-invalid-era"\n[auth]\nenabled = true'],
     ['config.toml', '[broken'],
     ['.env', 'secret-invalid-line'],
   ])('strictly rejects malformed %s without leaking content', (file, content) => {
