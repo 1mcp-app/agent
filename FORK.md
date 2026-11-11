@@ -5,7 +5,7 @@
 - **Upstream (источник):** https://github.com/1mcp-app/agent (remote `upstream`)
 - **Наш форк:** https://github.com/Andrew-153/1mcp-hub (remote `origin`)
 - **Рабочая ветка:** `posiflora/hub-0.39` (от тега upstream `v0.39.6`)
-- **Где лежит локально:** `C:\Work\MCPs\1mcp-agent`; конфиг и данные хаба отдельно: `C:\Work\MCPs\1mcp-hub`
+- **Где лежит локально:** `C:\Work\MCPs\1mcp-hub\agent`; конфиг и данные хаба отдельно: `C:\Work\MCPs\1mcp-hub\hub`
 - **Ветка `main` форка** повторяет upstream `main` (сейчас 0.40.0-beta), рабочим хабом не является.
 
 ## Наши правки
@@ -18,13 +18,13 @@
 ## Как собрать и обновить хаб
 
 ```bash
-cd C:/Work/MCPs/1mcp-agent
+cd C:/Work/MCPs/1mcp-hub/agent
 corepack pnpm install --frozen-lockfile
 sh scripts/build.sh          # нужен pnpm в PATH (обёртка над `corepack pnpm`)
 ```
 
-Затем перезапустить хаб (остановка `1mcp serve --stop --config-dir C:/Work/MCPs/1mcp-hub`, запуск задачей планировщика «1MCP Hub»).
-Подробности и порядок действий: `C:\Work\MCPs\1mcp-hub\README.md`.
+Затем перезапустить хаб (остановка `1mcp serve --stop --config-dir C:/Work/MCPs/1mcp-hub/hub`, запуск задачей планировщика «1MCP Hub»).
+Подробности и порядок действий: `C:\Work\MCPs\1mcp-hub\hub\README.md`.
 
 ## Как подтянуть новую версию upstream
 
