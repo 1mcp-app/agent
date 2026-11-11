@@ -347,4 +347,75 @@ describe('instructionsDistribution', () => {
 
     expect(upsertStartupDocManagedBlock('# Existing\n@1MCP.md\n', block)).toBe('# Existing\n@/tmp/.codex/1MCP.md\n');
   });
+
+  it.each(['@1MCP.md', '@.codex/1MCP.md', '@/tmp/.codex/1MCP.md'])(
+    'preserves the position of an existing %s reference',
+    (reference) => {
+      for (const prefix of ['', '# Instructions\n\n']) {
+        const content = `${prefix}${reference}\n\nKeep these instructions after the reference.\n\n`;
+        expect(upsertStartupDocManagedBlock(content, `${reference}\n`)).toBe(content);
+      }
+    },
+  );
+
+  it('migrates and deduplicates references at the first existing position', () => {
+    const block = '@/tmp/.codex/1MCP.md\n';
+    const content = `# Before\n@1MCP.md\n# After\n${block}`;
+    const expected = `# Before\n${block}# After\n`;
+
+    expect(upsertStartupDocManagedBlock(content, block)).toBe(expected);
+    expect(upsertStartupDocManagedBlock(expected, block)).toBe(expected);
+  });
+
+  it.each([
+    ['```markdown', '```'],
+    ['~~~markdown', '~~~'],
+    ['````markdown\n```\n~~~', '`````'],
+    ['   ```markdown', '   ```'],
+  ])('ignores reference examples inside %s fences', (opening, closing) => {
+    const block = '@.claude/1MCP.md\n';
+    const example = `${opening}\n${block}${closing}\n`;
+    const content = `${example}\n${block}\n# After\n`;
+
+    expect(upsertStartupDocManagedBlock(content, block)).toBe(content);
+    expect(upsertStartupDocManagedBlock(example, block)).toBe(`${example}${block}`);
+  });
+
+  it.each(['```markdown', '~~~markdown'])('inserts a missing reference before an unclosed %s fence', (opening) => {
+    const block = '@.claude/1MCP.md\n';
+    const prefix = '# Instructions\n\n```text\nclosed example\n```\n\n';
+    const example = `${opening}\n${block}unfinished example\n`;
+    const expected = `${prefix}${block}${example}`;
+
+    const updated = upsertStartupDocManagedBlock(`${prefix}${example}`, block);
+
+    expect(updated).toBe(expected);
+    expect(upsertStartupDocManagedBlock(updated, block)).toBe(expected);
+    expect(upsertStartupDocManagedBlock(`${block}${example}`, block)).toBe(`${block}${example}`);
+  });
+
+  it.each([
+    '  - ```\n    @.claude/1MCP.md\n    ```\n',
+    '- Example:\n\n    ~~~markdown\n    @.claude/1MCP.md\n    ~~~\n',
+    'Example `\n@.claude/1MCP.md\n`\n',
+    'Example ``\n`\n@.claude/1MCP.md\n``\n',
+    '    @.claude/1MCP.md\n',
+  ])('preserves Markdown code examples when selecting the real reference: %s', (example) => {
+    const block = '@.claude/1MCP.md\n';
+    const content = `${example}\n${block}\n# After\n`;
+
+    expect(upsertStartupDocManagedBlock(content, block)).toBe(content);
+    const inserted = upsertStartupDocManagedBlock(example, block);
+    expect(inserted).toBe(`${example}${block}`);
+    expect(upsertStartupDocManagedBlock(inserted, block)).toBe(inserted);
+  });
+
+  it('inserts before the containing list when its final fence is unclosed', () => {
+    const block = '@.claude/1MCP.md\n';
+    const content = '# Instructions\n\n- Example:\n\n    ```markdown\n    @.claude/1MCP.md\n';
+    const expected = `# Instructions\n\n${block}- Example:\n\n    \`\`\`markdown\n    @.claude/1MCP.md\n`;
+
+    expect(upsertStartupDocManagedBlock(content, block)).toBe(expected);
+    expect(upsertStartupDocManagedBlock(expected, block)).toBe(expected);
+  });
 });

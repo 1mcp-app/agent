@@ -163,6 +163,7 @@ export async function startOfficialGateway(
         PATH: process.env.PATH,
         HOME: home,
         NODE_ENV: 'test',
+        ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED: 'true',
         ONE_MCP_CONFIG_DIR: runtimeScope,
         ONE_MCP_LOG_LEVEL: 'error',
         NO_PROXY: '127.0.0.1,localhost,::1',
@@ -221,7 +222,13 @@ async function startTypescriptServer(
     [fixture, 'server', '--sdk-era', era === 'modern' ? 'v2' : 'v1', '--transport', 'streamable-http'],
     {
       cwd: join(root, 'test/conformance/fixtures/typescript'),
-      env: { PATH: process.env.PATH, HOME: home, NODE_ENV: 'test', NO_PROXY: '127.0.0.1,localhost,::1' },
+      env: {
+        PATH: process.env.PATH,
+        HOME: home,
+        NODE_ENV: 'test',
+        ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED: 'true',
+        NO_PROXY: '127.0.0.1,localhost,::1',
+      },
       stdio: ['ignore', 'pipe', 'ignore'],
     },
   );

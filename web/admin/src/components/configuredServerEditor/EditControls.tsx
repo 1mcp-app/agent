@@ -102,6 +102,9 @@ export function ConfiguredServerFieldDraft({
   }
 
   if (field.control === 'record') {
+    if (field.fieldPath.join('.') === 'transport.oauth') {
+      return <OAuthFieldDraft label={field.label} value={objectRecord(value)} onChange={onChange} />;
+    }
     return <RecordFieldDraft label={field.label} value={objectRecord(value)} onChange={onChange} />;
   }
 
@@ -111,6 +114,47 @@ export function ConfiguredServerFieldDraft({
       value={String(value ?? '')}
       onChange={(event) => onChange(event.currentTarget.value)}
     />
+  );
+}
+
+function OAuthFieldDraft({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: Record<string, unknown>;
+  onChange: (value: Record<string, unknown>) => void;
+}) {
+  const { insecureAllowIncompleteMetadata, privateNetworkOrigins, ...other } = value;
+  return (
+    <Stack gap="sm">
+      <Switch
+        label="Allow incomplete OAuth metadata (insecure)"
+        description="Infer a missing issuer and resolve relative endpoints. Keep off for providers with complete metadata."
+        checked={insecureAllowIncompleteMetadata === true}
+        onChange={(event) => onChange({ ...value, insecureAllowIncompleteMetadata: event.currentTarget.checked })}
+      />
+      <TagsInput
+        label="Private-network HTTPS origins"
+        description="Press Enter after each trusted HTTPS origin. This approval is separate from incomplete metadata compatibility."
+        value={stringArray(privateNetworkOrigins)}
+        clearable
+        clearButtonProps={{ 'aria-label': 'Clear private-network origins' }}
+        onChange={(origins) => onChange({ ...value, privateNetworkOrigins: origins })}
+      />
+      <RecordFieldDraft
+        label={label}
+        value={other}
+        onChange={(next) =>
+          onChange({
+            ...next,
+            ...(insecureAllowIncompleteMetadata !== undefined ? { insecureAllowIncompleteMetadata } : {}),
+            ...(privateNetworkOrigins !== undefined ? { privateNetworkOrigins } : {}),
+          })
+        }
+      />
+    </Stack>
   );
 }
 

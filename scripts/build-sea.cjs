@@ -4,6 +4,7 @@ const { execSync } = require('child_process');
 const { createHash } = require('node:crypto');
 const fs = require('fs');
 const path = require('path');
+const { buildProductProxyModule } = require('./product-telemetry-proxy.cjs');
 
 function retainLegacySdkNotice(bundledCode, rootDir = process.cwd()) {
   const island = path.join(rootDir, 'build/sdk/legacy/server/retained-sdk');
@@ -112,6 +113,8 @@ function buildSEA() {
       write: false,
     }).outputFiles[0].text;
 
+    const telemetryProxyModule = buildProductProxyModule();
+
     // 4.5. Prepare tiktoken WASM files for inlining
     console.log('📦 Preparing tiktoken WASM files for inlining...');
     const tiktokenPath = require.resolve('tiktoken');
@@ -156,6 +159,9 @@ const __PACKAGE_VERSION__ = ${JSON.stringify(packageJson.version)};
 
 // Isolated schema worker with its validator dependencies, requiring no source files.
 globalThis.__1MCP_SCHEMA_WORKER_SOURCE__ = ${JSON.stringify(schemaWorkerBundle)};
+
+// Proxy compatibility modules for older Node SEA workers, requiring no source files.
+globalThis.__1MCP_TELEMETRY_PROXY_MODULE__ = ${JSON.stringify(telemetryProxyModule)};
 
 // Inlined Admin Console assets for SEA compatibility
 globalThis.__1MCP_SEA_ADMIN_CONSOLE_ASSETS__ = ${JSON.stringify(adminConsoleAssets)};

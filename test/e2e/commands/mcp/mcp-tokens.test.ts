@@ -1,11 +1,14 @@
 import { execSync } from 'child_process';
 import { promises as fs } from 'fs';
+import { tmpdir } from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 import type { ServerConfig } from '@src/commands/mcp/utils/mcpServerConfig.js';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { createTestProcessEnvironment } from '../../../../scripts/test-process-environment.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,13 +27,12 @@ function runCli(
   exitCode: number;
 } {
   const cwd = options.cwd || process.cwd();
-  const env = {
-    ...process.env,
+  const env = createTestProcessEnvironment({
     ...options.env,
     // Force extremely fast failures and disable retries
     ONE_MCP_LOG_LEVEL: 'error',
     NODE_ENV: 'test',
-  };
+  });
   const timeout = options.timeout || CLI_TIMEOUT;
 
   try {
@@ -56,10 +58,7 @@ describe('mcp tokens command', () => {
   let tempConfigFile: string;
 
   beforeEach(async () => {
-    // Create a temporary directory for test configuration in build/ folder
-    const buildDir = path.join(process.cwd(), 'build');
-    await fs.mkdir(buildDir, { recursive: true });
-    tempDir = await fs.mkdtemp(path.join(buildDir, 'test-temp-tokens-'));
+    tempDir = await fs.mkdtemp(path.join(tmpdir(), '1mcp-test-tokens-'));
     tempConfigFile = path.join(tempDir, 'test-config.json');
   });
 

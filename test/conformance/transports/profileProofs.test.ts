@@ -11,6 +11,8 @@ import type { JSONRPCMessage, RequestId } from '@modelcontextprotocol/sdk/types.
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { createTestProcessEnvironment } from '../../../scripts/test-process-environment.mjs';
+
 const root = resolve(__dirname, '../../..');
 const cliEntrypoint = join(root, 'build/index.js');
 const fixtureEntrypoint = join(root, 'test/conformance/fixtures/typescript/src/fixture.mjs');
@@ -33,13 +35,17 @@ interface CompletedProbeObservation {
 type ProbeObservation = CompletedProbeObservation;
 
 function childEnvironment(home: string): typeof process.env {
-  return {
-    PATH: process.env.PATH,
-    HOME: home,
-    NO_PROXY: '127.0.0.1,localhost,::1',
-    NODE_ENV: 'test',
-    ONE_MCP_LOG_LEVEL: 'error',
-  };
+  return createTestProcessEnvironment(
+    {
+      PATH: process.env.PATH,
+      HOME: home,
+      USERPROFILE: home,
+      NO_PROXY: '127.0.0.1,localhost,::1',
+      NODE_ENV: 'test',
+      ONE_MCP_LOG_LEVEL: 'error',
+    },
+    {},
+  );
 }
 
 async function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
@@ -354,6 +360,13 @@ async function probeHttpGateway(endpoint: string, home: string) {
 }
 
 describe('gateway transport regressions', () => {
+  it('hard suppresses collection in every profile-owned child environment', () => {
+    const environment = childEnvironment('/fixture-home');
+    expect(environment.ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED).toBe('true');
+    expect(environment.USERPROFILE).toBe('/fixture-home');
+    expect(stdioEnvironment('/fixture-home').ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED).toBe('true');
+  });
+
   afterEach(async () => {
     for (const child of [...activeChildren].reverse()) await stopChild(child);
     for (const workspace of workspaces) await rm(workspace, { recursive: true, force: true });

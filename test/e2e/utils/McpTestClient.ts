@@ -10,6 +10,8 @@ import {
   ListToolsResultSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
+import { createTestProcessEnvironment } from '../../../scripts/test-process-environment.mjs';
+
 export interface McpClientConfig {
   transport: 'stdio' | 'sse' | 'streamable-http';
   stdioConfig?: {
@@ -57,7 +59,7 @@ export class McpTestClient {
       this.transport = new StdioClientTransport({
         command: this.config.stdioConfig.command,
         args: this.config.stdioConfig.args,
-        env: this.config.stdioConfig.env,
+        env: createTestProcessEnvironment(this.config.stdioConfig.env),
       });
     } else if (this.config.transport === 'sse') {
       if (!this.config.sseConfig) {

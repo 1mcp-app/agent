@@ -1,5 +1,6 @@
 import { withProjectSelectionOptions } from '@src/commands/shared/projectSelectionOptions.js';
 import { withGlobalOptions } from '@src/globalOptions.js';
+import { runProductCommand } from '@src/productTelemetry/commandScope.js';
 
 import type { Argv } from 'yargs';
 
@@ -26,8 +27,10 @@ export function setupBootstrapCommand(yargs: Argv): Argv {
           'Worker assignments come from dispatch instructions, never parent cwd or session identity. Disabled or untrusted hooks remain a delivery coverage gap.',
         ),
     async (argv) => {
-      const { bootstrapCommand } = await import('./bootstrap.js');
-      await bootstrapCommand(argv as Parameters<typeof bootstrapCommand>[0]);
+      return runProductCommand('project', async () => {
+        const { bootstrapCommand } = await import('./bootstrap.js');
+        await bootstrapCommand(argv as Parameters<typeof bootstrapCommand>[0]);
+      });
     },
   );
 }

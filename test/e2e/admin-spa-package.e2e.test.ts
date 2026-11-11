@@ -130,36 +130,44 @@ describe('admin SPA package build', () => {
     rmSync(PACK_DESTINATION, { recursive: true, force: true });
     mkdirSync(PACK_DESTINATION, { recursive: true });
 
-    const indexPath = path.join(ADMIN_BUILD_DIR, 'index.html');
-    expect(existsSync(indexPath)).toBe(true);
-    expect(existsSync(LEGACY_ADMIN_CONSOLE_HTML_BUILD)).toBe(false);
+    const scratchRoot = path.join(process.cwd(), 'build', '.tmp');
+    mkdirSync(scratchRoot, { recursive: true });
+    const sentinel = mkdtempSync(path.join(scratchRoot, 'package-exclusion-'));
+    writeFileSync(path.join(sentinel, 'fixture-only.txt'), 'synthetic package exclusion fixture');
+    try {
+      const indexPath = path.join(ADMIN_BUILD_DIR, 'index.html');
+      expect(existsSync(indexPath)).toBe(true);
+      expect(existsSync(LEGACY_ADMIN_CONSOLE_HTML_BUILD)).toBe(false);
 
-    const indexHtml = readFileSync(indexPath, 'utf8');
-    const jsAsset = findBuiltEntryAsset('.js');
-    const cssAsset = findBuiltEntryAsset('.css');
+      const indexHtml = readFileSync(indexPath, 'utf8');
+      const jsAsset = findBuiltEntryAsset('.js');
+      const cssAsset = findBuiltEntryAsset('.css');
 
-    expect(jsAsset).toMatch(/^admin-console-[A-Za-z0-9_-]+\.js$/);
-    expect(cssAsset).toMatch(/^admin-console-[A-Za-z0-9_-]+\.css$/);
-    expect(existsSync(path.join(ADMIN_BUILD_DIR, 'favicon.svg'))).toBe(true);
-    expect(indexHtml).toContain(`/admin/assets/${jsAsset}`);
-    expect(indexHtml).toContain(`/admin/assets/${cssAsset}`);
-    expect(indexHtml).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
-    expect(indexHtml).not.toMatch(/<style[\s>]/i);
+      expect(jsAsset).toMatch(/^admin-console-[A-Za-z0-9_-]+\.js$/);
+      expect(cssAsset).toMatch(/^admin-console-[A-Za-z0-9_-]+\.css$/);
+      expect(existsSync(path.join(ADMIN_BUILD_DIR, 'favicon.svg'))).toBe(true);
+      expect(indexHtml).toContain(`/admin/assets/${jsAsset}`);
+      expect(indexHtml).toContain(`/admin/assets/${cssAsset}`);
+      expect(indexHtml).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
+      expect(indexHtml).not.toMatch(/<style[\s>]/i);
 
-    const packStdout = run('pnpm', ['pack', '--json', '--pack-destination', PACK_DESTINATION]);
-    const packOutput = JSON.parse(packStdout.slice(packStdout.indexOf('{'))) as {
-      filename: string;
-    };
-    const tarballPath = packOutput.filename;
-    expect(tarballPath).toBeTruthy();
+      const packStdout = run('pnpm', ['pack', '--json', '--pack-destination', PACK_DESTINATION]);
+      const packOutput = JSON.parse(packStdout.slice(packStdout.indexOf('{'))) as {
+        filename: string;
+      };
+      const tarballPath = packOutput.filename;
+      expect(tarballPath).toBeTruthy();
 
-    const tarballListing = run('tar', ['-tzf', tarballPath]);
-    expect(tarballListing).toContain('package/build/admin/index.html');
-    expect(tarballListing).toContain(`package/build/admin/assets/${jsAsset}`);
-    expect(tarballListing).toContain(`package/build/admin/assets/${cssAsset}`);
-    expect(tarballListing).toContain('package/build/admin/favicon.svg');
-    expect(tarballListing).not.toContain('package/build/.tmp/');
-    expect(tarballListing).not.toContain('package/build/transport/http/routes/adminConsoleHtml.js');
+      const tarballListing = run('tar', ['-tzf', tarballPath]);
+      expect(tarballListing).toContain('package/build/admin/index.html');
+      expect(tarballListing).toContain(`package/build/admin/assets/${jsAsset}`);
+      expect(tarballListing).toContain(`package/build/admin/assets/${cssAsset}`);
+      expect(tarballListing).toContain('package/build/admin/favicon.svg');
+      expect(tarballListing).not.toContain('package/build/.tmp/');
+      expect(tarballListing).not.toContain('package/build/transport/http/routes/adminConsoleHtml.js');
+    } finally {
+      rmSync(sentinel, { recursive: true, force: true });
+    }
   }, 120000);
 
   it('starts the flattened production Docker layout through its default command and serves Admin Console assets', async () => {

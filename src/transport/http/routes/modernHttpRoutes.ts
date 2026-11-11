@@ -100,6 +100,7 @@ import {
   watchModernInteractionBinding,
   withModernInteractionBinding,
 } from './modernInteractionBinding.js';
+import { observeModernProduct } from './modernProductTelemetry.js';
 import {
   cancelModernSubscription,
   closeModernSubscriptions,
@@ -602,7 +603,7 @@ export function setupModernHttpRoutes(
               overloaded.setRequestHandler('tools/call', async () => {
                 throw requestCapacityError();
               });
-              return overloaded;
+              return observeModernProduct(overloaded);
             }
             activeModernToolHeaderAdmissions++;
             ownsHeaderAdmission = true;
@@ -634,7 +635,7 @@ export function setupModernHttpRoutes(
                   { capabilities: { tools: {} } },
                 );
                 invalid.setRequestHandler('tools/call', async () => schemaInputErrorResult());
-                return invalid;
+                return observeModernProduct(invalid);
               }
 
               if (preparation.kind === 'blocked') {
@@ -643,7 +644,7 @@ export function setupModernHttpRoutes(
                   { capabilities: { tools: {} } },
                 );
                 pending.setRequestHandler('tools/call', async () => preparation.result as never);
-                return pending;
+                return observeModernProduct(pending);
               }
               if (preparation.kind === 'ready' && !(await preparation.revalidate())) {
                 const changed = new Server(
@@ -653,7 +654,7 @@ export function setupModernHttpRoutes(
                 changed.setRequestHandler('tools/call', async () => {
                   throw new ProtocolError(-32602, 'Preparation authorization changed');
                 });
-                return changed;
+                return observeModernProduct(changed);
               }
             }
           }
@@ -893,7 +894,7 @@ export function setupModernHttpRoutes(
               ),
             );
           }
-          return product;
+          return observeModernProduct(product);
         },
         { legacy: 'reject', responseMode },
       );

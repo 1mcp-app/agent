@@ -1,5 +1,6 @@
 import { MCPServerParams } from '@src/core/types/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
@@ -318,6 +319,6 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
     printer.info('Server added to configuration. If 1mcp is running, the new server will be loaded automatically.');
   } catch (error) {
     printer.error(`Failed to add server: ${error instanceof Error ? error.message : error}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }

@@ -6,6 +6,7 @@ import {
 } from '@src/domains/backup/backupManager.js';
 import { getAppPreset } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
@@ -187,7 +188,7 @@ async function cleanupBackups(maxAgeDays: number): Promise<void> {
 
   if (maxAgeDays < 1) {
     printer.error('Invalid age: must be at least 1 day.');
-    process.exit(1);
+    exitProductCommand(1);
   }
 
   // Show what will be deleted first

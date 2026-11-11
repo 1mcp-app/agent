@@ -256,3 +256,19 @@ describe('inspectUtils', () => {
     expect(info.examples).toEqual([]);
   });
 });
+
+it('renders unknown inventory counts without changing the JSON numeric contract', () => {
+  const result: import('./inspectUtils.js').InspectServersInfo = {
+    kind: 'servers',
+    servers: [
+      { server: 'cold', toolCount: 0, toolCountKnown: false, hasInstructions: false },
+      { server: 'empty', toolCount: 0, hasInstructions: false },
+    ],
+  };
+  expect(formatInspectOutput(result, 'text')).toContain('tools: unknown');
+  expect(formatInspectOutput(result, 'toon')).toContain('unknown');
+  expect(JSON.parse(formatInspectOutput(result, 'json')).servers[0]).toMatchObject({
+    toolCount: 0,
+    toolCountKnown: false,
+  });
+});

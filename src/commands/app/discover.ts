@@ -1,6 +1,7 @@
 import { discoverInstalledApps } from '@src/domains/discovery/appDiscovery.js';
 import { getAppPreset, showPlatformWarningIfNeeded } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
@@ -134,6 +135,6 @@ export async function discoverCommand(options: DiscoverOptions): Promise<void> {
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     printer.error(`Discovery failed: ${errorMessage}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }

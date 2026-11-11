@@ -76,4 +76,6 @@ The presubmit suite should retain exact coverage for these paths:
 - `McpTestClient` drives STDIO, SSE, and Streamable HTTP through the official MCP SDK.
 - `echo-server.js`, `error-server.js`, `slow-server.js`, and related fixtures provide deterministic downstream behavior.
 
+Every test-owned launch must preserve explicit Product Usage Telemetry suppression after custom environment merges or ambient cleanup, including SEA binaries. Use the shared process environment helper with a fixture-owned Runtime Scope and home directory; see the [suppression contract](../../docs/development/product-telemetry-test-suppression.md).
+
 Always close clients, browsers, HTTP servers, and subprocesses in teardown. A retry is diagnostic protection, not evidence that a flaky test is acceptable.

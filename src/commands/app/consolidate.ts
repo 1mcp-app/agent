@@ -25,6 +25,7 @@ import {
 } from '@src/domains/discovery/appPresets.js';
 import { generateSupportedAppsHelp } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 import { getServer1mcpUrl, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
 import { generateOperationPreview, validateOperation } from '@src/utils/validation/validationHelpers.js';
@@ -132,7 +133,7 @@ export async function consolidateCommand(options: ConsolidateOptions): Promise<v
     printer.info('Please specify at least one application to consolidate.');
     printer.info('Example: npx @1mcp/agent app consolidate claude-desktop');
     printer.info('Use "npx @1mcp/agent app list" to see supported applications.');
-    process.exit(1);
+    exitProductCommand(1);
   }
 
   // Show platform warning if needed
@@ -146,7 +147,7 @@ export async function consolidateCommand(options: ConsolidateOptions): Promise<v
   if (invalidApps.length > 0) {
     printer.error(`Unsupported applications: ${invalidApps.join(', ')}`);
     printer.info('Use "npx @1mcp/agent app list" to see supported applications.');
-    process.exit(1);
+    exitProductCommand(1);
   }
 
   // Get 1mcp server URL
@@ -159,7 +160,7 @@ export async function consolidateCommand(options: ConsolidateOptions): Promise<v
     if (!connectivityCheck.valid) {
       printer.error(`Cannot connect to 1mcp server: Server connectivity issue`);
       printer.info('Make sure the 1mcp server is running or use --force to skip validation.');
-      process.exit(1);
+      exitProductCommand(1);
     }
     printer.success('1mcp server connectivity verified');
     printer.blank();
@@ -235,7 +236,7 @@ export async function consolidateCommand(options: ConsolidateOptions): Promise<v
   }
 
   if (failed.length > 0) {
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 

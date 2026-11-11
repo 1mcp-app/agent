@@ -1,6 +1,7 @@
 import readline from 'readline';
 
 import { GlobalOptions } from '@src/globalOptions.js';
+import { exitProductCommand } from '@src/productTelemetry/commandScope.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
@@ -125,7 +126,7 @@ export async function removeCommand(argv: RemoveCommandArgs): Promise<void> {
     printer.info('Server removed from configuration. If 1mcp is running, the server will be unloaded automatically.');
   } catch (error) {
     printer.error(`Failed to remove server: ${error instanceof Error ? error.message : error}`);
-    process.exit(1);
+    exitProductCommand(1);
   }
 }
 

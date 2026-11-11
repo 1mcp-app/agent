@@ -4,6 +4,7 @@ import { configDefaults, defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
+    setupFiles: ['test/unit-utils/isolateProcessEnvironment.ts'],
     environment: 'node',
     include: ['test/conformance/**/*.test.ts'],
     exclude: configDefaults.exclude,

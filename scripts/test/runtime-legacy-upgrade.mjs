@@ -8,11 +8,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { createTestProcessEnvironment, isolatedTestEnvironment } from '../test-process-environment.mjs';
+import { createLegacyRuntimeEnvironment } from './legacy-runtime-environment.mjs';
+
 const execute = promisify(execFile);
 const legacy = fs.realpathSync(process.argv[2]);
 const candidate = fs.realpathSync(process.argv[3] ?? 'build/index.js');
 const candidateMode = process.argv[4] ?? 'node';
-const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('ONE_MCP_')));
+const isolated = isolatedTestEnvironment();
+const env = isolated.env;
 const scopes = [];
 const records = ['runtime.owner/owner.json', 'background-runtime.json', 'server.pid', 'background-launch.json'];
 const read = (scope, file) => JSON.parse(fs.readFileSync(path.join(scope, file), 'utf8'));
@@ -23,7 +27,10 @@ async function run(cli, scope, args) {
     javascript ? process.execPath : executable,
     [...(javascript ? [cli] : []), 'serve', '--config-dir', scope, ...args],
     {
-      env,
+      env:
+        cli === legacy
+          ? createLegacyRuntimeEnvironment(legacy, scope, env)
+          : createTestProcessEnvironment({ ONE_MCP_CONFIG_DIR: scope }, env),
       cwd: scope,
       timeout: 60000,
       maxBuffer: 2 * 1024 * 1024,
@@ -50,7 +57,7 @@ try {
       // Match old default/inherited scope invocations without --config-dir in argv.
       const supervisor = spawn(process.execPath, [legacy, 'serve', '--background-bootstrap', ...options], {
         cwd: scope,
-        env: { ...env, ONE_MCP_CONFIG_DIR: scope },
+        env: createLegacyRuntimeEnvironment(legacy, scope, env),
         stdio: 'ignore',
       });
       const deadline = Date.now() + 30000;
@@ -155,4 +162,5 @@ try {
     }
     if (!fs.existsSync(path.join(scope, 'runtime.owner'))) fs.rmSync(scope, { recursive: true, force: true });
   }
+  if (scopes.every((scope) => !fs.existsSync(path.join(scope, 'runtime.owner')))) isolated.cleanup();
 }

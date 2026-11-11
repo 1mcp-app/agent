@@ -1,5 +1,6 @@
 import { attachFreshClientSurface } from '@src/commands/shared/clientSurfaceAttachment.js';
 import logger from '@src/logger/logger.js';
+import { beginProductStartup } from '@src/productTelemetry/index.js';
 import { StdioProxyTransport } from '@src/transport/stdioProxyTransport.js';
 
 import { ProxyOptions } from './index.js';
@@ -8,6 +9,7 @@ import { ProxyOptions } from './index.js';
  * Proxy command - Start STDIO proxy to running 1MCP HTTP server
  */
 export async function proxyCommand(options: ProxyOptions): Promise<void> {
+  const startup = beginProductStartup('proxy');
   let releaseOwnerLease: (() => Promise<void>) | undefined;
   let proxyTransport: StdioProxyTransport | undefined;
   try {
@@ -58,6 +60,7 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     });
 
     await proxyTransport.start();
+    startup.finish('success');
 
     logger.info('proxy.stdio.proxy.running.forwarding.to.b084a797');
 
@@ -73,6 +76,7 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     process.on('SIGTERM', shutdown);
     process.on('SIGHUP', shutdown);
   } catch (error) {
+    startup.finish('failure');
     if (!proxyTransport) await releaseOwnerLease?.();
     if (error instanceof Error) {
       logger.error('proxy.proxycommand.diagnostic.de43c663', { error: error });

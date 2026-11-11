@@ -130,6 +130,7 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [
           { text: 'Authentication', link: '/guide/advanced/authentication' },
           { text: 'Security', link: '/guide/advanced/security' },
+          { text: 'Privacy and Product Usage', link: '/guide/privacy' },
           { text: 'Reverse Proxy', link: '/guide/advanced/reverse-proxy' },
           { text: 'Cloud Deployment', link: '/guide/advanced/cloud-deployment' },
           { text: 'Windows: Task Scheduler', link: '/guide/advanced/windows-task-scheduler' },
@@ -231,6 +232,10 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [
           { text: 'instructions', link: '/commands/instructions' },
           { text: 'inspect', link: '/commands/inspect' },
+          { text: 'telemetry', link: '/commands/telemetry' },
+          { text: 'Product operations', link: '/reference/product-telemetry-operations' },
+          { text: 'Command and Admin adoption', link: '/reference/product-telemetry-adoption' },
+          { text: 'Configuration buckets', link: '/reference/product-telemetry-configuration' },
           { text: 'run', link: '/commands/run' },
           { text: 'wait', link: '/commands/wait' },
         ],
@@ -290,6 +295,14 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'System Architecture', link: '/reference/architecture' },
           { text: 'Security Model', link: '/reference/security' },
           { text: 'Feature Comparison', link: '/reference/feature-comparison' },
+        ],
+      },
+      {
+        text: 'Product Usage Telemetry',
+        items: [
+          { text: 'Operations', link: '/reference/product-telemetry-operations' },
+          { text: 'CLI and Admin adoption', link: '/reference/product-telemetry-adoption' },
+          { text: 'Configuration buckets', link: '/reference/product-telemetry-configuration' },
         ],
       },
       {

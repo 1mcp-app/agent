@@ -6,6 +6,7 @@ import DurationSequencer from './test/e2e/setup/duration-sequencer.js';
 export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
+    setupFiles: ['test/unit-utils/isolateProcessEnvironment.ts'],
     environment: 'node',
     include: ['test/e2e/**/*.test.ts'],
     globals: true,

@@ -9,9 +9,34 @@
  * - ONE_MCP_LOG_LEVEL
  * - ONE_MCP_LOG_FILE
  */
+import { configureProductTelemetryBootstrap } from '@src/config/productTelemetryBootstrap.js';
+import { getRuntimeParentEnvironment } from '@src/config/runtimeBootstrap.js';
+import { parseEnvironmentBoolean } from '@src/productTelemetry/policy.js';
+
 import type { Argv } from 'yargs';
 
 export const globalOptions = {
+  'product-telemetry': {
+    describe: 'Collect aggregate product usage (env: ONE_MCP_PRODUCT_TELEMETRY); stored disable always wins',
+    type: 'string' as const,
+    coerce: coerceTelemetryBoolean,
+    default: undefined,
+  },
+  'product-telemetry-ci': {
+    describe: 'Allow product usage collection in CI (env: ONE_MCP_PRODUCT_TELEMETRY_CI)',
+    type: 'string' as const,
+    coerce: coerceTelemetryBoolean,
+    default: undefined,
+  },
+  'product-telemetry-test-suppressed': {
+    describe: 'Suppress Product Usage Telemetry in test-owned processes',
+    type: 'boolean' as const,
+    hidden: true,
+    default: undefined,
+    // A command-line false must never undo the launcher suppression decision.
+    coerce: (value: boolean) =>
+      parseEnvironmentBoolean(getRuntimeParentEnvironment().ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED) || value,
+  },
   'project-owner': {
     describe:
       'Override automatic session ownership with your own private bootstrap credential (env: ONE_MCP_PROJECT_OWNER)',
@@ -55,17 +80,42 @@ const configuredParsers = new WeakSet<Argv>();
 export function withGlobalOptions(yargs: Argv): Argv<GlobalOptions> {
   if (configuredParsers.has(yargs)) return yargs;
   configuredParsers.add(yargs);
-  return yargs.options(globalOptions).group(Object.keys(globalOptions), 'Global options:');
+  return yargs
+    .options(globalOptions)
+    .group(Object.keys(globalOptions), 'Global options:')
+    .middleware((argv) => configureProductTelemetryBootstrap(argv), true);
 }
 
 /**
  * Type definition for global options interface
  */
 export interface GlobalOptions {
+  'product-telemetry'?: boolean;
+  'product-telemetry-ci'?: boolean;
+  'product-telemetry-test-suppressed'?: boolean;
   'project-owner'?: string;
   config?: string;
   'config-dir'?: string;
   'cli-session-cache-path'?: string;
   'log-level'?: 'debug' | 'info' | 'warn' | 'error';
   'log-file'?: string;
+}
+
+function coerceTelemetryBoolean(value: unknown): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'boolean') return value;
+  if (value === '') return true;
+  if (typeof value !== 'string') throw new Error('Expected boolean telemetry option');
+  switch (value.toLowerCase()) {
+    case 'true':
+    case '1':
+    case 'yes':
+      return true;
+    case 'false':
+    case '0':
+    case 'no':
+      return false;
+    default:
+      throw new Error('Expected boolean telemetry option: true/false, 1/0, yes/no');
+  }
 }

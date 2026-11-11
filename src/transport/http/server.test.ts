@@ -498,6 +498,17 @@ describe('ExpressServer', () => {
       expect(mockApp.listen).toHaveBeenCalledWith(3050, 'localhost', expect.any(Function));
     });
 
+    it('reports a listen failure instead of startup readiness', () => {
+      const error = new Error('controlled bind failure');
+      mockApp.listen.mockImplementationOnce((_port: number, _host: string, callback: (error?: Error) => void) => {
+        callback(error);
+      });
+      expressServer = new ExpressServer(mockServerManager);
+      const onStartup = vi.fn();
+      expressServer.start(onStartup);
+      expect(onStartup).toHaveBeenCalledExactlyOnceWith(error);
+    });
+
     it('should start server with custom configuration', async () => {
       mockConfigManager.getConfig.mockReturnValue({ host: '0.0.0.0', port: 8080 });
 

@@ -37,8 +37,8 @@ export function withErrorHandling<T, Args extends readonly unknown[]>(
           : gatewayFailureFromUnknown(error);
       logger.error('errorHandling.witherrorhandling.diagnostic.02762c34', { error: error });
 
-      if (error instanceof SchemaBoundaryError) {
-        throw new MCPError(error.code, gatewayFailureToMcp(normalized).code, gatewayFailureToMcp(normalized).data);
+      if (error instanceof SchemaBoundaryError || normalized.code === 'schema_budget_exceeded') {
+        throw new MCPError(normalized.code, gatewayFailureToMcp(normalized).code, gatewayFailureToMcp(normalized).data);
       }
 
       // Rethrow MCPErrors as is

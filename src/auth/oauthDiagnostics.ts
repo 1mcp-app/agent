@@ -1,5 +1,10 @@
 const diagnostics = {
   network_failure: { stage: 'network', guidance: 'Check provider reachability and DNS.' },
+  private_destination_blocked: {
+    stage: 'network',
+    guidance:
+      'OAuth endpoint resolves to a private address. Explicitly approve its HTTPS origin with oauth.privateNetworkOrigins if trusted.',
+  },
   metadata_http_error: { stage: 'metadata', guidance: 'Check provider metadata availability and access policy.' },
   invalid_metadata: { stage: 'metadata', guidance: 'Check the provider OAuth metadata format.' },
   authority_mismatch: {

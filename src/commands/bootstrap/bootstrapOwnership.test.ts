@@ -2,10 +2,13 @@ import { access, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import * as ownerStore from '@src/commands/shared/projectOwnerStore.js';
 import { temporaryProjectOwnerStorage } from '@src/commands/shared/projectOwnerStorage.js';
 import {
+  acquireProjectOwnerLease,
   isProjectOwnerEnded,
   readHookThreadLocator,
+  readProjectOwner,
   recordProjectOwnerTarget,
 } from '@src/commands/shared/projectOwnerStore.js';
 
@@ -15,6 +18,7 @@ import { bootstrapOwner, recoverEndedSessionOwner, releaseSessionOwner } from '.
 
 const directories: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(
     directories
       .splice(0)
@@ -24,6 +28,145 @@ afterEach(async () => {
 });
 
 describe('bootstrap ownership lifecycle', () => {
+  it('resumes an ended owner without discarding its uncertain leases or deleting the new locator during recovery', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'bootstrap-generation-'));
+    directories.push(storage);
+    const options = {
+      client: 'codex' as const,
+      event: 'SessionStart' as const,
+      'config-dir': storage,
+      project: [storage],
+    };
+    const input = JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'resumed' });
+    const old = await bootstrapOwner(options, input);
+    const releaseCall = await acquireProjectOwnerLease(old);
+    await expect(
+      releaseSessionOwner(
+        { ...options, event: 'SessionEnd' },
+        JSON.stringify({ hook_event_name: 'SessionEnd', session_id: 'resumed' }),
+        async () => {},
+      ),
+    ).rejects.toThrow('leases');
+    let reached!: () => void;
+    let continueEnd!: () => void;
+    const selected = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const proceed = new Promise<void>((resolve) => {
+      continueEnd = resolve;
+    });
+    const lock = ownerStore.withHookIdentityLock;
+    vi.spyOn(ownerStore, 'withHookIdentityLock').mockImplementationOnce(async (...args) => {
+      reached();
+      await proceed;
+      return lock(...args);
+    });
+    const pendingEnd = releaseSessionOwner(
+      { ...options, event: 'SessionEnd' },
+      JSON.stringify({ hook_event_name: 'SessionEnd', session_id: 'resumed' }),
+      async () => {},
+    );
+    const rejectedEnd = expect(pendingEnd).rejects.toThrow('leases');
+    await selected;
+    const resumed = await Promise.all(Array.from({ length: 4 }, () => bootstrapOwner(options, input)));
+    expect(new Set(resumed).size).toBe(1);
+    continueEnd();
+    await rejectedEnd;
+    const fresh = resumed[0];
+    await expect(bootstrapOwner({ ...options, 'project-owner': old }, input)).rejects.toThrow('Session has ended');
+    expect(fresh).not.toBe(old);
+    expect(await isProjectOwnerEnded(fresh)).toBe(false);
+    expect(await readProjectOwner(fresh)).not.toBe(await readProjectOwner(old));
+    expect(await bootstrapOwner(options, input)).toBe(fresh);
+    expect(await isProjectOwnerEnded(old)).toBe(true);
+    await releaseCall();
+    await recoverEndedSessionOwner(old, async () => {});
+    expect((await readHookThreadLocator(temporaryProjectOwnerStorage(storage), 'codex', 'resumed'))?.ownerFile).toBe(
+      fresh,
+    );
+  });
+
+  it('allows resumed startup while the ended generation waits for runtime release', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'bootstrap-slow-release-'));
+    directories.push(storage);
+    const options = {
+      client: 'codex' as const,
+      event: 'SessionStart' as const,
+      'config-dir': storage,
+      project: [storage],
+    };
+    const input = JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'slow-release' });
+    const old = await bootstrapOwner(options, input);
+    await recordProjectOwnerTarget(old, { project: [storage], 'config-dir': storage, runtimeScopeId: 'scope' });
+    let entered!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const ending = releaseSessionOwner(
+      { ...options, event: 'SessionEnd' },
+      JSON.stringify({ hook_event_name: 'SessionEnd', session_id: 'slow-release' }),
+      async () => {
+        entered();
+        await pending;
+      },
+    );
+    await started;
+    let fresh: string;
+    try {
+      fresh = await bootstrapOwner(options, input);
+      expect(fresh).not.toBe(old);
+    } finally {
+      finish();
+      await ending;
+    }
+    expect(
+      (await readHookThreadLocator(temporaryProjectOwnerStorage(storage), 'codex', 'slow-release'))?.ownerFile,
+    ).toBe(fresh);
+    expect(await isProjectOwnerEnded(fresh)).toBe(false);
+  });
+
+  it('rejects an old end event when a cleaned legacy path has been reused by a new credential', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'bootstrap-reused-path-'));
+    directories.push(storage);
+    const options = {
+      client: 'codex' as const,
+      event: 'SessionStart' as const,
+      'config-dir': storage,
+      project: [storage],
+    };
+    const input = JSON.stringify({ hook_event_name: 'SessionStart', session_id: 'reused-path' });
+    const endInput = JSON.stringify({ hook_event_name: 'SessionEnd', session_id: 'reused-path' });
+    const old = await bootstrapOwner(options, input);
+    const oldCredential = await readProjectOwner(old);
+    let entered!: () => void;
+    let finish!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const lock = ownerStore.withHookIdentityLock;
+    vi.spyOn(ownerStore, 'withHookIdentityLock').mockImplementationOnce(async (...args) => {
+      entered();
+      await pending;
+      return lock(...args);
+    });
+    const delayed = releaseSessionOwner({ ...options, event: 'SessionEnd' }, endInput, async () => {});
+    const rejected = expect(delayed).rejects.toThrow('changed during terminal selection');
+    await started;
+    await releaseSessionOwner({ ...options, event: 'SessionEnd' }, endInput, async () => {});
+    const fresh = await bootstrapOwner(options, input);
+    expect(await readProjectOwner(fresh)).not.toBe(oldCredential);
+    finish();
+    await rejected;
+    expect(await isProjectOwnerEnded(fresh)).toBe(false);
+  });
+
   it('releases only the main-session credential and its recorded checkouts on SessionEnd', async () => {
     const storage = await mkdtemp(path.join(os.tmpdir(), 'bootstrap-owner-'));
     directories.push(storage);

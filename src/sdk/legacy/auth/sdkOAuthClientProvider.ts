@@ -37,6 +37,8 @@ export interface OAuthClientConfig {
   scopes?: string[];
   redirectUrl: string;
   issuer?: string;
+  insecureAllowIncompleteMetadata?: boolean;
+  privateNetworkOrigins?: string[];
   clientMetadataUrl?: string;
   autoRegister?: boolean;
   credentialAuthority?: string;
@@ -125,6 +127,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     this.fetch = createOAuthEndpointFetch({
       resource: this.context?.route.url ?? 'https://invalid.invalid/',
       issuer: this.config.issuer,
+      privateNetworkOrigins: this.config.privateNetworkOrigins,
       isResource: (url) => url.href === this.context?.route.url || url.href === this.sseEndpoint,
       acceptSseEndpoint:
         this.context?.route.kind === 'sse'
@@ -184,7 +187,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
         if (!ticket || ticket.kind !== 'discovery') throw oauthAuthorityError();
         const validated = this.validateMetadata(value, url, ticket.discoveryIssuer);
         if (ticket.discoveryIssuer)
-          this.recordResponse(this.responseMap('discovery'), this.discoveryKey(value), ticket);
+          this.recordResponse(this.responseMap('discovery'), this.discoveryKey(validated), ticket);
         return validated;
       },
     });
@@ -506,9 +509,17 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       if (selected ? selected !== issuer : advertised.length !== 1 || advertised[0] !== issuer)
         throw oauthAuthorityError();
     } else if (!this.config.legacy && !this.config.issuer) {
-      throw oauthAuthorityError();
+      if (this.config.insecureAllowIncompleteMetadata !== true) throw oauthAuthorityError();
+      if (!metadata) throw oauthAuthorityError();
+      if (new URL(issuer).origin !== new URL(this.context.route.url).origin) throw oauthAuthorityError();
     }
-    const issuerUrl = validateOAuthEndpoint(issuer, this.context.route.url, undefined, this.config.issuer);
+    const issuerUrl = validateOAuthEndpoint(
+      issuer,
+      this.context.route.url,
+      undefined,
+      this.config.issuer,
+      this.config.privateNetworkOrigins,
+    );
     if (issuerUrl.search || issuerUrl.hash) throw oauthAuthorityError();
     const fallback = this.config.legacy && issuerUrl.origin === new URL(this.context.route.url).origin;
     if (!metadata && !fallback) throw oauthAuthorityError();
@@ -520,6 +531,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
         this.context!.route.url,
         value ? undefined : issuerUrl.origin,
         this.config.issuer,
+        this.config.privateNetworkOrigins,
       ).href;
     };
     let registrationEndpoint: string | undefined;
@@ -589,7 +601,13 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       if (!issuers.length || issuers.length > 16 || issuers.some((issuer) => typeof issuer !== 'string'))
         throw oauthAuthorityError();
       for (const issuer of issuers)
-        validateOAuthEndpoint(String(issuer), this.context.route.url, undefined, this.config.issuer);
+        validateOAuthEndpoint(
+          String(issuer),
+          this.context.route.url,
+          undefined,
+          this.config.issuer,
+          this.config.privateNetworkOrigins,
+        );
       const approved = this.config.issuer ?? this.record?.authority.issuer;
       let selected: string | undefined;
       if (approved && issuers.includes(approved)) selected = approved;
@@ -608,20 +626,50 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     const discoveryType = buildDiscoveryUrls(discoveryIssuer).find(
       (candidate) => candidate.url.href === url.href,
     )?.type;
+    if (this.config.insecureAllowIncompleteMetadata) {
+      value = { ...value };
+      if (value.issuer === undefined) value.issuer = discoveryIssuer;
+      for (const key of ['authorization_endpoint', 'token_endpoint', 'registration_endpoint', 'jwks_uri']) {
+        const endpoint = value[key];
+        if (typeof endpoint !== 'string' || !endpoint) continue;
+        if (URL.canParse(endpoint)) continue;
+        const resolved = new URL(endpoint, discoveryIssuer);
+        if (resolved.origin !== new URL(discoveryIssuer).origin) throw oauthAuthorityError();
+        value[key] = resolved.href;
+      }
+    }
     if (discoveryType === 'oidc') OpenIdProviderDiscoveryMetadataSchema.parse(value);
     else OAuthMetadataSchema.parse(value);
     if (value.issuer !== discoveryIssuer) throw oauthAuthorityError();
-    const issuer = validateOAuthEndpoint(discoveryIssuer, this.context.route.url, undefined, this.config.issuer);
+    const issuer = validateOAuthEndpoint(
+      discoveryIssuer,
+      this.context.route.url,
+      undefined,
+      this.config.issuer,
+      this.config.privateNetworkOrigins,
+    );
     if (issuer.origin !== url.origin || (this.config.issuer && discoveryIssuer !== this.config.issuer))
       throw oauthAuthorityError();
     for (const key of ['authorization_endpoint', 'token_endpoint']) {
       if (typeof value[key] !== 'string') throw oauthAuthorityError();
-      validateOAuthEndpoint(value[key], this.context.route.url, undefined, this.config.issuer);
+      validateOAuthEndpoint(
+        value[key],
+        this.context.route.url,
+        undefined,
+        this.config.issuer,
+        this.config.privateNetworkOrigins,
+      );
     }
     for (const key of ['registration_endpoint', 'jwks_uri']) {
       if (value[key] === undefined) continue;
       if (typeof value[key] !== 'string') throw oauthAuthorityError();
-      validateOAuthEndpoint(value[key], this.context.route.url, undefined, this.config.issuer);
+      validateOAuthEndpoint(
+        value[key],
+        this.context.route.url,
+        undefined,
+        this.config.issuer,
+        this.config.privateNetworkOrigins,
+      );
     }
     return value;
   }

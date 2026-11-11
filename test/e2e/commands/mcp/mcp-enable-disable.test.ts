@@ -1,10 +1,11 @@
 import { TestFixtures } from '@test/e2e/fixtures/TestFixtures.js';
 import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
 
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, execFile, spawn } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -117,6 +118,8 @@ describe('MCP Enable/Disable Commands E2E', () => {
   beforeEach(async () => {
     environment = new CommandTestEnvironment(TestFixtures.createTestScenario('mcp-enable-disable-test', 'mixed'));
     await environment.setup();
+    // Keep checkout-derived context and runtime project policies inside this fixture.
+    await promisify(execFile)('git', ['init', '--quiet', environment.getTempDir()]);
     await writeFile(join(environment.getTempDir(), '.1mcprc'), '{}', 'utf8');
     runner = new CliTestRunner(environment);
     servePort = await getAvailablePort();
@@ -563,7 +566,7 @@ describe('MCP Enable/Disable Commands E2E', () => {
     serveProcess = spawn(
       process.execPath,
       [
-        'build/index.js',
+        join(process.cwd(), 'build/index.js'),
         'serve',
         '--transport',
         'http',
@@ -578,7 +581,7 @@ describe('MCP Enable/Disable Commands E2E', () => {
         'error',
       ],
       {
-        cwd: process.cwd(),
+        cwd: environment.getTempDir(),
         env: {
           ...process.env,
           ...environment.getEnvironmentVariables(),

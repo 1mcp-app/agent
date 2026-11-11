@@ -4,8 +4,8 @@
  * This test file validates that preset/tag filters are correctly applied
  * to tools, resources, and prompts at the integration level.
  */
-import { randomBytes } from 'crypto';
-import { mkdir, rm, writeFile } from 'fs/promises';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
@@ -17,11 +17,7 @@ describe('Lazy Loading Preset Filtering Integration Tests', () => {
   let testConfigDir: string;
 
   beforeEach(async () => {
-    // Create a temporary config directory under ./build/ for each test
-    const buildDir = join(process.cwd(), 'build');
-    await mkdir(buildDir, { recursive: true });
-    testConfigDir = join(buildDir, `.tmp-test-preset-integration-${randomBytes(4).toString('hex')}`);
-    await mkdir(testConfigDir, { recursive: true });
+    testConfigDir = await mkdtemp(join(tmpdir(), '1mcp-test-preset-integration-'));
   });
 
   afterEach(async () => {

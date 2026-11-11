@@ -14,6 +14,7 @@ import {
 } from '@src/commands/serve/serveOptions.js';
 import { resolveTemplateContextTrust } from '@src/commands/serve/templateContextTrust.js';
 import { ConfigManager } from '@src/config/configManager.js';
+import { configureProductTelemetryBootstrap } from '@src/config/productTelemetryBootstrap.js';
 import { getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import {
@@ -44,6 +45,8 @@ import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
 import type { EventFields } from '@src/observability/events/normalize.js';
+import { beginProductStartup } from '@src/productTelemetry/index.js';
+import type { CommandCompletion } from '@src/productTelemetry/producer.js';
 import { StdioServerTransport } from '@src/sdk/legacy/server/stdio.js';
 import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
@@ -51,6 +54,7 @@ import { InsecureFilePermissionsError } from '@src/utils/filePermissions.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
 
 export interface ServeOptions {
+  'product-telemetry-test-suppressed'?: boolean;
   config?: string;
   'config-dir'?: string;
   /** Lifecycle action: report the scoped runtime's state and exit. */
@@ -330,8 +334,19 @@ export function setupGracefulShutdown(
  * Start the server using the specified transport.
  */
 export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
+  configureProductTelemetryBootstrap(parsedArgv);
   let runtimeOwnership: RuntimeScopeOwnership | undefined;
   let loggerConfigured = false;
+  let startup: CommandCompletion | undefined;
+  if (
+    !parsedArgv.status &&
+    !parsedArgv.stop &&
+    !parsedArgv['cooperative-bootstrap'] &&
+    !parsedArgv['background-bootstrap'] &&
+    !parsedArgv['runtime-owner-claim-id']
+  ) {
+    startup = beginProductStartup('serve');
+  }
   try {
     let cooperativeLaunch: RuntimeLaunchBootstrap | undefined;
     const cooperative = parsedArgv['cooperative-bootstrap']
@@ -353,6 +368,10 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         'background-bootstrap': false,
         'runtime-owner-claim-id': cooperativeLaunch.claimId,
       };
+    }
+    configureProductTelemetryBootstrap(parsedArgv);
+    if (parsedArgv['cooperative-bootstrap'] === 'worker' || parsedArgv['runtime-owner-claim-id']) {
+      startup = beginProductStartup('runtime_start');
     }
     const { configFilePath, runtimeScope } = resolveServeConfigPaths(parsedArgv);
 
@@ -376,6 +395,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     if (parsedArgv.restart && !parsedArgv['background-bootstrap']) {
       const { restartCooperativeRuntime } = await import('@src/commands/serve/cooperativeRuntime.js');
       await restartCooperativeRuntime(parsedArgv);
+      startup?.finish('success');
       return;
     }
 
@@ -384,6 +404,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     if (parsedArgv.background && !parsedArgv['background-bootstrap']) {
       const { launchCooperativeRuntime } = await import('@src/commands/serve/cooperativeRuntime.js');
       await launchCooperativeRuntime(parsedArgv);
+      startup?.finish('success');
       return;
     }
 
@@ -678,6 +699,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         const transport = new StdioServerTransport();
         const filterConfig = await resolveStdioFilterConfig(parsedArgv);
         if (!filterConfig) {
+          startup?.finish('failure');
           runtimeOwnership?.release();
           return;
         }
@@ -697,6 +719,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
           }
         }
 
+        startup?.finish('success');
         logger.info('serve.server.started.with.stdio.transport.ea94ea8d');
         break;
       }
@@ -708,9 +731,14 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       case 'http': {
         // Use HTTP/SSE transport
         expressServer = new ExpressServer(serverManager, loadingManager, asyncOrchestrator, customTemplate);
-        expressServer.start(
-          cooperativeLaunch ? () => cooperative!.acknowledgeCooperativeWorker(cooperativeLaunch!) : undefined,
-        );
+        expressServer.start((error) => {
+          if (error) {
+            startup?.finish('failure');
+            return;
+          }
+          if (cooperativeLaunch) cooperative!.acknowledgeCooperativeWorker(cooperativeLaunch);
+          startup?.finish('success');
+        });
 
         // Write PID file for proxy auto-discovery
         const serverUrl = serverConfigManager.getUrl();
@@ -752,6 +780,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         break;
       }
       default:
+        startup?.finish('failure');
         logger.error('serve.invalid.transport.1860e43c');
         process.exit(1);
     }
@@ -790,6 +819,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       });
     });
   } catch (_error) {
+    startup?.finish('failure');
     // Best-effort by contract: never suppress the diagnostics below.
     runtimeOwnership?.release();
     const failure = describeServeLifecycleFailure(_error);

@@ -140,6 +140,7 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [
           { text: '身份验证', link: '/zh/guide/advanced/authentication' },
           { text: '安全', link: '/zh/guide/advanced/security' },
+          { text: '隐私与产品使用', link: '/zh/guide/privacy' },
           { text: '反向代理', link: '/zh/guide/advanced/reverse-proxy' },
           { text: '云端部署', link: '/zh/guide/advanced/cloud-deployment' },
           { text: 'Windows：任务计划程序', link: '/zh/guide/advanced/windows-task-scheduler' },
@@ -241,6 +242,10 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [
           { text: 'instructions', link: '/zh/commands/instructions' },
           { text: 'inspect', link: '/zh/commands/inspect' },
+          { text: 'telemetry', link: '/zh/commands/telemetry' },
+          { text: '产品操作计数', link: '/zh/reference/product-telemetry-operations' },
+          { text: '命令及 Admin 采用情况', link: '/zh/reference/product-telemetry-adoption' },
+          { text: '配置分桶', link: '/zh/reference/product-telemetry-configuration' },
           { text: 'run', link: '/zh/commands/run' },
           { text: 'wait', link: '/zh/commands/wait' },
         ],
@@ -300,6 +305,14 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: '系统架构', link: '/zh/reference/architecture' },
           { text: '安全模型', link: '/zh/reference/security' },
           { text: '功能对比', link: '/zh/reference/feature-comparison' },
+        ],
+      },
+      {
+        text: '产品使用遥测',
+        items: [
+          { text: '操作计数', link: '/zh/reference/product-telemetry-operations' },
+          { text: 'CLI 与 Admin 采用情况', link: '/zh/reference/product-telemetry-adoption' },
+          { text: '配置分桶', link: '/zh/reference/product-telemetry-configuration' },
         ],
       },
       {

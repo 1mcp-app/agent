@@ -42,7 +42,7 @@ function extractCodeBlock(page: string, language: string, requiredContent: strin
 
 describe('configuration and operations documentation', () => {
   it('keeps configuration schemas, recovery, and integration modes aligned', () => {
-    const exampleConfig = applicationConfigSchema.parse(parseToml(readDoc('config.toml.example')));
+    const exampleConfig = applicationConfigSchema.parse(parseToml(readDoc('config.example.toml')));
     const enConfiguration = readDoc('docs/site/en/guide/essentials/configuration.md');
     const zhConfiguration = readDoc('docs/site/zh/guide/essentials/configuration.md');
     const enReference = readDoc('docs/site/en/reference/mcp-servers.md');

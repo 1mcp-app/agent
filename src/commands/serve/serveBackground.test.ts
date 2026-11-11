@@ -121,6 +121,7 @@ describe('serveBackground helpers', () => {
       const args = buildBackgroundSupervisorArgs(
         serveOptions({
           background: true,
+          'product-telemetry-test-suppressed': true,
           'config-dir': '/scope',
           port: 4050,
           host: '127.0.0.2',
@@ -136,6 +137,7 @@ describe('serveBackground helpers', () => {
       expect(args).toEqual(
         expect.arrayContaining([
           '--config-dir=/scope',
+          '--product-telemetry-test-suppressed=true',
           '--port=4050',
           '--host=127.0.0.2',
           '--enable-auth=false',

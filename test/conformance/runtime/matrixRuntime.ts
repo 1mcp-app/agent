@@ -391,6 +391,7 @@ function minimalEnvironment(home: string, runtimeScope: string): Environment {
     HOME: home,
     XDG_CONFIG_HOME: join(home, '.config'),
     NODE_ENV: 'test',
+    ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED: 'true',
     ONE_MCP_CONFIG_DIR: runtimeScope,
     ONE_MCP_LOG_LEVEL: 'error',
     ONE_MCP_ENABLE_AUTH: 'false',

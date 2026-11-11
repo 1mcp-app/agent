@@ -10,6 +10,15 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Apply after clearing all ambient CLI targets and ownership locators.
+Get-ChildItem Env:ONE_MCP_* | Remove-Item
+Remove-Item Env:CODEX_SESSION_ID, Env:CODEX_THREAD_ID -ErrorAction SilentlyContinue
+$TestRuntimeScope = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
+New-Item -ItemType Directory -Path $TestRuntimeScope | Out-Null
+$env:USERPROFILE = $TestRuntimeScope
+$env:HOME = $TestRuntimeScope
+$env:ONE_MCP_CONFIG_DIR = $TestRuntimeScope
+$env:ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED = "true"
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 Write-Host "Testing $Platform binary at $BinaryPath..."
@@ -45,33 +54,34 @@ try {
     $configPath = Join-Path $PWD "test-config.json"
     [System.IO.File]::WriteAllText($configPath, $configContent, $Utf8NoBom)
 
-    # Try a simpler approach - just run the command and check if it completes without crashing
+    # Start-Job loads persistence infrastructure that assumes a real Windows user profile.
+    # Launch the binary directly so the isolated test profile remains sufficient.
+    $tokensProcess = $null
     try {
-        # Run the tiktoken command with a timeout using job with absolute paths
-        $job = Start-Job -ScriptBlock {
-            param($binaryPath, $configPath)
-            $env:ONE_MCP_CONFIG = $configPath
-            & $binaryPath mcp tokens --help 2>&1
-        } -ArgumentList $AbsoluteBinaryPath, $configPath
-
-        # Wait for job to complete with 15 second timeout
-        $completed = Wait-Job $job -Timeout 15
-
-        if ($completed) {
-            $result = Receive-Job $job
-            Remove-Job $job
-            Write-Host "Tiktoken functionality working"
-        } else {
-            Stop-Job $job
-            Remove-Job $job
-            Write-Host "Tiktoken test timeout - likely WASM loading issue"
-            Remove-Item -Force $configPath -ErrorAction SilentlyContinue
-            exit 1
+        $env:ONE_MCP_CONFIG = $configPath
+        $tokensStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $tokensStartInfo.FileName = $AbsoluteBinaryPath
+        $tokensStartInfo.Arguments = "mcp tokens --help"
+        $tokensStartInfo.UseShellExecute = $false
+        $tokensProcess = [System.Diagnostics.Process]::Start($tokensStartInfo)
+        if (-not $tokensProcess.WaitForExit(15000)) {
+            throw "Tiktoken test timeout - likely WASM loading issue"
         }
+        if ($tokensProcess.ExitCode -ne 0) {
+            throw "Tokens command exited with code $($tokensProcess.ExitCode)"
+        }
+        Write-Host "Tiktoken functionality working"
     } catch {
         Write-Host "Tiktoken test failed with error: $($_.Exception.Message)"
         Remove-Item -Force $configPath -ErrorAction SilentlyContinue
         exit 1
+    } finally {
+        if ($tokensProcess -and -not $tokensProcess.HasExited) {
+            Stop-Process -Id $tokensProcess.Id -Force
+            $tokensProcess.WaitForExit()
+        }
+        if ($tokensProcess) { $tokensProcess.Dispose() }
+        Remove-Item Env:ONE_MCP_CONFIG -ErrorAction SilentlyContinue
     }
 
     # Test 4: Admin Console assets from the standalone binary
@@ -156,3 +166,5 @@ try {
     Remove-Item -Recurse -Force test-bin, test-config.json -ErrorAction SilentlyContinue
     exit 1
 }
+
+Remove-Item -Recurse -Force $TestRuntimeScope -ErrorAction SilentlyContinue

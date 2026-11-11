@@ -1,10 +1,14 @@
-import { chmod, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
+import { chmod, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import * as processIdentity from '@src/core/server/processIdentity.js';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  acquireProjectOwnerLease,
+  assertNoProjectOwnerCalls,
   createHookProjectOwner,
   readProjectOwner,
   readProjectOwnerTargets,
@@ -13,6 +17,7 @@ import {
 
 const directories: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -48,6 +53,49 @@ describe('project owner credentials', () => {
       await chmod(owner, 0o644);
       await expect(readProjectOwner(owner)).rejects.toThrow(/private/);
     }
+  });
+
+  it.each(['alive', 'dead', 'unknown'] as const)(
+    'reconciles a versioned lease only with conclusive death evidence (%s)',
+    async (status) => {
+      const storage = await mkdtemp(path.join(os.tmpdir(), 'project-lease-'));
+      directories.push(storage);
+      vi.spyOn(processIdentity, 'readProcessIdentity').mockReturnValue({
+        platform: 'linux',
+        bootId: 'boot',
+        pidNamespace: 'namespace',
+        startTime: '123',
+      });
+      vi.spyOn(processIdentity, 'inspectProcessIdentity').mockReturnValue(status);
+      const owner = await createHookProjectOwner(storage, { client: 'codex', sessionId: status });
+      await acquireProjectOwnerLease(owner);
+      const files = await readdir(`${owner}.calls`);
+      expect(JSON.parse(await readFile(path.join(`${owner}.calls`, files[0]), 'utf8'))).toMatchObject({
+        version: 2,
+        pid: process.pid,
+        identity: { startTime: '123' },
+      });
+      if (status === 'dead') {
+        await expect(assertNoProjectOwnerCalls(owner)).resolves.toBeUndefined();
+        expect(await readdir(`${owner}.calls`)).toEqual([]);
+      } else {
+        await expect(assertNoProjectOwnerCalls(owner)).rejects.toThrow('leases');
+        expect(await readdir(`${owner}.calls`)).toEqual(files);
+      }
+    },
+  );
+
+  it('retains legacy and identity-unavailable leases even when a process probe would say dead', async () => {
+    const storage = await mkdtemp(path.join(os.tmpdir(), 'project-lease-legacy-'));
+    directories.push(storage);
+    vi.spyOn(processIdentity, 'readProcessIdentity').mockReturnValue(undefined);
+    const inspect = vi.spyOn(processIdentity, 'inspectProcessIdentity').mockReturnValue('dead');
+    const owner = await createHookProjectOwner(storage, { client: 'codex', sessionId: 'legacy' });
+    await acquireProjectOwnerLease(owner);
+    await writeFile(path.join(`${owner}.calls`, `${'a'.repeat(32)}.json`), '{"version":1}', { mode: 0o600 });
+    await expect(assertNoProjectOwnerCalls(owner)).rejects.toThrow('leases');
+    expect(await readdir(`${owner}.calls`)).toHaveLength(2);
+    expect(inspect).not.toHaveBeenCalled();
   });
 
   it('retains separate selected checkout targets without widening session-end release', async () => {

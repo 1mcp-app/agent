@@ -11,8 +11,10 @@
  */
 import { McpTestClient, TestProcessManager } from '@test/e2e/utils/index.js';
 
-import { randomBytes } from 'crypto';
-import { mkdir, rm, writeFile } from 'fs/promises';
+import { once } from 'events';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { createServer } from 'net';
+import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -120,11 +122,19 @@ async function waitForServerReady(
   throw new Error(`Server failed to start after ${maxAttempts} attempts`);
 }
 
-/**
- * Generate a random port in the range 10000-60000
- */
-function getRandomPort(): number {
-  return 10000 + Math.floor(Math.random() * 50000);
+async function getAvailablePort(): Promise<number> {
+  const listener = createServer();
+  listener.listen(0, '127.0.0.1');
+  await once(listener, 'listening');
+  const address = listener.address();
+  if (!address || typeof address === 'string') {
+    listener.close();
+    throw new Error('Failed to allocate a loopback port');
+  }
+  await new Promise<void>((resolve, reject) => {
+    listener.close((error) => (error ? reject(error) : resolve()));
+  });
+  return address.port;
 }
 
 describe('Lazy Tools with Template MCP Servers E2E Tests', () => {
@@ -134,11 +144,7 @@ describe('Lazy Tools with Template MCP Servers E2E Tests', () => {
   let serverUrl: string;
 
   beforeEach(async () => {
-    // Create temporary config directory
-    const buildDir = join(process.cwd(), 'build');
-    await mkdir(buildDir, { recursive: true });
-    configDir = join(buildDir, `.tmp-test-lazy-template-${randomBytes(4).toString('hex')}`);
-    await mkdir(configDir, { recursive: true });
+    configDir = await mkdtemp(join(tmpdir(), '1mcp-test-lazy-template-'));
 
     // Create MCP server configuration with template servers
     const mockServerPath = resolve(__dirname, 'utils/mock-mcp-server-fast.js');
@@ -149,10 +155,10 @@ describe('Lazy Tools with Template MCP Servers E2E Tests', () => {
     const agentConfig = createAgentConfig(true);
     await writeFile(join(configDir, 'agent.json'), agentConfig, 'utf-8');
 
-    // Initialize process manager with a random port
+    // Initialize process manager with an available loopback port
     processManager = new TestProcessManager();
-    httpPort = getRandomPort();
-    serverUrl = `http://localhost:${httpPort}/mcp`;
+    httpPort = await getAvailablePort();
+    serverUrl = `http://127.0.0.1:${httpPort}/mcp`;
   });
 
   afterEach(async () => {
@@ -200,7 +206,7 @@ describe('Lazy Tools with Template MCP Servers E2E Tests', () => {
     });
 
     // Wait for server to be ready
-    await waitForServerReady(`http://localhost:${httpPort}/health`);
+    await waitForServerReady(`http://127.0.0.1:${httpPort}/health`);
   }
 
   /**

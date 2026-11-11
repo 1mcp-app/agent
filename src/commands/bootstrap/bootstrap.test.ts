@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 
+import * as runtimeBootstrap from '@src/config/runtimeBootstrap.js';
 import { temporaryProjectOwnerStorage } from '@src/commands/shared/projectOwnerStorage.js';
 import {
   createHookProjectOwner,
@@ -449,6 +450,30 @@ describe('worker bootstrap client contracts', () => {
 });
 
 describe('owned instructions subprocess', () => {
+  it('suppresses implementation-child adoption without forwarding a telemetry override', async () => {
+    const environment = vi.spyOn(runtimeBootstrap, 'getRuntimeParentEnvironment').mockReturnValue({
+      ...getRuntimeParentEnvironment(),
+      ONE_MCP_PRODUCT_TELEMETRY: 'true',
+    });
+    try {
+      const args = buildInstructionsArguments({
+        client: 'codex',
+        event: 'SubagentStart',
+        project: ['/synthetic'],
+        'product-telemetry': true,
+      });
+      expect(args.some((arg) => arg.includes('product-telemetry'))).toBe(false);
+      const output = await runInstructionsProcess(process.execPath, [
+        '-e',
+        'process.stdout.write(JSON.stringify({enabled:process.env.ONE_MCP_PRODUCT_TELEMETRY,args:process.argv.slice(1)}))',
+        ...args,
+      ]);
+      expect(JSON.parse(output)).toEqual({ enabled: 'false', args });
+    } finally {
+      environment.mockRestore();
+    }
+  });
+
   it.each([
     ['instructions_timeout', 'setInterval(() => {}, 1000)'],
     ['instructions_failed', 'process.stderr.write("private secret"); process.exit(2)'],
@@ -566,4 +591,48 @@ describe('owned instructions subprocess', () => {
     expect(Buffer.byteLength(instructions)).toBeGreaterThan(32 * 1024);
     expect(output).toBe(instructions);
   });
+});
+
+it('preserves successful instructions when another caller holds the owner lock', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-busy-owner-'));
+  try {
+    const owner = await createHookProjectOwner(directory, { client: 'codex', sessionId: 'busy' });
+    await fs.mkdir(`${owner}.lock`, { mode: 0o700 });
+    await expect(
+      runInstructionsProcess(process.execPath, ['-e', "process.stdout.write('ready instructions')"], 5000, owner),
+    ).resolves.toBe('ready instructions');
+    expect((await fs.stat(`${owner}.lock`)).isDirectory()).toBe(true);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+it('preserves successful instructions and uncertain records when reconciliation fails', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-invalid-lease-'));
+  try {
+    const owner = await createHookProjectOwner(directory, { client: 'codex', sessionId: 'invalid' });
+    await fs.mkdir(`${owner}.calls`, { mode: 0o700 });
+    const lease = path.join(`${owner}.calls`, `${'a'.repeat(32)}.json`);
+    await fs.writeFile(lease, 'invalid lease', { mode: 0o600 });
+    await expect(
+      runInstructionsProcess(process.execPath, ['-e', "process.stdout.write('ready instructions')"], 5000, owner),
+    ).resolves.toBe('ready instructions');
+    expect(await fs.readFile(lease, 'utf8')).toBe('invalid lease');
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+it('preserves the timeout result when another caller holds the owner lock', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bootstrap-timeout-busy-owner-'));
+  try {
+    const owner = await createHookProjectOwner(directory, { client: 'codex', sessionId: 'busy-timeout' });
+    await fs.mkdir(`${owner}.lock`, { mode: 0o700 });
+    await expect(
+      runInstructionsProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], 100, owner),
+    ).rejects.toThrow('deadline');
+    expect((await fs.stat(`${owner}.lock`)).isDirectory()).toBe(true);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });
