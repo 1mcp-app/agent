@@ -140,7 +140,7 @@ describe('project preparation proof boundary wiring', () => {
         const connectTransport = vi.fn().mockResolvedValue(undefined);
         const create = vi.fn();
         const lifecycle = new StreamableSessionLifecycle(
-          { connectTransport } as unknown as ServerManager,
+          { connectTransport, getServer: () => undefined } as unknown as ServerManager,
           {
             create,
             get: () => ({ context, contextProof: proof }),
@@ -161,7 +161,7 @@ describe('project preparation proof boundary wiring', () => {
           await lifecycle.createSession({}, context, 'session-a', StreamableSessionStatus.Created, proof);
           expect(create.mock.calls[0][1]).toEqual({ context, contextProof: proof });
         } else {
-          expect((await lifecycle.restoreSession('session-a')).transport).toBeDefined();
+          expect((await lifecycle.restoreSession('session-a')).transport).not.toBeNull();
           expect(create).not.toHaveBeenCalled();
         }
         expect(connectTransport.mock.calls[0][4]).toBeDefined();

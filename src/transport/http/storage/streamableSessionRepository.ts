@@ -29,6 +29,41 @@ export class StreamableSessionRepository {
   // In-memory session store (used when persistence is disabled or as cache)
   private inMemorySessions = new Map<string, StreamableSessionData>();
 
+  private readonly protectedSessions = new Map<string, number>();
+  private expirationHandler?: (sessionIds: string[]) => Promise<void>;
+
+  setExpirationHandler(handler: (sessionIds: string[]) => Promise<void>): void {
+    this.expirationHandler = handler;
+  }
+
+  isExpired(sessionId: string): boolean {
+    const data = this.inMemorySessions.get(sessionId);
+    if (!data) return false;
+    if (this.protectedSessions.has(sessionId)) return false;
+    return data.expires <= Date.now();
+  }
+
+  getExpiredSessionIds(): string[] {
+    return [...this.inMemorySessions.keys()].filter((sessionId) => this.isExpired(sessionId));
+  }
+
+  /** Protect both request work and the complete lifetime of an open response stream. */
+  protectSession(sessionId: string): (accepted?: boolean) => void {
+    const session = this.inMemorySessions.get(sessionId);
+    this.protectedSessions.set(sessionId, (this.protectedSessions.get(sessionId) ?? 0) + 1);
+    let released = false;
+    return (accepted = true) => {
+      if (released) return;
+      released = true;
+      if (this.inMemorySessions.get(sessionId) !== session) return;
+      const remaining = (this.protectedSessions.get(sessionId) ?? 1) - 1;
+      if (remaining > 0) this.protectedSessions.set(sessionId, remaining);
+      else this.protectedSessions.delete(sessionId);
+      // Work that stayed active beyond the TTL gets a full idle interval after completion.
+      if (accepted && this.inMemorySessions.has(sessionId)) this.updateAccess(sessionId);
+    };
+  }
+
   // Background flush
   private flushInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -102,6 +137,7 @@ export class StreamableSessionRepository {
       }
     }
 
+    if (this.isExpired(sessionId)) return null;
     return sessionData || null;
   }
 
@@ -109,28 +145,8 @@ export class StreamableSessionRepository {
    * Retrieves a session by ID and returns the configuration
    */
   get(sessionId: string): InboundConnectionConfig | null {
-    // Check in-memory store first
-    let sessionData = this.inMemorySessions.get(sessionId);
-
-    // If not in memory and persistence is enabled, try reading from disk
-    if (!sessionData) {
-      const agentConfig = AgentConfigManager.getInstance();
-      if (agentConfig.get('features').sessionPersistence) {
-        const diskData = this.storage.readData<StreamableSessionData>(
-          AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
-          sessionId,
-        );
-        // Cache in memory if found
-        if (diskData) {
-          sessionData = diskData;
-          this.inMemorySessions.set(sessionId, diskData);
-        }
-      }
-    }
-
-    if (!sessionData) {
-      return null;
-    }
+    const sessionData = this.getSessionData(sessionId);
+    if (!sessionData) return null;
 
     // Parse JSON fields back to objects with proper error handling
     let tagExpression: TagExpression | undefined;
@@ -299,6 +315,7 @@ export class StreamableSessionRepository {
     this.requestCounts.delete(sessionId);
     this.dirtySessionIds.delete(sessionId);
     this.inMemorySessions.delete(sessionId);
+    this.protectedSessions.delete(sessionId);
 
     // Delete from disk if persistence is enabled
     const agentConfig = AgentConfigManager.getInstance();
@@ -394,8 +411,15 @@ export class StreamableSessionRepository {
     const flushIntervalMs = agentConfig.get('sessionPersistence').backgroundFlushSeconds * 1000;
 
     this.flushInterval = setInterval(() => {
+      const expired = this.getExpiredSessionIds();
+      if (this.expirationHandler) {
+        void this.expirationHandler(expired);
+      } else {
+        for (const sessionId of expired) this.delete(sessionId);
+      }
       this.flushDirtySessions();
     }, flushIntervalMs);
+    this.flushInterval.unref?.();
   }
 
   private getSessionTtlMs(): number {

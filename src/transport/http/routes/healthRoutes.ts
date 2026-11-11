@@ -7,6 +7,7 @@ import {
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { hasSessionAdmissionCapacity } from '@src/core/server/sessionAdmission.js';
 import type { OutboundSupervisionSnapshot } from '@src/core/types/client.js';
 import logger from '@src/logger/logger.js';
 
@@ -150,7 +151,8 @@ export function createHealthRoutes(
       const unavailableBackends = Object.values(backendSupervision).filter(
         (snapshot) => snapshot?.state === 'restarting' || snapshot?.state === 'crash-loop',
       );
-      const isReady = healthData.configuration.loaded && unavailableBackends.length === 0;
+      const sessionAdmission = { available: hasSessionAdmissionCapacity() };
+      const isReady = healthData.configuration.loaded && unavailableBackends.length === 0 && sessionAdmission.available;
       const statusCode = isReady ? 200 : 503;
 
       res.setHeader('Content-Type', 'application/json');
@@ -158,6 +160,7 @@ export function createHealthRoutes(
 
       res.status(statusCode).json({
         status: isReady ? 'ready' : 'not_ready',
+        sessionAdmission,
         timestamp: new Date().toISOString(),
         configuration: healthData.configuration,
         ...(getCredentialStorageReadiness ? { credentialStorage: getCredentialStorageReadiness() } : {}),
