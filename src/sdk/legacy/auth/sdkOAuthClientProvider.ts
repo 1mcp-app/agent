@@ -53,6 +53,22 @@ interface OAuthResponseTicket {
   ambiguous?: boolean;
 }
 
+interface AuthorizationOutcome {
+  result: 'AUTHORIZED' | 'REDIRECT';
+  generation: string;
+  authorizationAttempt?: { url: string; key: string };
+}
+interface AuthorizationIntent {
+  scope?: string;
+  forceReauthorization?: boolean;
+}
+interface AuthorizationFlight {
+  promise: Promise<AuthorizationOutcome>;
+  intent: AuthorizationIntent;
+}
+const authorizations = new Map<string, AuthorizationFlight>();
+const pendingRedirects = new Map<string, AuthorizationOutcome>();
+
 /** Shared by the released modern and legacy SDK adapters. SDK cache objects are never authority. */
 export class SDKOAuthClientProvider implements OAuthClientProvider {
   private readonly sessionRepository: ClientSessionRepository;
@@ -66,6 +82,8 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   private callbackTail: Promise<unknown> = Promise.resolve();
   private readonly operations = new AsyncLocalStorage<{
     failed: boolean;
+    managed?: boolean;
+    credential?: { generation: string; revision: number };
     discoveryIssuer?: string;
     diagnostic?: string;
     requestVersion?: number;
@@ -124,7 +142,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
         );
     });
     void this.migration.catch(() => undefined);
-    this.fetch = createOAuthEndpointFetch({
+    const endpointFetch = createOAuthEndpointFetch({
       resource: this.context?.route.url ?? 'https://invalid.invalid/',
       issuer: this.config.issuer,
       privateNetworkOrigins: this.config.privateNetworkOrigins,
@@ -191,6 +209,125 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
         return validated;
       },
     });
+    this.fetch = async (input, init) => {
+      const response = await endpointFetch(input, init);
+      if (new URLSearchParams(String(init?.body ?? '')).get('grant_type') !== 'refresh_token' || response.ok)
+        return response;
+      const error = (await response.clone().json()) as { error?: string };
+      const rejectionStatus = response.status === 400 || response.status === 401 || response.status === 403;
+      if (rejectionStatus && ['invalid_grant', 'invalid_client', 'unauthorized_client'].includes(error.error ?? ''))
+        return response;
+      const operation = this.operations.getStore();
+      if (operation) operation.failed = true;
+      throw new Error(oauthDiagnosticMessage('network_failure'));
+    };
+  }
+
+  /** The transport adapter owns the whole SDK call, including its internal retry. */
+  async authorize(
+    operation: () => Promise<'AUTHORIZED' | 'REDIRECT'>,
+    callback = false,
+    intent: AuthorizationIntent = {},
+  ): Promise<'AUTHORIZED' | 'REDIRECT'> {
+    await this.migration;
+    this.shutdownSignal.signal.throwIfAborted();
+    const run = () =>
+      this.operations.run(
+        {
+          failed: false,
+          managed: true,
+          responses: { token: new Map(), registration: new Map(), discovery: new Map() },
+        },
+        async () => {
+          const result = await operation();
+          this.assertOperation();
+          return { result, generation: this.claim!, authorizationAttempt: this.authorizationAttempt };
+        },
+      );
+    if (callback) return (await run()).result;
+    const key = JSON.stringify([this.fileStorage.getActivationKey(), this.slot, oauthDigest(this.context)]);
+    const cached = pendingRedirects.get(key);
+    if (cached) {
+      try {
+        this.acceptAuthorizationOutcome(cached);
+      } catch {
+        pendingRedirects.delete(key);
+      }
+      if (this.getPendingAuthorizationUrl() && this.authorizationSatisfies(cached, intent)) return 'REDIRECT';
+      pendingRedirects.delete(key);
+      if (!this.getPendingAuthorizationUrl()) this.authorizationAttempt = undefined;
+    }
+    let flight = authorizations.get(key);
+    const joined = flight !== undefined;
+    if (!flight) {
+      flight = { promise: this.untilShutdown(run()), intent };
+      authorizations.set(key, flight);
+      const owned = flight;
+      void flight.promise
+        .finally(() => {
+          if (authorizations.get(key) === owned) authorizations.delete(key);
+        })
+        .catch(() => undefined);
+    }
+    const outcome = await this.untilShutdown(flight.promise);
+    this.acceptAuthorizationOutcome(outcome);
+    if (joined && !this.authorizationSatisfies(outcome, intent, flight.intent))
+      return this.authorize(operation, false, intent);
+    if (outcome.result === 'REDIRECT') {
+      if (pendingRedirects.size >= 128) pendingRedirects.delete(pendingRedirects.keys().next().value!);
+      pendingRedirects.set(key, outcome);
+    }
+    return outcome.result;
+  }
+
+  private authorizationSatisfies(
+    outcome: AuthorizationOutcome,
+    intent: AuthorizationIntent,
+    owner?: AuthorizationIntent,
+  ): boolean {
+    const includes = (scope?: string) => !intent.scope?.split(' ').some((item) => !scope?.split(' ').includes(item));
+    if (outcome.result === 'REDIRECT') {
+      const scope = outcome.authorizationAttempt
+        ? (new URL(outcome.authorizationAttempt.url).searchParams.get('scope') ?? undefined)
+        : undefined;
+      return includes(scope);
+    }
+    if (!intent.forceReauthorization) return true;
+    if (owner?.forceReauthorization && includes(owner.scope)) return true;
+    return includes(this.tokens()?.scope);
+  }
+
+  private acceptAuthorizationOutcome(outcome: AuthorizationOutcome): void {
+    this.shutdownSignal.signal.throwIfAborted();
+    const current = this.slot ? this.sessionRepository.getBound(this.slot) : null;
+    if (
+      !current ||
+      !this.context ||
+      this.sessionRepository.getClaim(this.slot!)?.generation !== outcome.generation ||
+      current.generation !== outcome.generation ||
+      !matchesAuthorityContext(current.authority, this.context)
+    )
+      throw oauthAuthorityError();
+    if (this.config.issuer && current.authority.issuer !== this.config.issuer) throw oauthAuthorityError();
+    if (outcome.result === 'AUTHORIZED' && !current.tokens) throw oauthAuthorityError();
+    this.record = current;
+    this.claim = current.generation;
+    this.authorizationAttempt = outcome.authorizationAttempt;
+  }
+
+  private async untilShutdown<T>(operation: Promise<T>): Promise<T> {
+    const signal = this.shutdownSignal.signal;
+    signal.throwIfAborted();
+    let abort!: () => void;
+    const stopped = new Promise<never>((_, reject) => {
+      abort = () => reject(oauthAuthorityError());
+      signal.addEventListener('abort', abort, { once: true });
+    });
+    try {
+      return await Promise.race([operation, stopped]);
+    } finally {
+      signal.removeEventListener('abort', abort);
+    }
   }
 
   get redirectUrl(): string {
@@ -250,6 +387,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       this.slot!,
       record.generation,
       (current) => {
+        this.shutdownSignal.signal.throwIfAborted();
         if (ticket && current.revision !== ticket.revision) throw oauthAuthorityError();
         current.clientInfo = JSON.stringify(parsed);
         current.revision++;
@@ -263,6 +401,8 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     this.checkIssuer(ctx);
     const record = this.current();
     if (!record?.tokens) return undefined;
+    const operation = this.operations.getStore();
+    if (operation) operation.credential = { generation: record.generation, revision: record.revision };
     try {
       return { ...OAuthTokensSchema.parse(JSON.parse(record.tokens)), issuer: record.authority.issuer } as OAuthTokens;
     } catch {
@@ -271,6 +411,16 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   }
 
   async saveTokens(tokens: OAuthTokens, ctx?: { issuer: string }): Promise<void> {
+    try {
+      await this.saveValidatedTokens(tokens, ctx);
+    } catch (error) {
+      const operation = this.operations.getStore();
+      if (operation) operation.failed = true;
+      throw error;
+    }
+  }
+
+  private async saveValidatedTokens(tokens: OAuthTokens, ctx?: { issuer: string }): Promise<void> {
     this.assertOperation();
     this.checkIssuer(ctx);
     const record = this.requireCurrent();
@@ -288,6 +438,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       this.slot!,
       record.generation,
       (current) => {
+        this.shutdownSignal.signal.throwIfAborted();
         if (current.revision !== expectedRevision) throw oauthAuthorityError();
         current.tokens = JSON.stringify(parsed);
         current.revision++;
@@ -298,11 +449,16 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   }
 
   async invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): Promise<void> {
+    this.shutdownSignal.signal.throwIfAborted();
     const record = this.current();
+    const expected = this.operations.getStore()?.credential;
     this.authorizationAttempt = undefined;
     this.verifiers.clear();
     if (!record) return;
     this.record = await this.sessionRepository.updateBound(this.slot!, record.generation, (current) => {
+      this.shutdownSignal.signal.throwIfAborted();
+      if (expected && (current.generation !== expected.generation || current.revision !== expected.revision))
+        throw oauthAuthorityError();
       current.generation = randomUUID();
       current.revision++;
       current.attempts = {};
@@ -311,7 +467,19 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       if (scope === 'all' || scope === 'discovery') current.discovery = '';
     });
     this.claim = this.record.generation;
+    const operation = this.operations.getStore();
+    if (operation) operation.credential = { generation: this.record.generation, revision: this.record.revision };
     // In-flight work retains its old revision and cannot publish into this generation.
+  }
+
+  credentialSnapshot(): { generation: string; revision: number } | undefined {
+    const record = this.current();
+    return record ? { generation: record.generation, revision: record.revision } : undefined;
+  }
+
+  async invalidateRejectedTokens(expected: { generation: string; revision: number } | undefined): Promise<void> {
+    if (!expected || !this.slot) return;
+    await this.sessionRepository.invalidateBoundTokens(this.slot, expected, this.shutdownSignal.signal);
   }
 
   state(): string {
@@ -458,10 +626,11 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   discoveryState(): OAuthDiscoveryState | undefined {
     // A new SDK auth operation may retry transient transport failures. The failed
     // operation itself remains blocked from inferred fallback or credential writes.
-    this.operations.enterWith({
-      failed: false,
-      responses: { token: new Map(), registration: new Map(), discovery: new Map() },
-    });
+    if (!this.operations.getStore()?.managed)
+      this.operations.enterWith({
+        failed: false,
+        responses: { token: new Map(), registration: new Map(), discovery: new Map() },
+      });
     const current = this.current();
     // Refresh/new authorization re-discovers current destinations. Only a validated
     // callback resumes the exact discovery snapshot captured by its durable attempt.
@@ -555,6 +724,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       JSON.stringify(state),
       this.claim!,
       requestVersion,
+      this.shutdownSignal.signal,
     );
     this.claim = this.record.generation;
     this.advanceOperation();
@@ -676,7 +846,12 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
 
   private async prepareFetch(url: URL, init: RequestInit): Promise<RequestInit> {
     await this.migration;
+    this.shutdownSignal.signal.throwIfAborted();
     if (!this.context) throw oauthAuthorityError();
+    init = {
+      ...init,
+      signal: init.signal ? AbortSignal.any([init.signal, this.shutdownSignal.signal]) : this.shutdownSignal.signal,
+    };
     const resource = new URL(this.context.route.url);
     const headers = new Headers(init.headers);
     const isDiscovery = (init.method ?? 'GET') === 'GET' && url.href !== resource.href && url.href !== this.sseEndpoint;
@@ -705,12 +880,22 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     const isRegistration = record?.authority.registrationEndpoint === url.href;
     if (isToken || isRegistration) {
       this.assertOperation();
+      const operation = this.operations.getStore();
       const requestVersion = await this.reserveRequest();
       if ((init.method ?? 'GET') !== 'POST') throw oauthAuthorityError();
       const safeHeaders = new Headers();
       safeHeaders.set('content-type', isToken ? 'application/x-www-form-urlencoded' : 'application/json');
       if (isToken) {
         const params = new URLSearchParams(String(init.body ?? ''));
+        if (params.get('grant_type') === 'refresh_token') {
+          const expected = operation?.credential;
+          if (expected && (expected.generation !== record!.generation || expected.revision !== record!.revision))
+            throw oauthAuthorityError();
+          const stored = record!.tokens ? OAuthTokensSchema.parse(JSON.parse(record!.tokens)) : undefined;
+          if (!stored?.refresh_token || params.get('refresh_token') !== stored.refresh_token)
+            throw oauthAuthorityError();
+        }
+        if (operation) operation.credential = { generation: record!.generation, revision: record!.revision };
         if (params.get('resource') !== record!.authority.resource) throw oauthAuthorityError();
         this.assertScopes(params.get('scope'));
         if (params.get('grant_type') === 'authorization_code') {
@@ -727,6 +912,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
         if (params.has('client_secret') && params.get('client_secret') !== client?.client_secret)
           throw oauthAuthorityError();
       } else {
+        if (operation) operation.credential = { generation: record!.generation, revision: record!.revision };
         const registration = JSON.parse(String(init.body ?? '{}')) as { scope?: string };
         this.assertScopes(registration.scope ?? null);
         if (this.config.clientId || this.config.autoRegister === false) throw oauthAuthorityError();
@@ -763,6 +949,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   }
 
   private assertOperation(): void {
+    this.shutdownSignal.signal.throwIfAborted();
     const operation = this.operations.getStore();
     if (operation?.failed) throw new Error(operation.diagnostic ?? oauthAuthorityError().message);
   }

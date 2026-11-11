@@ -1,7 +1,9 @@
 import {
   auth as modernAuth,
   type OAuthClientProvider as ModernProvider,
+  SSEClientTransport as ModernSseTransport,
   StreamableHTTPClientTransport as ModernTransport,
+  UnauthorizedError as ModernUnauthorizedError,
 } from '@modelcontextprotocol/client';
 
 import fs from 'node:fs';
@@ -9,7 +11,8 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
-import { auth as legacyAuth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth as legacyAuth, UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
+import { SSEClientTransport as LegacySseTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport as LegacyTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import { authoritySlot, oauthDigest } from '@src/auth/oauthAuthority.js';
@@ -18,6 +21,7 @@ import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { authorizeUpstream, bindCoordinatedOAuthTransport, createCoordinatedOAuthFetch } from './coordinatedOAuth.js';
 import { type OAuthClientConfig, SDKOAuthClientProvider } from './sdkOAuthClientProvider.js';
 
 const cleanups: Array<() => void | Promise<void>> = [];
@@ -25,7 +29,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function fixture(legacy: boolean, overrides: Partial<OAuthClientConfig> = {}) {
+async function fixture(legacy: boolean, overrides: Partial<OAuthClientConfig> = {}, coordinated = false) {
   const requests: Array<{ path: string; body: string; headers: http.IncomingHttpHeaders }> = [];
   let base = '';
   const behavior: {
@@ -35,6 +39,8 @@ async function fixture(legacy: boolean, overrides: Partial<OAuthClientConfig> = 
     metadataStatus?: number;
     corruptMetadata?: boolean;
     tokenStatus?: number;
+    tokenHandler?: (body: string, response: http.ServerResponse) => void;
+    resourceHandler?: (request: http.IncomingMessage, response: http.ServerResponse) => void;
     failConnection?: boolean;
     challengeResource?: boolean;
   } = {};
@@ -78,6 +84,7 @@ async function fixture(legacy: boolean, overrides: Partial<OAuthClientConfig> = 
     }
     if (req.url === '/register') return res.end(JSON.stringify({ ...JSON.parse(body), client_id: 'dynamic-client' }));
     if (req.url === '/token') {
+      if (behavior.tokenHandler) return behavior.tokenHandler(body, res);
       if (behavior.tokenStatus) res.statusCode = behavior.tokenStatus;
       return res.end(
         JSON.stringify({
@@ -88,6 +95,7 @@ async function fixture(legacy: boolean, overrides: Partial<OAuthClientConfig> = 
         }),
       );
     }
+    if (req.url === '/mcp' && behavior.resourceHandler) return behavior.resourceHandler(req, res);
     if (req.url === '/mcp' && behavior.challengeResource) {
       res.writeHead(401, {
         'www-authenticate': `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource/mcp"`,
@@ -102,7 +110,11 @@ async function fixture(legacy: boolean, overrides: Partial<OAuthClientConfig> = 
   if (!address || typeof address === 'string') throw new Error('No fixture port');
   base = `http://127.0.0.1:${address.port}`;
   cleanups.push(
-    () => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+    () =>
+      new Promise<void>((resolve, reject) => {
+        server.closeAllConnections();
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
   );
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oauth-sdk-'));
   cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -124,18 +136,15 @@ async function fixture(legacy: boolean, overrides: Partial<OAuthClientConfig> = 
     return provider;
   };
   const provider = create();
-  const authorize = (target = provider, callback?: URLSearchParams) =>
-    legacy
-      ? legacyAuth(target, {
-          serverUrl: base + '/mcp',
-          fetchFn: target.fetch,
-          ...(callback ? { authorizationCode: callback.get('code')! } : {}),
-        })
-      : modernAuth(target as ModernProvider, {
-          serverUrl: base + '/mcp',
-          fetchFn: target.fetch,
-          ...(callback ? { authorizationCode: callback.get('code')!, iss: callback.get('iss') ?? undefined } : {}),
-        });
+  const authorize = (target = provider, callback?: URLSearchParams) => {
+    const options = {
+      serverUrl: base + '/mcp',
+      fetchFn: target.fetch,
+      ...(callback ? { authorizationCode: callback.get('code')!, iss: callback.get('iss') ?? undefined } : {}),
+    };
+    if (coordinated) return authorizeUpstream(target, legacy, options);
+    return legacy ? legacyAuth(target, options) : modernAuth(target as ModernProvider, options);
+  };
   const finish = (target: SDKOAuthClientProvider, callback: URLSearchParams) =>
     target.withAuthorizationCallback(callback, () => authorize(target, callback));
   return { provider, authorize, finish, create, requests, base, config, dir, behavior };
@@ -600,4 +609,560 @@ for (const legacy of [true, false])
       );
       expect(f.requests.some((request) => request.path === '/register')).toBe(false);
     });
+  });
+
+async function login(f: Awaited<ReturnType<typeof fixture>>) {
+  expect(await f.authorize()).toBe('REDIRECT');
+  const redirect = new URL(f.provider.getAuthorizationUrl()!);
+  expect(
+    await f.finish(
+      f.provider,
+      new URLSearchParams({ state: redirect.searchParams.get('state')!, code: 'fixture-code', iss: f.base }),
+    ),
+  ).toBe('AUTHORIZED');
+}
+
+function heldTokens(f: Awaited<ReturnType<typeof fixture>>) {
+  let arrived!: () => void;
+  const request = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
+  let response!: http.ServerResponse;
+  let count = 0;
+  f.behavior.tokenHandler = (_body, res) => {
+    response = res;
+    count++;
+    arrived();
+  };
+  return {
+    request,
+    count: () => count,
+    disconnect: () => response.destroy(),
+    respond: (value: object, status = 200) => {
+      response.statusCode = status;
+      response.end(JSON.stringify(value));
+    },
+  };
+}
+
+for (const legacy of [true, false])
+  describe(`${legacy ? 'legacy' : 'modern'} coordinated refresh`, () => {
+    it.each(['rotating', 'stable', 'omitted'])('shares one %s refresh across providers and callers', async (mode) => {
+      const f = await fixture(legacy, {}, true);
+      await login(f);
+      const other = f.create();
+      await other.authorize(async () => 'AUTHORIZED');
+      const held = heldTokens(f);
+      const first = f.authorize();
+      await held.request;
+      const followers = [f.authorize(), f.authorize(other), f.authorize(other)];
+      held.respond({
+        access_token: 'winner',
+        token_type: 'Bearer',
+        ...(mode === 'omitted' ? {} : { refresh_token: mode === 'rotating' ? 'rotated' : 'opaque-refresh' }),
+      });
+      expect(await Promise.all([first, ...followers])).toEqual(Array(4).fill('AUTHORIZED'));
+      expect(held.count()).toBe(1);
+      expect(other.tokens()?.refresh_token).toBe(mode === 'rotating' ? 'rotated' : 'opaque-refresh');
+    });
+
+    it.each([503, 429, 400, 'network'] as const)(
+      'preserves credentials without attempts after temporary HTTP %s',
+      async (status) => {
+        const f = await fixture(legacy, {}, true);
+        await login(f);
+        const held = heldTokens(f);
+        const first = f.authorize();
+        await held.request;
+        const follower = f.authorize();
+        const settled = Promise.allSettled([first, follower]);
+        if (status === 'network') held.disconnect();
+        else held.respond({ error: 'server_error' }, status);
+        expect((await settled).every((result) => result.status === 'rejected')).toBe(true);
+        expect(held.count()).toBe(1);
+        expect(f.provider.tokens()?.refresh_token).toBe('opaque-refresh');
+        expect(f.provider.getPendingAuthorizationUrl()).toBeUndefined();
+        f.behavior.tokenHandler = undefined;
+        expect(await f.authorize()).toBe('AUTHORIZED');
+      },
+    );
+
+    it('shares definitive rejection and one pending authorization across providers', async () => {
+      const f = await fixture(legacy, {}, true);
+      await login(f);
+      const other = f.create();
+      await other.authorize(async () => 'AUTHORIZED');
+      const held = heldTokens(f);
+      const first = f.authorize();
+      await held.request;
+      const follower = f.authorize(other);
+      held.respond({ error: 'invalid_grant' }, 400);
+      expect(await Promise.all([first, follower])).toEqual(['REDIRECT', 'REDIRECT']);
+      expect(other.getAuthorizationUrl()).toBe(f.provider.getAuthorizationUrl());
+      expect(await f.authorize(other)).toBe('REDIRECT');
+      expect(held.count()).toBe(1);
+      const repository = new ClientSessionRepository(new FileStorageService(f.dir, 'client'));
+      const attempts = repository.getBound(authoritySlot(f.config.authority!))!.attempts;
+      expect(Object.values(attempts).filter((attempt) => !attempt.consumed)).toHaveLength(1);
+    });
+
+    it.each(['invalid_grant', 'success'])('fences a late %s after a newer credential revision', async (response) => {
+      const f = await fixture(legacy, {}, true);
+      await login(f);
+      const snapshot = f.provider.credentialSnapshot()!;
+      const held = heldTokens(f);
+      const pending = f.authorize();
+      await held.request;
+      const repository = new ClientSessionRepository(new FileStorageService(f.dir, 'client'));
+      await repository.updateBound(authoritySlot(f.config.authority!), snapshot.generation, (record) => {
+        record.tokens = JSON.stringify({ access_token: 'newer', refresh_token: 'newer-refresh', token_type: 'Bearer' });
+        record.revision++;
+      });
+      const settled = Promise.allSettled([pending]);
+      held.respond(
+        response === 'invalid_grant'
+          ? { error: 'invalid_grant' }
+          : { access_token: 'stale', refresh_token: 'stale-refresh', token_type: 'Bearer' },
+        response === 'invalid_grant' ? 400 : 200,
+      );
+      expect((await settled)[0].status).toBe('rejected');
+      await f.provider.invalidateRejectedTokens(snapshot);
+      expect(f.provider.tokens()?.refresh_token).toBe('newer-refresh');
+      expect(f.provider.getPendingAuthorizationUrl()).toBeUndefined();
+    });
+
+    it('fences logout while refresh is pending', async () => {
+      const f = await fixture(legacy, {}, true);
+      await login(f);
+      const held = heldTokens(f);
+      const first = f.authorize();
+      await held.request;
+      const follower = f.authorize();
+      const settled = Promise.allSettled([first, follower]);
+      await f.provider.invalidateCredentials('tokens');
+      held.respond({ access_token: 'stale', refresh_token: 'stale-refresh', token_type: 'Bearer' });
+      expect((await settled).every((result) => result.status === 'rejected')).toBe(true);
+      expect(f.provider.tokens()).toBeUndefined();
+    });
+
+    it('terminates owner and waiters on shutdown', async () => {
+      const f = await fixture(legacy, {}, true);
+      await login(f);
+      const held = heldTokens(f);
+      const first = f.authorize();
+      await held.request;
+      const follower = f.authorize();
+      const settled = Promise.allSettled([first, follower]);
+      await f.provider.shutdown();
+      expect((await settled).every((result) => result.status === 'rejected')).toBe(true);
+      held.respond({ access_token: 'stale', token_type: 'Bearer' });
+    });
+
+    it('refreshes distinct resources independently despite equal display names', async () => {
+      const left = await fixture(legacy, {}, true);
+      const right = await fixture(legacy, {}, true);
+      await Promise.all([login(left), login(right)]);
+      const a = heldTokens(left);
+      const b = heldTokens(right);
+      const pending = Promise.all([left.authorize(), right.authorize()]);
+      await Promise.all([a.request, b.request]);
+      a.respond({ access_token: 'left', token_type: 'Bearer' });
+      b.respond({ access_token: 'right', token_type: 'Bearer' });
+      expect(await pending).toEqual(['AUTHORIZED', 'AUTHORIZED']);
+    });
+  });
+
+for (const legacy of [true, false])
+  describe(`${legacy ? 'legacy' : 'modern'} transport refresh ownership`, () => {
+    it('coordinates real SDK transports, preserves headers and replays the exact body once', async () => {
+      const f = await fixture(legacy, {}, true);
+      await login(f);
+      const other = f.create();
+      await other.authorize(async () => 'AUTHORIZED');
+      f.behavior.resourceHandler = (request, response) => {
+        if (request.headers.authorization === 'Bearer winner') {
+          response.statusCode = 202;
+          response.end();
+          return;
+        }
+        response.writeHead(401, {
+          'www-authenticate': `Bearer resource_metadata="${f.base}/.well-known/oauth-protected-resource/mcp"`,
+        });
+        response.end('{}');
+      };
+      const held = heldTokens(f);
+      const Transport = legacy ? LegacyTransport : ModernTransport;
+      const transports = [f.provider, other].map(
+        (provider) =>
+          new Transport(new URL(f.base + '/mcp'), {
+            fetch: createCoordinatedOAuthFetch(provider, legacy, f.base + '/mcp'),
+            requestInit: { headers: { 'x-resource-secret': 'resource-only' } },
+          }),
+      );
+      cleanups.push(() => Promise.all(transports.map((transport) => transport.close())).then(() => undefined));
+      const first = transports[0].send({ jsonrpc: '2.0', id: 1, method: 'ping' });
+      await held.request;
+      const second = transports[1].send({ jsonrpc: '2.0', id: 2, method: 'ping' });
+      // Both resource challenges must arrive before the refresh completes.
+      const original = f.behavior.resourceHandler;
+      let challenged!: () => void;
+      const challenge = new Promise<void>((resolve) => {
+        challenged = resolve;
+      });
+      f.behavior.resourceHandler = (request, response) => {
+        original!(request, response);
+        challenged();
+      };
+      await challenge;
+      held.respond({ access_token: 'winner', refresh_token: 'rotated', token_type: 'Bearer' });
+      await Promise.all([first, second]);
+      expect(held.count()).toBe(1);
+      const resources = f.requests.filter((request) => request.path === '/mcp');
+      expect(resources).toHaveLength(4);
+      expect(resources.map((request) => request.body).sort()).toEqual(
+        [1, 1, 2, 2].map((id) => JSON.stringify({ jsonrpc: '2.0', id, method: 'ping' })).sort(),
+      );
+      expect(resources.every((request) => request.headers['x-resource-secret'] === 'resource-only')).toBe(true);
+      expect(
+        f.requests
+          .filter((request) => request.path === '/token')
+          .every((request) => request.headers['x-resource-secret'] === undefined),
+      ).toBe(true);
+    });
+
+    it('cancels an individual waiter without cancelling the shared refresh', async () => {
+      const f = await fixture(legacy, {}, true);
+      await login(f);
+      f.behavior.resourceHandler = (_request, response) => {
+        response.statusCode = 401;
+        response.end('{}');
+      };
+      const held = heldTokens(f);
+      const first = f.authorize();
+      await held.request;
+      const controller = new AbortController();
+      const fetch = createCoordinatedOAuthFetch(f.provider, legacy, f.base + '/mcp');
+      let challenged!: () => void;
+      const challenge = new Promise<void>((resolve) => {
+        challenged = resolve;
+      });
+      f.behavior.resourceHandler = (_request, response) => {
+        response.statusCode = 401;
+        response.end('{}');
+        challenged();
+      };
+      const waiter = fetch(f.base + '/mcp', { signal: controller.signal });
+      await challenge;
+      const settled = Promise.allSettled([waiter]);
+      controller.abort();
+      expect((await settled)[0].status).toBe('rejected');
+      held.respond({ access_token: 'winner', token_type: 'Bearer' });
+      expect(await first).toBe('AUTHORIZED');
+      expect(held.count()).toBe(1);
+    });
+  });
+
+for (const legacy of [true, false])
+  it(`${legacy ? 'legacy' : 'modern'} keeps resource scopes at the owned auth boundary`, async () => {
+    const f = await fixture(legacy, { scopes: ['read', 'write'] }, true);
+    await login(f);
+    f.behavior.resourceHandler = (_request, response) => {
+      response.writeHead(403, {
+        'www-authenticate': `Bearer error="insufficient_scope", scope="write", resource_metadata="${f.base}/.well-known/oauth-protected-resource/mcp"`,
+      });
+      response.end('{}');
+    };
+    const Transport = legacy ? LegacyTransport : ModernTransport;
+    const transport = new Transport(new URL(f.base + '/mcp'), {
+      fetch: createCoordinatedOAuthFetch(f.provider, legacy, f.base + '/mcp'),
+    });
+    cleanups.push(() => transport.close());
+    await expect(
+      transport.send({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'write', arguments: {} } }),
+    ).rejects.toThrow();
+    if (!legacy) {
+      expect(new URL(f.provider.getPendingAuthorizationUrl()!).searchParams.get('scope')?.split(' ').sort()).toEqual([
+        'read',
+        'write',
+      ]);
+      expect(f.requests.filter((request) => request.path === '/mcp')).toHaveLength(1);
+    }
+  });
+
+for (const legacy of [true, false])
+  describe(`${legacy ? 'legacy' : 'modern'} SSE auth boundary`, () => {
+    it('preserves initial consent as an authorization-required outcome', async () => {
+      const f = await fixture(legacy, {}, true);
+      f.behavior.resourceHandler = (_request, response) => {
+        response.statusCode = 401;
+        response.end('{}');
+      };
+      const Transport = legacy ? LegacySseTransport : ModernSseTransport;
+      const transport = new Transport(new URL(f.base + '/mcp'), {
+        fetch: createCoordinatedOAuthFetch(f.provider, legacy, f.base + '/mcp'),
+      });
+      bindCoordinatedOAuthTransport(transport, f.provider, legacy, f.base + '/mcp');
+      cleanups.push(() => transport.close());
+      await expect(transport.start()).rejects.toBeInstanceOf(legacy ? UnauthorizedError : ModernUnauthorizedError);
+      expect(f.provider.getPendingAuthorizationUrl()).toBeDefined();
+    });
+  });
+
+for (const legacy of [true, false])
+  it(`${legacy ? 'legacy' : 'modern'} keeps equal display names independent in one runtime store`, async () => {
+    const f = await fixture(legacy, {}, true);
+    await login(f);
+    const other = f.create({
+      authority: {
+        ...f.config.authority!,
+        source: 'configured-b',
+        route: { ...f.config.authority!.route, connectionKey: 'configured-b' },
+        configuration: oauthDigest(['configured-b']),
+      },
+    });
+    expect(await f.authorize(other)).toBe('REDIRECT');
+    const redirect = new URL(other.getAuthorizationUrl()!);
+    expect(
+      await f.finish(
+        other,
+        new URLSearchParams({ state: redirect.searchParams.get('state')!, code: 'other-code', iss: f.base }),
+      ),
+    ).toBe('AUTHORIZED');
+    const responses: http.ServerResponse[] = [];
+    let arrived!: () => void;
+    const both = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    f.behavior.tokenHandler = (_body, response) => {
+      responses.push(response);
+      if (responses.length === 2) arrived();
+    };
+    const pending = Promise.all([f.authorize(), f.authorize(other)]);
+    await both;
+    for (const [index, response] of responses.entries())
+      response.end(JSON.stringify({ access_token: `authority-${index}`, token_type: 'Bearer' }));
+    expect(await pending).toEqual(['AUTHORIZED', 'AUTHORIZED']);
+    expect(responses).toHaveLength(2);
+  });
+
+for (const legacy of [true, false])
+  it(`${legacy ? 'legacy' : 'modern'} rejects a refresh whose token read was superseded before dispatch`, async () => {
+    const f = await fixture(legacy, {}, true);
+    await login(f);
+    const snapshot = f.provider.credentialSnapshot()!;
+    const repository = new ClientSessionRepository(new FileStorageService(f.dir, 'client'));
+    const fetch = f.provider.fetch;
+    let intercepted = false;
+    Object.assign(f.provider, {
+      fetch: async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        if (!intercepted && new URLSearchParams(String(init?.body ?? '')).get('grant_type') === 'refresh_token') {
+          intercepted = true;
+          await repository.updateBound(authoritySlot(f.config.authority!), snapshot.generation, (record) => {
+            record.tokens = JSON.stringify({
+              access_token: 'newer',
+              refresh_token: 'newer-refresh',
+              token_type: 'Bearer',
+            });
+            record.revision++;
+          });
+        }
+        return fetch(input, init);
+      },
+    });
+    const before = f.requests.filter((request) => request.path === '/token').length;
+    await expect(f.authorize()).rejects.toThrow();
+    expect(intercepted).toBe(true);
+    expect(f.requests.filter((request) => request.path === '/token')).toHaveLength(before);
+    expect(f.provider.tokens()?.refresh_token).toBe('newer-refresh');
+    expect(f.provider.getPendingAuthorizationUrl()).toBeUndefined();
+  });
+
+for (const legacy of [true, false])
+  it(`${legacy ? 'legacy' : 'modern'} cannot publish an already received refresh response after shutdown`, async () => {
+    const f = await fixture(legacy, {}, true);
+    await login(f);
+    let entered!: () => void;
+    let release!: () => void;
+    let finished!: () => void;
+    const arrived = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const completion = new Promise<void>((resolve) => {
+      finished = resolve;
+    });
+    const save = f.provider.saveTokens.bind(f.provider);
+    f.provider.saveTokens = async (tokens, context) => {
+      entered();
+      await held;
+      try {
+        await save(tokens, context);
+      } finally {
+        finished();
+      }
+    };
+    f.behavior.tokenHandler = (_body, response) =>
+      response.end(JSON.stringify({ access_token: 'stale', refresh_token: 'stale-refresh', token_type: 'Bearer' }));
+    const pending = Promise.allSettled([f.authorize()]);
+    await arrived;
+    await f.provider.shutdown();
+    release();
+    await completion;
+    expect((await pending)[0].status).toBe('rejected');
+    expect(f.provider.tokens()?.refresh_token).toBe('opaque-refresh');
+  });
+
+describe('modern scope recovery across refresh outcomes', () => {
+  it('handles a replay scope challenge after a successful refresh without replaying the Tool after consent', async () => {
+    const f = await fixture(false, { scopes: ['read', 'write'] }, true);
+    await login(f);
+    f.behavior.tokenHandler = (_body, response) =>
+      response.end(
+        JSON.stringify({ access_token: 'winner', refresh_token: 'rotated', token_type: 'Bearer', scope: 'read' }),
+      );
+    f.behavior.resourceHandler = (request, response) => {
+      response.writeHead(request.headers.authorization === 'Bearer winner' ? 403 : 401, {
+        'www-authenticate':
+          request.headers.authorization === 'Bearer winner'
+            ? 'Bearer error="insufficient_scope", scope="write"'
+            : 'Bearer',
+      });
+      response.end('{}');
+    };
+    const transport = new ModernTransport(new URL(f.base + '/mcp'), {
+      fetch: createCoordinatedOAuthFetch(f.provider, false, f.base + '/mcp'),
+    });
+    cleanups.push(() => transport.close());
+    await expect(
+      transport.send({ jsonrpc: '2.0', id: 20, method: 'tools/call', params: { name: 'write', arguments: {} } }),
+    ).rejects.toBeInstanceOf(ModernUnauthorizedError);
+    expect(new URL(f.provider.getPendingAuthorizationUrl()!).searchParams.get('scope')?.split(' ').sort()).toEqual([
+      'read',
+      'write',
+    ]);
+    expect(f.requests.filter((request) => request.path === '/mcp')).toHaveLength(2);
+    expect(f.requests.filter((request) => request.path === '/token')).toHaveLength(2);
+  });
+
+  it('waits for a narrower refresh, then creates the required scope consent', async () => {
+    const f = await fixture(false, { scopes: ['read', 'write'] }, true);
+    await login(f);
+    const held = heldTokens(f);
+    const refreshing = f.authorize();
+    await held.request;
+    let challenged!: () => void;
+    const challenge = new Promise<void>((resolve) => {
+      challenged = resolve;
+    });
+    f.behavior.resourceHandler = (_request, response) => {
+      response.writeHead(403, { 'www-authenticate': 'Bearer error="insufficient_scope", scope="write"' });
+      response.end('{}');
+      challenged();
+    };
+    const transport = new ModernTransport(new URL(f.base + '/mcp'), {
+      fetch: createCoordinatedOAuthFetch(f.provider, false, f.base + '/mcp'),
+    });
+    cleanups.push(() => transport.close());
+    const requesting = transport.send({
+      jsonrpc: '2.0',
+      id: 21,
+      method: 'tools/call',
+      params: { name: 'write', arguments: {} },
+    });
+    const settled = Promise.allSettled([requesting]);
+    await challenge;
+    held.respond({ access_token: 'winner', refresh_token: 'rotated', token_type: 'Bearer', scope: 'read' });
+    expect(await refreshing).toBe('AUTHORIZED');
+    expect((await settled)[0].status).toBe('rejected');
+    expect(new URL(f.provider.getPendingAuthorizationUrl()!).searchParams.get('scope')?.split(' ').sort()).toEqual([
+      'read',
+      'write',
+    ]);
+    expect(held.count()).toBe(1);
+  });
+
+  it('does not reuse a narrower pending consent for a wider scope challenge', async () => {
+    const f = await fixture(false, { scopes: ['read', 'write'] }, true);
+    expect(await authorizeUpstream(f.provider, false, { serverUrl: f.base + '/mcp', scope: 'read' })).toBe('REDIRECT');
+    const narrow = f.provider.getPendingAuthorizationUrl();
+    f.behavior.resourceHandler = (_request, response) => {
+      response.writeHead(403, { 'www-authenticate': 'Bearer error="insufficient_scope", scope="write"' });
+      response.end('{}');
+    };
+    const transport = new ModernTransport(new URL(f.base + '/mcp'), {
+      fetch: createCoordinatedOAuthFetch(f.provider, false, f.base + '/mcp'),
+    });
+    cleanups.push(() => transport.close());
+    const operation = () =>
+      transport.send({ jsonrpc: '2.0', id: 22, method: 'tools/call', params: { name: 'write', arguments: {} } });
+    await expect(operation()).rejects.toBeInstanceOf(ModernUnauthorizedError);
+    const wider = f.provider.getPendingAuthorizationUrl();
+    expect(wider).not.toBe(narrow);
+    expect(new URL(wider!).searchParams.get('scope')?.split(' ').sort()).toEqual(['read', 'write']);
+    await expect(operation()).rejects.toBeInstanceOf(ModernUnauthorizedError);
+    expect(f.provider.getPendingAuthorizationUrl()).toBe(wider);
+  });
+});
+
+for (const legacy of [true, false])
+  it(`${legacy ? 'legacy' : 'modern'} replays a delayed obsolete 401 with newer credentials without refreshing again`, async () => {
+    const f = await fixture(legacy, {}, true);
+    await login(f);
+    let arrived!: () => void;
+    const request = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    let stale!: http.ServerResponse;
+    f.behavior.resourceHandler = (incoming, response) => {
+      if (incoming.headers.authorization === 'Bearer winner') {
+        response.statusCode = 202;
+        response.end();
+        return;
+      }
+      stale = response;
+      arrived();
+    };
+    f.behavior.tokenHandler = (_body, response) =>
+      response.end(JSON.stringify({ access_token: 'winner', refresh_token: 'rotated', token_type: 'Bearer' }));
+    const Transport = legacy ? LegacyTransport : ModernTransport;
+    const transport = new Transport(new URL(f.base + '/mcp'), {
+      fetch: createCoordinatedOAuthFetch(f.provider, legacy, f.base + '/mcp'),
+    });
+    cleanups.push(() => transport.close());
+    const pending = transport.send({ jsonrpc: '2.0', id: 23, method: 'ping' });
+    await request;
+    expect(await f.authorize()).toBe('AUTHORIZED');
+    stale.statusCode = 401;
+    stale.end('{}');
+    await pending;
+    expect(f.requests.filter((entry) => entry.path === '/token')).toHaveLength(2);
+    expect(f.provider.tokens()?.refresh_token).toBe('rotated');
+  });
+
+for (const legacy of [true, false])
+  it(`${legacy ? 'legacy' : 'modern'} treats a provider outage as transient even when it returns invalid_grant`, async () => {
+    const f = await fixture(legacy, {}, true);
+    await login(f);
+    f.behavior.tokenHandler = (_body, response) => {
+      response.statusCode = 503;
+      response.end(JSON.stringify({ error: 'invalid_grant' }));
+    };
+    await expect(f.authorize()).rejects.toThrow();
+    expect(f.provider.tokens()?.refresh_token).toBe('opaque-refresh');
+    expect(f.provider.getPendingAuthorizationUrl()).toBeUndefined();
+  });
+
+for (const legacy of [true, false])
+  it(`${legacy ? 'legacy' : 'modern'} preserves credentials after a malformed provider outage body`, async () => {
+    const f = await fixture(legacy, {}, true);
+    await login(f);
+    f.behavior.tokenHandler = (_body, response) => {
+      response.statusCode = 503;
+      response.end('not-json');
+    };
+    await expect(f.authorize()).rejects.toThrow();
+    expect(f.provider.tokens()?.refresh_token).toBe('opaque-refresh');
+    expect(f.provider.getPendingAuthorizationUrl()).toBeUndefined();
   });

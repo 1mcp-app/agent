@@ -147,8 +147,10 @@ export class ClientSessionRepository {
     discovery: string,
     claim: string,
     requestVersion?: number,
+    signal?: AbortSignal,
   ): Promise<BoundClientSession> {
     return this.storage.withExclusiveLock(`oauth-${slot}`, () => {
+      signal?.throwIfAborted();
       const authorityClaim = this.getClaim(slot);
       if (authorityClaim?.generation !== claim) throw oauthAuthorityError();
       if (requestVersion !== undefined && authorityClaim.requestVersion !== requestVersion) throw oauthAuthorityError();
@@ -204,6 +206,24 @@ export class ClientSessionRepository {
       this.storage.writeDataDurable('oauth-context-', slot, claim);
       this.storage.writeDataDurable('oauth-bound-', slot, record);
       return record;
+    });
+  }
+
+  /** A resource rejection owns only the credential revision sent on that request. */
+  async invalidateBoundTokens(
+    slot: string,
+    expected: { generation: string; revision: number },
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.storage.withExclusiveLock(`oauth-${slot}`, () => {
+      signal?.throwIfAborted();
+      const record = this.getBound(slot);
+      const claim = this.getClaim(slot);
+      if (!record || claim?.generation !== expected.generation || record.generation !== expected.generation) return;
+      if (record.revision !== expected.revision) return;
+      record.tokens = undefined;
+      record.revision++;
+      this.storage.writeDataDurable('oauth-bound-', slot, record);
     });
   }
 

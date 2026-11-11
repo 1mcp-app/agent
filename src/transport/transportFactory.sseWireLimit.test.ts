@@ -10,7 +10,9 @@ import { createTransports } from './transportFactory.js';
 vi.mock('@src/auth/sdkOAuthClientProvider.js', () => ({
   SDKOAuthClientProvider: class {
     fetch = globalThis.fetch;
-    tokens = async () => undefined;
+    tokens = () => undefined;
+    credentialSnapshot = () => undefined;
+    getPendingAuthorizationUrl = () => undefined;
     token = async () => undefined;
   },
 }));
