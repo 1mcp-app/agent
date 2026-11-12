@@ -228,7 +228,7 @@ importers:
         version: 5.2.1(supports-color@5.5.0)
       express-rate-limit:
         specifier: ^8.2.1
-        version: 8.7.0(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)
+        version: 8.7.3(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)
       handlebars:
         specifier: ^4.7.8
         version: 4.7.10
@@ -2885,8 +2885,8 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
 
-  express-rate-limit@8.7.0:
-    resolution: {integrity: sha512-hOwV7WOxXfjRpAM1DSJWZDXx3GhplwD8IfwuwvogD8i1Qnkgosw/H45s4ZnFAUHDAhPjlY9hLBvJhKmGMyY26g==}
+  express-rate-limit@8.7.3:
+    resolution: {integrity: sha512-zPLqDI2f0gV2WmGnacLf9XSSqn4VldRyP5LCzOwx0BKH40mO6+2PCFkoSsRO2jePx87/Kf6NUF6P2QOTKXHbQA==}
     engines: {node: '>= 16'}
     peerDependencies:
       express: '>= 4.11'
@@ -5405,7 +5405,7 @@ snapshots:
       eventsource: 3.0.7
       eventsource-parser: 3.1.0
       express: 5.2.1(supports-color@5.5.0)
-      express-rate-limit: 8.7.0(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)
+      express-rate-limit: 8.7.3(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)
       hono: 4.13.16
       jose: 6.2.8
       json-schema-typed: 8.0.2
@@ -5421,7 +5421,7 @@ snapshots:
       '@modelcontextprotocol/core': 2.4.0
       content-type: 1.0.5
       cors: 2.8.6
-      express-rate-limit: 8.7.0(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)
+      express-rate-limit: 8.7.3(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0)
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
       zod: 4.6.7
@@ -7138,7 +7138,7 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  express-rate-limit@8.7.0(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0):
+  express-rate-limit@8.7.3(express@5.2.1(supports-color@5.5.0))(supports-color@5.5.0):
     dependencies:
       debug: 4.4.3(supports-color@5.5.0)
       express: 5.2.1(supports-color@5.5.0)
