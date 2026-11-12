@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Backport HTTP and OAuth fixes to release-0.39
 
 ### 🧪 Testing
+- Allow bounded concurrent CLI startup on release runners
 - Align refresh fixture assertions with release-0.39
 
 
