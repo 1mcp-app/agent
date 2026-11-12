@@ -16,6 +16,14 @@ const spawn = vi.hoisted(() =>
     throw new Error('fixture activation failure');
   }),
 );
+const preparedConfig = vi.hoisted(() =>
+  vi.fn((_input: unknown): any => ({
+    digest: 'a'.repeat(64),
+    effectiveOptions: {},
+    snapshot: { appConfig: {} },
+  })),
+);
+const capturedLaunchInputs = vi.hoisted(() => vi.fn(() => ({ version: 1, values: {} })));
 vi.mock('node:child_process', async (original) => ({
   ...(await original<typeof import('node:child_process')>()),
   spawn,
@@ -23,18 +31,20 @@ vi.mock('node:child_process', async (original) => ({
 vi.mock('@src/core/server/runtimeReplacementConfig.js', () => ({
   runtimeReplacementSnapshotSchema: z.unknown(),
   explicitLaunchInputsSchema: z.object({ version: z.literal(1), values: z.record(z.string(), z.unknown()) }),
-  captureExplicitLaunchInputs: () => ({ version: 1, values: {} }),
-  prepareRuntimeReplacementConfig: () => ({
-    digest: 'a'.repeat(64),
-    effectiveOptions: {},
-    snapshot: { appConfig: {} },
-  }),
+  captureExplicitLaunchInputs: capturedLaunchInputs,
+  prepareRuntimeReplacementConfig: preparedConfig,
 }));
 
 afterEach(() => vi.restoreAllMocks());
 
 async function fixture(
-  options: { expired?: boolean; loseStopReply?: boolean; competingOwner?: boolean; retainOwner?: boolean } = {},
+  options: {
+    expired?: boolean;
+    loseStopReply?: boolean;
+    competingOwner?: boolean;
+    retainOwner?: boolean;
+    explicitInputs?: { version: 1; values: Record<string, unknown> };
+  } = {},
 ) {
   spawn.mockClear();
   const scope = fs.mkdtempSync(path.join(os.tmpdir(), 'cooperative timeout '));
@@ -58,7 +68,7 @@ async function fixture(
         runtime: null,
         runtimeScopeId: 'scope',
         version: 'old-compatible-version',
-        explicitInputs: { version: 1, values: {} },
+            explicitInputs: options.explicitInputs ?? { version: 1, values: {} },
         digest: 'a'.repeat(64),
         supervisorPid: process.pid,
         state: 'running',
@@ -93,6 +103,84 @@ async function fixture(
 }
 
 describe('cooperative restart drain deadline', () => {
+  it('rejects an unauthenticated non-loopback app config before starting replacement drain', async () => {
+    const f = await fixture();
+    preparedConfig.mockReturnValueOnce({
+      digest: 'a'.repeat(64),
+      effectiveOptions: {},
+      snapshot: { appConfig: { host: '0.0.0.0', auth: { enabled: false } } },
+    });
+    const ownerPath = path.join(f.scope, 'runtime.owner', 'owner.json');
+    const owner = fs.readFileSync(ownerPath, 'utf8');
+
+    try {
+      await expect(restartCooperativeRuntime({ 'config-dir': f.scope } as ServeOptions)).rejects.toThrow(
+        '--allow-unauthenticated-network',
+      );
+      expect(f.calls).toEqual(['describe']);
+      expect(fs.readFileSync(ownerPath, 'utf8')).toBe(owner);
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      await f.close();
+    }
+  });
+
+  it('lets a current explicit false override an inherited acknowledgement during preflight', async () => {
+    const f = await fixture({
+      explicitInputs: {
+        version: 1,
+        values: { host: '0.0.0.0', 'allow-unauthenticated-network': true },
+      },
+    });
+    capturedLaunchInputs.mockReturnValueOnce({
+      version: 1,
+      values: { 'allow-unauthenticated-network': false },
+    });
+    preparedConfig.mockImplementationOnce(({ previousExplicitInputs, invocationExplicitInputs }: any) => ({
+      digest: 'a'.repeat(64),
+      effectiveOptions: { ...previousExplicitInputs.values, ...invocationExplicitInputs.values },
+      snapshot: { appConfig: { auth: { enabled: false } } },
+    }));
+    const ownerPath = path.join(f.scope, 'runtime.owner', 'owner.json');
+    const owner = fs.readFileSync(ownerPath, 'utf8');
+
+    try {
+      await expect(
+        restartCooperativeRuntime({
+          'config-dir': f.scope,
+          'allow-unauthenticated-network': false,
+        } as ServeOptions),
+      ).rejects.toThrow('--allow-unauthenticated-network');
+      expect(f.calls).toEqual(['describe']);
+      expect(fs.readFileSync(ownerPath, 'utf8')).toBe(owner);
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      await f.close();
+    }
+  });
+
+  it.each([
+    { name: 'acknowledgement', effectiveOptions: { host: '0.0.0.0', 'allow-unauthenticated-network': true }, appConfig: {} },
+    { name: 'authentication', effectiveOptions: { host: '0.0.0.0' }, appConfig: { auth: { enabled: true } } },
+    { name: 'loopback binding', effectiveOptions: { host: '127.0.0.1' }, appConfig: { auth: { enabled: false } } },
+  ])('allows replacement preflight with $name', async ({ effectiveOptions, appConfig }) => {
+    const f = await fixture();
+    preparedConfig.mockReturnValueOnce({
+      digest: 'a'.repeat(64),
+      effectiveOptions,
+      snapshot: { appConfig },
+    });
+
+    try {
+      await expect(restartCooperativeRuntime({ 'config-dir': f.scope } as ServeOptions)).rejects.toThrow(
+        'fixture activation failure',
+      );
+      expect(f.calls).toContain('prepare-replacement');
+    } finally {
+      await f.close();
+    }
+  });
+
   it.each([false, true])(
     'stops the authenticated old owner once after expiry (lost reply: %s)',
     async (loseStopReply) => {

@@ -18,6 +18,7 @@ import { TemplateContextCapabilityStore } from '@src/core/context/templateContex
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ADMIN_SESSION_COOKIE_NAME, AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
+import { createSensitiveOperationLimiter } from '@src/transport/http/middlewares/securityMiddleware.js';
 import { createCliTokenRoute } from '@src/transport/http/routes/cliTokenRoute.js';
 import { createOAuthRoutes } from '@src/transport/http/routes/oauthRoutes.js';
 import {
@@ -217,7 +218,7 @@ export async function startAuthoritySurfaceFixture(): Promise<AuthoritySurfaceFi
   const oauthRouter = createOAuthRoutes(inboundProvider, undefined, flow, guard);
   app.use(createOperatorConsentRoutes(authRouter, oauthRouter, guard));
   app.use(authRouter);
-  app.post('/api/auth/cli-token', createCliTokenRoute(inboundProvider));
+  app.post('/api/auth/cli-token', createSensitiveOperationLimiter(), createCliTokenRoute(inboundProvider));
   app.use('/oauth', oauthRouter);
   app.get('/admin/oauth', (_request, response) => response.type('text').send('OAuth complete'));
 

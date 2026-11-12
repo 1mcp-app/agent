@@ -38,7 +38,10 @@ import errorHandler from '@src/transport/http/middlewares/errorHandler.js';
 import { httpRequestBodyLogger, httpRequestLogger } from '@src/transport/http/middlewares/httpRequestLogger.js';
 import { createMcpAvailabilityMiddleware } from '@src/transport/http/middlewares/mcpAvailabilityMiddleware.js';
 import { createScopeAuthMiddleware } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
-import { setupSecurityMiddleware } from '@src/transport/http/middlewares/securityMiddleware.js';
+import {
+  createSensitiveOperationLimiter,
+  setupSecurityMiddleware,
+} from '@src/transport/http/middlewares/securityMiddleware.js';
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { createAdminRoutes } from '@src/transport/http/routes/adminRoutes.js';
 import {
@@ -544,7 +547,12 @@ export class ExpressServer {
 
     // CLI token endpoint (localhost-only, no auth middleware).
     // Reject browser-origin requests so a web page cannot silently obtain a full-scope token.
-    this.app.post('/api/auth/cli-token', rejectBrowserOriginRequests, createCliTokenRoute(this.oauthProvider));
+    this.app.post(
+      '/api/auth/cli-token',
+      rejectBrowserOriginRequests,
+      createSensitiveOperationLimiter(),
+      createCliTokenRoute(this.oauthProvider),
+    );
 
     // Setup API routes (CLI-oriented fast endpoints, auth via scopeAuthMiddleware)
     const scopeAuthMiddleware = createScopeAuthMiddleware(this.oauthProvider);

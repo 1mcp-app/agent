@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import { OFFICIAL_CLIENT_SCENARIOS, officialClientScenarioFamily } from './officialClientScenarioCatalog.mjs';
@@ -28,12 +28,16 @@ describe('official client gateway bridge', () => {
         `import {createServer} from 'node:http'; import {writeFile} from 'node:fs/promises';
 const args=process.argv; const port=Number(args[args.indexOf('--port')+1]);
 if(process.env.ONE_MCP_ENABLE_AUTH!=='true'||args[args.indexOf('--enable-scope-validation')+1]!=='true'||args[args.indexOf('--credential-store')+1]!=='file')process.exit(3);
-const facts={grant:0,inspect:0,verified:false};
+const {TemplateContextCapabilityStore}=await import(${JSON.stringify(pathToFileURL(resolve('build/core/context/templateContextTrust.js')).href)});
+const {verifyCliTokenAuthorization}=await import(${JSON.stringify(pathToFileURL(resolve('build/core/context/cliTokenProof.js')).href)});
+const capability=new TemplateContextCapabilityStore({storageDir:args[args.indexOf('--config-dir')+1],runtimeScopeId:'owned-bridge-test'}).getOrCreate();
+const facts={grant:0,inspect:0,verified:false,proofVerified:false};
 const server=createServer(async(req,res)=>{
 req.resume();res.setHeader('content-type','application/json');
 if(req.url==='/health/ready'){res.end('{}');return;}
 if(req.url==='/api/auth/cli-token'){
- facts.grant++; await writeFile(${JSON.stringify(factsPath)},JSON.stringify(facts));
+ facts.grant++; facts.proofVerified=verifyCliTokenAuthorization(req.headers.authorization,capability); await writeFile(${JSON.stringify(factsPath)},JSON.stringify(facts));
+ if(!facts.proofVerified){res.writeHead(403).end('{}');return;}
  if(${JSON.stringify(mode)}==='grant-rejected'){res.writeHead(403).end('{}');return;}
  if(${JSON.stringify(mode)}==='grant-redirect'){res.writeHead(307,{location:'http://127.0.0.1:9/foreign'}).end();return;}
  res.end(JSON.stringify({authRequired:true,token:${JSON.stringify(mode === 'invalid-token' ? `${token}\r\nunsafe` : token)}}));return;
@@ -77,6 +81,7 @@ await writeFile(${JSON.stringify(marker)},'credential-admitted');
         const facts = JSON.parse(await readFile(factsPath, 'utf8'));
         expect(facts).toEqual({
           grant: 1,
+          proofVerified: true,
           inspect: ['valid', 'admission-rejected'].includes(mode) ? 1 : 0,
           verified: ['valid', 'admission-rejected'].includes(mode),
         });

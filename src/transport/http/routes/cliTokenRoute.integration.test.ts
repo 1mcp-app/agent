@@ -12,6 +12,7 @@ import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/sdk/legacy/server/runtime/serverManager.js';
 import { createModernInboundLegacyBridge } from '@src/sdk/legacy/transport/http/modernInboundLegacyBridge.js';
 import { createScopeAuthMiddleware } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
+import { createSensitiveOperationLimiter } from '@src/transport/http/middlewares/securityMiddleware.js';
 
 import express from 'express';
 import { expect, it, vi } from 'vitest';
@@ -62,7 +63,12 @@ it('admits fresh canonical CLI grants for REST and modern MCP while rejecting un
       {},
     );
     const auth = createScopeAuthMiddleware(provider);
-    app.post('/api/auth/cli-token', rejectBrowserOriginRequests, createCliTokenRoute(provider));
+    app.post(
+      '/api/auth/cli-token',
+      rejectBrowserOriginRequests,
+      createSensitiveOperationLimiter({ windowMs: 60_000, maxRequests: 2 }),
+      createCliTokenRoute(provider),
+    );
     app.use('/api', createApiRoutes(manager as never, auth));
     setupModernHttpRoutes(app as never, manager as never, [auth], createModernInboundLegacyBridge, {
       allowsHost: (host) => host === new URL(base).host,
@@ -88,6 +94,12 @@ it('admits fresh canonical CLI grants for REST and modern MCP while rejecting un
       body: JSON.stringify({ resource: 'https://attacker.example/mcp' }),
     });
     expect(minted.status).toBe(200);
+    const limited = await fetch(`${base}/api/auth/cli-token`, {
+      method: 'POST',
+      headers: { Authorization: createCliTokenAuthorization(capability) },
+    });
+    expect(limited.status).toBe(429);
+    expect(await limited.json()).toMatchObject({ error: 'rate_limit_exceeded' });
     const fresh = z
       .object({ authRequired: z.literal(true), token: z.string(), expiresIn: z.literal(60) })
       .parse(await minted.json());
