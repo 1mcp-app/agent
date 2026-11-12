@@ -370,6 +370,21 @@ describe('ConfigLoader', () => {
   });
 
   describe('loadAppConfigFromToml', () => {
+    it('fails closed for an invalid inbound era without discarding authentication settings', async () => {
+      await fsPromises.writeFile(configFilePath, '{"mcpServers":{}}');
+      await fsPromises.writeFile(
+        join(tempConfigDir, 'config.toml'),
+        'inboundHttpEra = "legacy-only"\n[auth]\nenabled = true',
+      );
+      expect(loader.loadAppConfigFromToml()).toMatchObject({ inboundHttpEra: 'legacy-only', auth: { enabled: true } });
+      await fsPromises.writeFile(
+        join(tempConfigDir, 'config.toml'),
+        'inboundHttpEra = "legacy"\n[auth]\nenabled = true',
+      );
+      expect(() => loader.loadAppConfigFromToml()).toThrow();
+      expect(() => loader.loadConfigWithEnvSubstitution()).toThrow();
+    });
+
     it('should return empty object when config.toml does not exist', () => {
       const result = loader.loadAppConfigFromToml();
       expect(result).toEqual({});

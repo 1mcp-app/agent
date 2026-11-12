@@ -559,6 +559,8 @@ export class ExpressServer {
       [tagsExtractor, scopeAuthMiddleware, availabilityMiddleware],
       createModernInboundLegacyBridge,
       createModernHttpRequestPolicy(this.configManager),
+      undefined,
+      this.configManager.get('inboundHttpEra'),
     );
 
     setupStreamableHttpRoutes(

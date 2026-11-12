@@ -130,6 +130,8 @@ export function loadAppConfigFromTomlPath(tomlPath: string): ApplicationConfig {
     return applicationConfigSchema.parse(parsed);
   } catch (error) {
     if (error instanceof ZodError) {
+      // Never discard authentication settings because the inbound compatibility setting is invalid.
+      if (error.issues.some((issue) => issue.path[0] === 'inboundHttpEra')) throw error;
       logger.error('configLoader.invalid.app.configuration.in.config.toml.ignored.1d694a3c', { error: error });
     } else {
       logger.error('configLoader.failed.to.load.app.configuration.from.7e70a1f8', { error: error });
