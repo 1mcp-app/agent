@@ -902,6 +902,8 @@ describe('apiRoutes /api/tool-invocations', () => {
       { server: 'alpha', toolName: 'mytool', args: { x: 1 } },
       undefined,
       expect.any(AbortSignal),
+      undefined,
+      expect.any(Function),
     );
     expect(res.body).toEqual(mockResult);
   });
@@ -940,6 +942,8 @@ describe('apiRoutes /api/tool-invocations', () => {
       { server: 'alpha', toolName: 'mytool', args: { x: 1 } },
       expect.objectContaining({ sessionId: 'rest-session-123', serverCandidates: expect.any(Map) }),
       expect.any(AbortSignal),
+      undefined,
+      expect.any(Function),
     );
   });
 });
