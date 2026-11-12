@@ -68,7 +68,7 @@ async function fixture(
         runtime: null,
         runtimeScopeId: 'scope',
         version: 'old-compatible-version',
-            explicitInputs: options.explicitInputs ?? { version: 1, values: {} },
+        explicitInputs: options.explicitInputs ?? { version: 1, values: {} },
         digest: 'a'.repeat(64),
         supervisorPid: process.pid,
         state: 'running',
@@ -160,7 +160,11 @@ describe('cooperative restart drain deadline', () => {
   });
 
   it.each([
-    { name: 'acknowledgement', effectiveOptions: { host: '0.0.0.0', 'allow-unauthenticated-network': true }, appConfig: {} },
+    {
+      name: 'acknowledgement',
+      effectiveOptions: { host: '0.0.0.0', 'allow-unauthenticated-network': true },
+      appConfig: {},
+    },
     { name: 'authentication', effectiveOptions: { host: '0.0.0.0' }, appConfig: { auth: { enabled: true } } },
     { name: 'loopback binding', effectiveOptions: { host: '127.0.0.1' }, appConfig: { auth: { enabled: false } } },
   ])('allows replacement preflight with $name', async ({ effectiveOptions, appConfig }) => {
