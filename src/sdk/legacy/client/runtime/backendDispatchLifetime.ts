@@ -50,6 +50,9 @@ export function observeBackendDispatchLifetime(transport: AuthProviderTransport)
     const pending = observer.pending;
     const send = transport.send;
     transport.send = function (message, options) {
+      transport.backendSleepTracker?.sent(
+        message as Parameters<NonNullable<AuthProviderTransport['backendSleepTracker']>['sent']>[0],
+      );
       retainDispatch(pending, message);
       return send.call(this, message, options);
     };
@@ -62,6 +65,9 @@ export function observeBackendDispatchLifetime(transport: AuthProviderTransport)
       try {
         receive?.(message, extra);
       } finally {
+        transport.backendSleepTracker?.received(
+          message as Parameters<NonNullable<AuthProviderTransport['backendSleepTracker']>['received']>[0],
+        );
         releaseDispatch(pending, message);
       }
     };

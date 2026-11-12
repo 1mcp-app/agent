@@ -1,13 +1,20 @@
 import {
+  Client as ModernClient,
   SSEClientTransport as ModernSSEClientTransport,
   StreamableHTTPClientTransport as ModernStreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { Client as LegacyClient } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import { TransportRecreator } from '@src/core/client/transportRecreator.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
+import { ClientFactory } from '@src/sdk/legacy/client/runtime/clientFactory.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -95,6 +102,45 @@ describe.each(['auto', 'legacy', '2026-07-28'] as const)('factory recreation (%s
     expect(original.sessionId).toBe('live-session');
   });
 
+  it.each([
+    ['createTransports', createTransports],
+    ['createTransportsWithContext', createTransportsWithContext],
+  ] as const)(
+    'retains the client protocol and configured deadlines/tags through repeated Backend Sleep recreation from %s',
+    async (_name, create) => {
+      const original = (
+        await create({
+          upstream: {
+            type: 'stdio',
+            command: 'unused-backend-fixture',
+            protocolVersion,
+            connectionTimeout: 1234,
+            requestTimeout: 5678,
+            timeout: 9000,
+            tags: ['configured'],
+            sleep: { enabled: true, idleTimeoutMs: 45_000 },
+          },
+        })
+      ).upstream;
+      const replacement = original.backendSleep!.recreate();
+      const nextReplacement = replacement.backendSleep!.recreate();
+      for (const candidate of [replacement, nextReplacement]) {
+        expect(candidate).toMatchObject({
+          outboundProtocolVersion: protocolVersion,
+          connectionTimeout: 1234,
+          requestTimeout: 5678,
+          timeout: 9000,
+          tags: ['configured'],
+          recreate: expect.any(Function),
+          backendSleep: { idleTimeoutMs: 45_000 },
+        });
+        expect(new ClientFactory().createClient(candidate)).toBeInstanceOf(
+          protocolVersion === 'legacy' ? LegacyClient : ModernClient,
+        );
+      }
+    },
+  );
+
   it('retains the SSE family and configuration on recreation', () => {
     const original = createTransports({ upstream: { ...config.upstream, type: 'sse' } }).upstream;
     const replacement = recreator.recreateForRetry(original);
@@ -109,4 +155,44 @@ describe.each(['auto', 'legacy', '2026-07-28'] as const)('factory recreation (%s
       _requestInit: { headers: { 'X-Configured': 'retained' } },
     });
   });
+});
+
+describe.each(['legacy', '2026-07-28'] as const)('Backend Sleep failed spawn cleanup (%s)', (protocolVersion) => {
+  it('proves no child needs release when spawning an absent executable fails', async () => {
+    const transports = await createTransports({
+      missing: {
+        type: 'stdio',
+        command: '/nonexistent/1mcp-backend-sleep-fixture',
+        protocolVersion,
+        sleep: { enabled: true },
+      },
+    });
+    const transport = transports.missing;
+    transport.onerror = () => {};
+    try {
+      await expect(transport.start()).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(transport.backendSleep!.release()).resolves.toBeUndefined();
+    } finally {
+      await transport.close();
+    }
+  });
+  it.skipIf(process.platform === 'win32')(
+    'proves no child needs release when the executable lacks execute permission',
+    async () => {
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-sleep-spawn-'));
+      const command = path.join(directory, 'not-executable');
+      fs.writeFileSync(command, '#!/bin/sh\nexit 0\n', { mode: 0o600 });
+      const transport = (
+        await createTransports({ denied: { type: 'stdio', command, protocolVersion, sleep: { enabled: true } } })
+      ).denied;
+      transport.onerror = () => {};
+      try {
+        await expect(transport.start()).rejects.toMatchObject({ code: 'EACCES' });
+        await expect(transport.backendSleep!.release()).resolves.toBeUndefined();
+      } finally {
+        await transport.close();
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
 });

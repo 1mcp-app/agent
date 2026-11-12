@@ -1,5 +1,6 @@
 import { ApiClient } from '@src/commands/shared/apiClient.js';
 import { type ResolvableServeTargetOptions, resolveServeTarget } from '@src/commands/shared/serveTargetResolver.js';
+import type { BackendSleepSnapshot } from '@src/core/server/backendSleep.js';
 import { GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
 import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import { GlobalOptions } from '@src/globalOptions.js';
@@ -38,6 +39,7 @@ export interface StatusCommandDependencies {
 }
 
 interface RuntimeSupervisionStatus {
+  sleep?: BackendSleepSnapshot;
   backendId?: string;
   name?: string;
   state: string;
@@ -57,6 +59,7 @@ interface RuntimeSupervisionStatus {
 }
 
 interface AggregateRuntimeStatus {
+  backendSleep?: Record<string, BackendSleepSnapshot>;
   backendSupervision?: Record<string, RuntimeSupervisionStatus>;
 }
 
@@ -462,6 +465,18 @@ function displayRuntimeSupervision(status?: RuntimeSupervisionStatus, showInstan
   }
 
   printer.keyValue({ 'Runtime Status': status.state });
+  if (status.sleep) {
+    const sleep = status.sleep;
+    printer.keyValue({ 'Sleep State': sleep.state });
+    printer.keyValue({
+      'Last Activity': sleep.lastActivityAt === null ? 'none' : formatRuntimeTimestamp(sleep.lastActivityAt),
+    });
+    printer.keyValue({ 'Idle Timeout': `${sleep.idleTimeoutMs} ms` });
+    printer.keyValue({ 'Sleep Blockers': sleep.blockers.join(', ') || 'none' });
+    if (sleep.failure)
+      printer.keyValue({ 'Sleep Failure': runtimeErrorMessage(sleep.failure) ?? 'Backend Sleep failed' });
+    if (sleep.retryAt !== undefined) printer.keyValue({ 'Wake Retry After': formatRuntimeTimestamp(sleep.retryAt) });
+  }
   if (status.instances?.length) {
     const stateCounts = countInstanceStates(status.instances);
     printer.keyValue({
@@ -512,6 +527,15 @@ function runtimeStatusForTarget(
   serverName: string,
   source: 'mcpServers' | 'mcpTemplates' | undefined,
 ): RuntimeSupervisionStatus | undefined {
+  const sleep = source !== 'mcpTemplates' ? aggregate?.backendSleep?.[serverName] : undefined;
+  if (sleep) {
+    const supervision = aggregate?.backendSupervision?.[serverName];
+    return {
+      ...supervision,
+      state: sleep.state === 'awake' ? (supervision?.state ?? sleep.state) : sleep.state,
+      sleep,
+    };
+  }
   const snapshots = aggregate?.backendSupervision;
   if (!snapshots) {
     return undefined;

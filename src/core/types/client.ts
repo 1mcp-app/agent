@@ -1,3 +1,4 @@
+import type { BackendSleepSnapshot } from '@src/core/server/backendSleep.js';
 import type { JsonObject, LegacySdkAdapter } from '@src/sdk/contracts/index.js';
 
 /**
@@ -6,6 +7,8 @@ import type { JsonObject, LegacySdkAdapter } from '@src/sdk/contracts/index.js';
 export enum ClientStatus {
   /** Client is successfully connected */
   Connected = 'connected',
+  /** Enabled backend retains discovery while its owned process is released. */
+  Sleeping = 'sleeping',
   /** Client is disconnected */
   Disconnected = 'disconnected',
   /** Client encountered an error */
@@ -63,6 +66,7 @@ export interface OutboundConnection {
   requiresOAuth: boolean;
   /** Runtime-owned stdio supervision facts, when enabled for this backend. */
   supervision?: OutboundSupervisionSnapshot;
+  sleep?: BackendSleepSnapshot;
 }
 
 /**
@@ -76,4 +80,9 @@ export type OutboundConnections = Map<string, OutboundConnection>;
 export interface OperationOptions {
   readonly retryCount?: number;
   readonly retryDelay?: number;
+}
+
+/** Discoverability does not require an active backend transport. */
+export function isBackendDiscoverable(connection: OutboundConnection): boolean {
+  return connection.status === ClientStatus.Connected || connection.status === ClientStatus.Sleeping;
 }

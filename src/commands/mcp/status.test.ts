@@ -78,6 +78,41 @@ describe('statusCommand runtime supervision', () => {
     expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Current PID': 5678 });
   });
 
+  it('shows Backend Sleep facts without requiring crash supervision', async () => {
+    const config = { type: 'stdio' as const, command: 'node' };
+    vi.mocked(configUtils.getAllServerTargets).mockReturnValue({ worker: config });
+    vi.mocked(configUtils.getEffectiveServerTargetConfig).mockReturnValue(config);
+    vi.mocked(configUtils.resolveServerTarget).mockReturnValue({
+      serverName: 'worker',
+      source: 'mcpServers',
+      serverConfig: config,
+    });
+    const dependencies = runtimeDependencies({
+      ok: true,
+      status: 200,
+      data: {
+        backendSupervision: {},
+        backendSleep: {
+          worker: {
+            state: 'wake-failed',
+            lastActivityAt: 0,
+            idleTimeoutMs: 300000,
+            blockers: ['startup failed'],
+            failure: 'connection failed',
+            retryAt: 30000,
+          },
+        },
+      },
+    });
+    await statusCommand({}, dependencies);
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Sleep State': 'wake-failed' });
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Last Activity': '1970-01-01T00:00:00.000Z' });
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Idle Timeout': '300000 ms' });
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Sleep Blockers': 'startup failed' });
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Sleep Failure': 'connection failed' });
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Wake Retry After': '1970-01-01T00:00:30.000Z' });
+  });
+
   it('queries aggregate health once and adds runtime facts to configured server summaries', async () => {
     const config = { type: 'stdio' as const, command: 'node' };
     vi.mocked(configUtils.getAllServerTargets).mockReturnValue({ worker: config });

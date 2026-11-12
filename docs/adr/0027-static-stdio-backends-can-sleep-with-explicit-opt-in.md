@@ -1,12 +1,12 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Static stdio backends can sleep with explicit opt-in
 
 Backend Sleep releases idle static stdio processes while retaining discoverable capabilities and waking a replacement on demand. It requires explicit per-server opt-in because waking creates a fresh backend session and loses process-local state. Existing servers keep their behavior unless the operator accepts that trade-off.
 
-This draft records the design decisions confirmed during October 14 and November 3, 2026 discussions and published in [issue #739](https://github.com/1mcp-app/agent/issues/739). It is a design contract for review, not evidence of implementation or runtime activation.
+This decision implements the contract published in [issue #739](https://github.com/1mcp-app/agent/issues/739). Backend Sleep remains disabled unless an operator opts in. Local verification and tested platform limits are recorded in [Backend Sleep acceptance](../development/backend-sleep-acceptance.md); implementation does not imply activation in a running configuration.
 
 ## Decision
 
@@ -18,7 +18,7 @@ The Aggregated Runtime owns intentional sleep and wake alongside backend lifecyc
 
 - Backend Sleep is opt-in per static stdio server, default off. Opt-in explicitly accepts loss of process-local state and a fresh backend session after wake. Do not infer that a server is stateless.
 - Existing template cleanup and remote HTTP/SSE backends remain unchanged.
-- Default idle timeout: 300000 ms; accept a configurable positive integer within the supported timer range and reject zero/invalid values. Check eligibility every 30000 ms.
+- Configure each static stdio entry with `sleep: { enabled: true, idleTimeoutMs: 300000 }`. The optional timeout accepts integers from 1 through 2147483647; omission uses 300000 ms. Omitted `sleep` stays disabled. Reject zero/invalid values and sleep policies on Template Servers or remote transports. Check eligibility every 30000 ms.
 - Start opted-in backends normally at runtime startup, initialize them, and populate capability metadata. No persistent cross-runtime capability cache or cold-start discovery is required.
 - Apply sleep-policy changes through configuration reload. Enabling sleep or changing the timeout starts a fresh idle window. Disabling sleep wakes a sleeping server to restore normal behavior. Server disable/removal and runtime shutdown take precedence over pending wakes.
 

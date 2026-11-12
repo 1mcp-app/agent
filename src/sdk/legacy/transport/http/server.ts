@@ -486,6 +486,7 @@ export class ExpressServer {
       readConfigDocument: () => readConfiguredServerConfigDocument(getConfigPath),
       readToolInventory: (input) => configuredToolInspectionService.read(input),
       refreshToolInventory: (input) => configuredToolInspectionService.refresh(input),
+      getBackendSleep: (serverName) => this.serverManager.getClients().get(serverName)?.sleep,
       getTemplateActiveInstanceCount: (templateName) =>
         this.serverManager.getTemplateServerManager().getTemplateActiveInstanceCount(templateName),
       getTemplateActiveInstanceIdentities: (templateName) =>

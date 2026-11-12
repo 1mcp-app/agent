@@ -1,16 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
+import {
+  acquireBackendDispatch,
+  prepareBackendOperation,
+  refreshBackendDiscovery,
+} from '@src/core/server/backendSleepAdapter.js';
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledSourceToolError, isSourceToolDisabled } from '@src/core/server/disabledTools.js';
 import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
 import { applySourceToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
-import {
-  ClientStatus,
-  type MCPServerParams,
-  type OutboundConnection,
-  type OutboundConnections,
-} from '@src/core/types/index.js';
+import { isBackendDiscoverable } from '@src/core/types/client.js';
+import { type MCPServerParams, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
 import {
   admitToolSchemas,
@@ -242,7 +243,7 @@ export class CapabilityCatalog {
         ? []
         : Array.from(options.visibility.serverCandidates.entries()).flatMap(([connectionKey, serverName]) => {
             const connection = this.deps.outboundConnections.get(connectionKey);
-            if (!connection || connection.status !== ClientStatus.Connected) return [];
+            if (!connection || !isBackendDiscoverable(connection)) return [];
             return [
               {
                 id: connectionKey,
@@ -331,7 +332,7 @@ export class CapabilityCatalog {
     const attempt = ++this.listingState.nextAttempt;
     this.listingState.activeAttempts.add(attempt);
     try {
-      const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'list');
+      const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'list', visibility);
       const sourceRegistry = queryOptions.toolRegistry ?? (await this.deps.getToolRegistry());
       const registry = await this.visibleToolRegistry(visibility, sourceRegistry);
       const admitted = [];
@@ -353,7 +354,7 @@ export class CapabilityCatalog {
           ([key, connection]) =>
             this.deps.outboundConnections.get(key) === connection &&
             connection.adapter === currentAdapters.get(key) &&
-            connection.status === ClientStatus.Connected,
+            isBackendDiscoverable(connection),
         );
       for (const tool of registry.getAllTools()) {
         const key = tool.connectionKey ?? tool.server;
@@ -421,7 +422,7 @@ export class CapabilityCatalog {
               ([key, connection]) =>
                 this.deps.outboundConnections.get(key) === connection &&
                 connection.adapter === currentAdapters.get(key) &&
-                connection.status === ClientStatus.Connected,
+                isBackendDiscoverable(connection),
             ),
         ),
         generation,
@@ -631,7 +632,7 @@ export class CapabilityCatalog {
     visibility?: CapabilityVisibility,
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<DescribeVisibleToolResult> {
-    const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'describe');
+    const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'describe', visibility);
     const access = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
     if (access.error) {
       const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
@@ -750,7 +751,7 @@ export class CapabilityCatalog {
     const requested = { callId: randomUUID(), requestedServer: args.server, requestedTool: args.toolName };
     writeLocalDiagnostic('info', 'tool.requested', requested);
     writeLocalDiagnostic('debug', 'tool.arguments', () => ({ ...requested, arguments: args.args }));
-    const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'invoke');
+    const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'invoke', visibility);
     const access = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
     if (access.error) {
       const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
@@ -792,7 +793,7 @@ export class CapabilityCatalog {
     writeLocalDiagnostic('info', 'tool.routed', diagnosticRoute);
     if (
       !connection ||
-      connection.status !== ClientStatus.Connected ||
+      !isBackendDiscoverable(connection) ||
       this.deps.outboundConnections.get(route.connectionKey) !== connection
     ) {
       writeLocalDiagnostic('warn', 'tool.rejected', {
@@ -815,7 +816,11 @@ export class CapabilityCatalog {
     }
 
     let phase = 'schema_admission';
+    let releaseBackend: (() => void) | undefined;
+    let releaseDispatch: (() => void) | undefined;
     try {
+      releaseBackend = await prepareBackendOperation(connection.adapter, queryOptions.signal);
+      releaseDispatch = await acquireBackendDispatch(connection.adapter, queryOptions.signal);
       const targetArgs = projectToolArguments(
         this.deps.getServerConfigs()[route.server],
         visibility?.projectContext ?? this.deps.defaultVisibility?.projectContext,
@@ -880,7 +885,7 @@ export class CapabilityCatalog {
         const tool = selectedRegistry.getTool(route.server, route.toolName);
         if (
           !tool ||
-          connection.status !== ClientStatus.Connected ||
+          !isBackendDiscoverable(connection) ||
           registry.isCurrent() === false ||
           JSON.stringify(this.resolveRoute(tool, visibility)) !== JSON.stringify(route) ||
           JSON.stringify(tool.definition?.inputSchema ?? tool.inputSchema) !== JSON.stringify(definition.inputSchema) ||
@@ -960,15 +965,28 @@ export class CapabilityCatalog {
         },
         refresh,
       };
+    } finally {
+      releaseDispatch?.();
+      releaseBackend?.();
     }
   }
 
   private async resolveRefreshFacts(
     intent: CapabilityRefreshIntent,
     reason: CapabilityRefreshReason,
+    visibility?: CapabilityVisibility,
   ): Promise<CapabilityRefreshFacts> {
     if (intent === 'never') {
       return NEVER_REFRESH;
+    }
+
+    if (intent === 'force') {
+      const effective = visibility ?? this.deps.defaultVisibility;
+      for (const [key, connection] of this.deps.outboundConnections) {
+        if (effective && !effective.serverCandidates.has(key)) continue;
+        if (this.deps.getServerConfigs()[connection.name]?.disabled) continue;
+        await refreshBackendDiscovery(connection.adapter, connection.capabilities ?? {});
+      }
     }
 
     if (!this.deps.refreshCapabilities) {
@@ -998,9 +1016,10 @@ export class CapabilityCatalog {
     const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
     if (effectiveVisibility !== undefined) {
       const connectedCandidates = new Map(
-        Array.from(effectiveVisibility.serverCandidates).filter(
-          ([connectionKey]) => this.deps.outboundConnections.get(connectionKey)?.status === ClientStatus.Connected,
-        ),
+        Array.from(effectiveVisibility.serverCandidates).filter(([connectionKey]) => {
+          const connection = this.deps.outboundConnections.get(connectionKey);
+          return !!connection && isBackendDiscoverable(connection);
+        }),
       );
       registry = registry.filterByServerCandidates(connectedCandidates);
     }

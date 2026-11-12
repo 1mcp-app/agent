@@ -3,9 +3,14 @@ import { EventEmitter } from 'node:events';
 import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { MCP_SERVER_NAME } from '@src/constants.js';
 import { DEFAULT_MAX_CONCURRENT_LOADS } from '@src/constants/mcp.js';
-import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
+import {
+  notifyBackendCapabilityChanges,
+  registerCapabilityPaginationNotifications,
+} from '@src/core/capabilities/capabilityPagination.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ParallelExecutor } from '@src/core/loading/parallelExecutor.js';
+import { BackendReleaseError, BackendSleep } from '@src/core/server/backendSleep.js';
+import { BackendSleepAdapter } from '@src/core/server/backendSleepAdapter.js';
 import { BackendStdioSupervisor, type BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
 import { ClientStatus, OperationOptions, OutboundConnections, ServerCapability } from '@src/core/types/index.js';
@@ -28,6 +33,7 @@ import {
   snapshotSupervision,
 } from './legacyOutboundConnection.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
+import { closeModernSubscriptions } from './modernSubscriptions.js';
 import { OAuthFlowHandler } from './oauthFlowHandler.js';
 import type { OutboundSdkClient } from './sdkClient.js';
 import { TransportRecreator } from './transportRecreator.js';
@@ -93,6 +99,8 @@ export class ClientManager extends EventEmitter {
   private connectionHandler: ConnectionHandler;
   private oauthFlowHandler: OAuthFlowHandler;
   private transportRecreator: TransportRecreator;
+  private backendSleeps = new Map<string, BackendSleep>();
+  private backendSleepInitialization = new Map<string, Promise<void>>();
   private backendSupervisors = new Map<string, BackendStdioSupervisor>();
   private backendAvailabilityHandler?: (name: string, snapshot?: BackendSupervisionSnapshot) => void | Promise<void>;
   private isShuttingDown = false;
@@ -425,6 +433,10 @@ export class ClientManager extends EventEmitter {
     }
     const existing = this.outboundConns.get(name);
     const preserveExisting = preserveHealthyConnection && existing?.status === ClientStatus.Connected;
+    const previousSleep = this.backendSleeps.get(name);
+    // Keep a healthy fallback callable and prevent idle release while its replacement connects.
+    const releaseFallback = preserveExisting ? previousSleep?.reserve() : undefined;
+    if (!preserveExisting) await previousSleep?.retire();
     if (!preserveExisting) this.transports[name] = transport;
     try {
       const client = this.clientFactory.createClient(transport);
@@ -440,6 +452,7 @@ export class ClientManager extends EventEmitter {
         await this.disposeConnectedClient(connected);
         return;
       }
+      if (preserveExisting) await previousSleep?.retire();
       const superseded = this.outboundConns.get(name);
       this.recordConnectedClient(name, connected);
       await this.disposeSupersededConnection(name, superseded, connected.client);
@@ -467,6 +480,8 @@ export class ClientManager extends EventEmitter {
         return;
       }
       this.handleClientCreationError(name, transport, sanitizeRuntimeScopeError(error));
+    } finally {
+      releaseFallback?.();
     }
   }
 
@@ -561,6 +576,7 @@ export class ClientManager extends EventEmitter {
       connectionTimeoutMs: getConnectionTimeout(transport),
       requestTimeoutMs: transport.requestTimeout,
     }));
+    await this.backendSleeps.get(name)?.retire();
     const attemptTransport = this.prepareTransportForAttempt(name, transport);
     this.transports[name] = attemptTransport;
 
@@ -630,6 +646,7 @@ export class ClientManager extends EventEmitter {
       transportType: connected.transport.constructor.name,
     }));
     this.extractAndCacheInstructions(name, connected.client);
+    this.configureBackendSleep(name, connected.transport);
     this.setupConnectionHandlers(name, connected.client);
 
     const metadata = connected.transport.stdioSupervision;
@@ -637,6 +654,127 @@ export class ClientManager extends EventEmitter {
       const supervisor = this.getOrCreateBackendSupervisor(name, metadata);
       this.applyBackendSupervisionState(name, supervisor.snapshot());
     }
+  }
+
+  private configureBackendSleep(name: string, transport: AuthProviderTransport): void {
+    this.backendSleeps.get(name)?.stop();
+    this.backendSleeps.delete(name);
+    const metadata = transport.backendSleep;
+    if (!metadata || parseTemplateConnectionKey(name).kind !== 'static') return;
+    const connection = this.outboundConns.get(name)!;
+    const isCurrent = () =>
+      !this.isShuttingDown &&
+      this.outboundConns.get(name) === connection &&
+      this.backendSleeps.get(name) === lifecycle &&
+      lifecycle.snapshot().state !== 'stopped';
+    let lastSleepState: string | undefined;
+    const lifecycle = new BackendSleep({
+      idleTimeoutMs: metadata.idleTimeoutMs,
+      isCurrent,
+      ownershipBlocker: () => {
+        const ownership = getLegacyTransport(connection).backendSleep;
+        return ownership ? ownership.ownershipBlocker() : 'ownership-unverified';
+      },
+      onChange: (snapshot) => {
+        connection.sleep = snapshot;
+        const supervisor = this.backendSupervisors.get(name);
+        if (supervisor && (snapshot.state === 'sleeping' || snapshot.state === 'awake')) {
+          supervisor.recordIntentionalProcessChange(
+            snapshot.state === 'sleeping' ? null : this.getTransportPid(getLegacyTransport(connection)),
+          );
+          connection.supervision = snapshotSupervision(supervisor.snapshot());
+        }
+        if (lastSleepState !== snapshot.state) {
+          lastSleepState = snapshot.state;
+          logger.info('backend.sleep.state.changed', {
+            server: name,
+            state: snapshot.state,
+            idleTimeoutMs: snapshot.idleTimeoutMs,
+            blockerCount: snapshot.blockers.length,
+            error: snapshot.failure ? new Error(snapshot.failure) : undefined,
+          });
+        }
+        if (snapshot.state === 'awake') connection.status = ClientStatus.Connected;
+        else if (snapshot.state !== 'stopped' && snapshot.state !== 'initializing')
+          connection.status = ClientStatus.Sleeping;
+      },
+      release: async () => {
+        getLegacyClient(connection).onclose = undefined;
+        const release = getLegacyTransport(connection).backendSleep?.release;
+        if (!release) throw new Error('Backend release ownership unavailable');
+        // Intentional sleep retains catalog coverage; do not report process teardown as remote loss.
+        closeModernSubscriptions(connection.adapter);
+        await release();
+      },
+      wake: async () => {
+        const previousTransport = getLegacyTransport(connection);
+        const nextTransport = (previousTransport.backendSleep ?? metadata).recreate();
+        nextTransport.backendSleepTracker = lifecycle;
+        const client = this.clientFactory.createClient(nextTransport);
+        let candidate: LegacyOutboundConnection | undefined;
+        try {
+          const timeout = getConnectionTimeout(nextTransport) ?? 60_000;
+          const deadline = Date.now() + timeout;
+          await client.connect(nextTransport, timeout ? { timeout } : undefined);
+          if (!isCurrent()) throw new Error('Backend removed or replaced during wake');
+          const version = await client.getServerVersion();
+          if (version?.name === MCP_SERVER_NAME) throw new Error('Aborted to prevent circular dependency');
+          candidate = createLegacyOutboundConnection({
+            name,
+            client,
+            transport: nextTransport,
+            status: ClientStatus.Connected,
+            capabilities: client.getServerCapabilities(),
+            lastConnected: new Date(),
+          });
+          const prior = adapter.current;
+          adapter.current = candidate.adapter;
+          try {
+            const changed = await adapter.refresh(candidate.capabilities ?? {}, deadline);
+            await notifyBackendCapabilityChanges(connection, changed);
+            if (!isCurrent()) throw new Error('Backend removed or replaced during capability refresh');
+          } catch (error) {
+            adapter.current = prior;
+            throw error;
+          }
+          connection.capabilities = candidate.capabilities;
+          connection.lastConnected = candidate.lastConnected;
+          this.transports[name] = nextTransport;
+          this.extractAndCacheInstructions(name, client);
+          this.setupConnectionHandlers(name, client);
+        } catch (error) {
+          client.onclose = undefined;
+          try {
+            if (!nextTransport.backendSleep) throw new Error('Replacement process ownership unavailable');
+            await nextTransport.backendSleep.release();
+            lifecycle.sessionReleased();
+            await client.close();
+          } catch {
+            throw new BackendReleaseError('Failed wake could not verify replacement process release');
+          }
+          throw sanitizeRuntimeScopeError(error);
+        }
+      },
+    });
+    const adapter = new BackendSleepAdapter(connection.adapter, lifecycle);
+    Object.assign(connection, { adapter });
+    transport.backendSleepTracker = lifecycle;
+    this.backendSleeps.set(name, lifecycle);
+    const initialization = adapter.refresh(connection.capabilities ?? {}).then(() => {
+      if (isCurrent()) lifecycle.ready();
+    });
+    adapter.initialization = initialization;
+    this.backendSleepInitialization.set(name, initialization);
+    void initialization
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.backendSleepInitialization.get(name) === initialization) this.backendSleepInitialization.delete(name);
+      });
+  }
+
+  public async ensureBackendAwake(name: string, signal?: AbortSignal): Promise<void> {
+    await this.backendSleepInitialization.get(name);
+    await this.backendSleeps.get(name)?.ensureAwake(signal);
   }
 
   private async disposeSupersededConnection(
@@ -777,6 +915,7 @@ export class ClientManager extends EventEmitter {
     options: OperationOptions = {},
     requiredCapability?: ServerCapability,
   ): Promise<T> {
+    await this.ensureBackendAwake(clientName);
     const outboundConn = this.getClient(clientName);
 
     if (outboundConn.status !== ClientStatus.Connected) {
@@ -860,6 +999,8 @@ export class ClientManager extends EventEmitter {
   }
 
   public async removeClient(name: string): Promise<void> {
+    await this.backendSleeps.get(name)?.retire();
+    this.backendSleeps.delete(name);
     const clientInfo = this.outboundConns.get(name);
     if (!clientInfo) {
       return;
@@ -934,11 +1075,14 @@ export class ClientManager extends EventEmitter {
     }
 
     this.isShuttingDown = true;
+    for (const lifecycle of this.backendSleeps.values()) lifecycle.stop();
     this.shutdownPromise = this.performShutdown();
     return this.shutdownPromise;
   }
 
   private async performShutdown(): Promise<void> {
+    await Promise.allSettled(Array.from(this.backendSleeps.values(), (lifecycle) => lifecycle.retire()));
+    this.backendSleeps.clear();
     const supervisors = Array.from(this.backendSupervisors.values());
     await Promise.allSettled(supervisors.map((supervisor) => supervisor.stop()));
     this.backendSupervisors.clear();
@@ -949,6 +1093,7 @@ export class ClientManager extends EventEmitter {
     await Promise.allSettled([
       ...Array.from(this.connectionSemaphore.values()),
       ...Array.from(this.bulkConnectionOperations),
+      ...Array.from(this.backendSleepInitialization.values()),
     ]);
 
     const connections = Array.from(this.outboundConns.entries());

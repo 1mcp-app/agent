@@ -212,9 +212,16 @@ export interface HTTPBasedTransportConfig extends BaseTransportConfig {
 }
 
 /**
- * Stdio transport specific configuration
+ * Explicit opt-in to releasing an idle static stdio backend.
  */
+export interface BackendSleepConfig {
+  readonly enabled: boolean;
+  readonly idleTimeoutMs?: number;
+}
+
+/** Stdio transport specific configuration. */
 export interface StdioTransportConfig extends BaseTransportConfig {
+  readonly sleep?: BackendSleepConfig;
   readonly type: 'stdio';
   readonly command: string;
   readonly args?: string[];
@@ -287,9 +294,22 @@ export const templateServerConfigSchema = z.object({
 });
 
 /**
- * Zod schema for transport configuration
+ * Per-server Backend Sleep configuration.
  */
-export const transportConfigSchema = z.object({
+export const backendSleepConfigSchema = z
+  .object({
+    enabled: z.boolean().describe('Opt in to releasing idle static stdio backends; wake starts a fresh session'),
+    idleTimeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(2147483647)
+      .optional()
+      .describe('Idle timeout in milliseconds (omitted = 300000); checked every 30000 milliseconds'),
+  })
+  .strict();
+
+const transportConfigFieldsSchema = z.object({
   preparation: PreparationConfigSchema.optional().describe(
     'Runtime-owned definition or inline commands and explicit action permissions',
   ),
@@ -401,8 +421,27 @@ export const transportConfigSchema = z.object({
     .optional()
     .describe('Initial restart delay in milliseconds (omitted = 1000; backoff is 1x, 2x, 4x, 8x, then 16x)'),
 
+  sleep: backendSleepConfigSchema
+    .optional()
+    .describe('Backend Sleep policy; static stdio servers only, disabled when omitted'),
+
   // Template configuration
   template: templateServerConfigSchema.optional().describe('Template-based server instance management configuration'),
+});
+
+export const transportConfigSchema = transportConfigFieldsSchema.superRefine((config, context) => {
+  if (config.sleep === undefined) return;
+  if (config.type !== undefined && config.type !== 'stdio') {
+    context.addIssue({ code: 'custom', path: ['sleep'], message: 'Backend Sleep requires a static stdio server' });
+    return;
+  }
+  if (!config.command || config.url !== undefined) {
+    context.addIssue({
+      code: 'custom',
+      path: ['sleep'],
+      message: 'Backend Sleep requires a static stdio command without a URL',
+    });
+  }
 });
 
 /**
@@ -596,7 +635,7 @@ export const GLOBAL_TRANSPORT_CONFIG_KEYS = [
  * Zod schema for global MCP configuration
  * Only includes shareable settings that can be inherited by servers.
  */
-export const globalTransportConfigSchema = transportConfigSchema.pick({
+export const globalTransportConfigSchema = transportConfigFieldsSchema.pick({
   env: true,
   timeout: true,
   connectionTimeout: true,
@@ -729,6 +768,15 @@ export const mcpServerConfigSchema = z
       .describe('Explicitly selected managed instruction template identity'),
   })
   .superRefine((config, context) => {
+    for (const [name, template] of Object.entries(config.mcpTemplates ?? {})) {
+      if (template.sleep !== undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['mcpTemplates', name, 'sleep'],
+          message: 'Backend Sleep is not supported for Template Servers',
+        });
+      }
+    }
     if (config.instructionTemplates && Object.hasOwn(config.instructionTemplates, 'default')) {
       context.addIssue({
         code: 'custom',

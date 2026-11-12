@@ -1,6 +1,6 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
-import type { OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
 import { schemaBoundary, SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
 import { observeProductRuntimeConfiguration } from '@src/productTelemetry/index.js';
 import { ErrorCode, type JsonValue, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
@@ -47,6 +47,41 @@ function fixture(
 }
 
 describe('runtime capability catalog', () => {
+  it('retains sleeping capabilities and applies disabled-tool visibility without a generation change', async () => {
+    const connection = fixture('sleepy', () => ({ tools: [tool('echo'), tool('other')] }));
+    const connections = new Map([['sleepy', connection]]);
+    connection.sleep = { state: 'awake', idleTimeoutMs: 300000, lastActivityAt: 0, blockers: [] };
+    connection.supervision = {
+      backendId: 'static:sleepy',
+      state: 'connected',
+      attempt: 0,
+      limit: 5,
+      nextRetryAt: null,
+      lastExit: null,
+      lastError: null,
+      currentPid: 1234,
+    };
+    const first = await acquireRuntimeCapabilityCatalog(connections);
+    const page = await first.list<{ name: string }>('tools', { enablePagination: true, pageSize: 1 });
+    expect(page.nextCursor).toBeDefined();
+    connection.status = ClientStatus.Sleeping;
+    connection.sleep.state = 'sleeping';
+    connection.supervision = { ...connection.supervision, currentPid: null };
+    const continued = await first.list<{ name: string }>('tools', {
+      enablePagination: true,
+      pageSize: 1,
+      cursor: page.nextCursor,
+    });
+    expect(continued.items.map((item) => item.name)).toEqual(['sleepy_1mcp_other']);
+    const second = await acquireRuntimeCapabilityCatalog(connections);
+    expect(second.resolve('tools', 'sleepy_1mcp_echo')).toBeDefined();
+    expect(first.isCurrent()).toBe(true);
+    const hidden = await acquireRuntimeCapabilityCatalog(connections, undefined, {
+      serverConfigs: { sleepy: { command: 'sleepy', disabledTools: ['echo'] } },
+    });
+    expect(hidden.resolve('tools', 'sleepy_1mcp_echo')).toBeUndefined();
+  });
+
   it('observes only the admitted enabled external tool count, excluding internal tools', async () => {
     vi.mocked(observeProductRuntimeConfiguration).mockClear();
     const connection = fixture('private_backend', () => ({

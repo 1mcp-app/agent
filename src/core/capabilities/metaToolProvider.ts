@@ -260,7 +260,7 @@ export class MetaToolProvider {
         !args.cursor && !query.toolRegistry && (await this.capabilityCatalog.requiresToolListingRecovery(visibility));
       const result = await this.capabilityCatalog.listVisibleTools(args, visibility, {
         ...query,
-        ...(needsRecovery ? { refreshIntent: 'force' as const } : {}),
+        ...(needsRecovery ? { refreshIntent: 'ifStale' as const } : {}),
       });
 
       // Format tools for response

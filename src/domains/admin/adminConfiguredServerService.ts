@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
+import type { BackendSleepSnapshot } from '@src/core/server/backendSleep.js';
 import { normalizeDisabledToolsForServer } from '@src/core/server/disabledTools.js';
 import { templateRuntimeHash } from '@src/core/server/templateIdentity.js';
 import type { TemplateDefinitionRuntimeImpact } from '@src/core/server/templateServerManager.js';
@@ -27,6 +28,7 @@ import {
   type DirectInstallationSource,
   type ServerInstallationWorkflowResult,
 } from '@src/domains/installation/serverInstallationWorkflow.js';
+import { sanitizeForLogging } from '@src/logger/secureLogger.js';
 
 import Handlebars from 'handlebars';
 import { z } from 'zod';
@@ -65,6 +67,7 @@ interface AdminConfiguredServerServiceOptions {
     config: MCPServerParams;
     model?: string;
   }) => Promise<ConfiguredToolInventory>;
+  getBackendSleep?: (serverName: string) => BackendSleepSnapshot | undefined;
   getTemplateActiveInstanceCount?: (templateName: string) => number;
   getTemplateActiveInstanceIdentities?: (templateName: string) => string[];
   observeTemplateDefinitionRetirement?: (
@@ -713,6 +716,7 @@ export interface ConfiguredServerActionState {
 }
 
 export interface ConfiguredServerReadModel {
+  sleep?: BackendSleepSnapshot;
   id: string;
   source: ConfiguredServerTargetSource;
   target: ConfiguredServerTargetIdentity;
@@ -1225,6 +1229,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
           source === 'mcpTemplates' ? (this.options.getTemplateActiveInstanceCount?.(input.targetName) ?? 0) : 0,
           this.options.mutationAvailability?.available ?? true,
         );
+        this.addBackendSleepStatus(server);
         return {
           server,
           editContract: createConfiguredServerEditContract(server, currentConfig, serverDefaults),
@@ -1655,21 +1660,35 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     return {
       configFingerprint: fingerprintConfiguredServerConfigDocument(parsed),
       servers: (['mcpServers', 'mcpTemplates'] as const).flatMap((source) =>
-        Object.entries(parsed[source] ?? {}).map(([name, serverConfig]) =>
-          createConfiguredServerReadModel(
-            name,
-            mergeGlobalAndServerConfig(parsed.serverDefaults, serverConfig),
-            source,
-            fingerprintConfiguredServerTarget(serverConfig),
-            Object.hasOwn(serverConfig, 'instructionOverride') ? serverConfig.instructionOverride : undefined,
-            Object.hasOwn(serverConfig, 'instructionOverride'),
-            Boolean((source === 'mcpTemplates' ? parsed.mcpServers : parsed.mcpTemplates)?.[name]),
-            source === 'mcpTemplates' ? (this.options.getTemplateActiveInstanceCount?.(name) ?? 0) : 0,
-            this.options.mutationAvailability?.available ?? true,
-          ),
-        ),
+        Object.entries(parsed[source] ?? {})
+          .map(([name, serverConfig]) =>
+            createConfiguredServerReadModel(
+              name,
+              mergeGlobalAndServerConfig(parsed.serverDefaults, serverConfig),
+              source,
+              fingerprintConfiguredServerTarget(serverConfig),
+              Object.hasOwn(serverConfig, 'instructionOverride') ? serverConfig.instructionOverride : undefined,
+              Object.hasOwn(serverConfig, 'instructionOverride'),
+              Boolean((source === 'mcpTemplates' ? parsed.mcpServers : parsed.mcpTemplates)?.[name]),
+              source === 'mcpTemplates' ? (this.options.getTemplateActiveInstanceCount?.(name) ?? 0) : 0,
+              this.options.mutationAvailability?.available ?? true,
+            ),
+          )
+          .map((server) => this.addBackendSleepStatus(server)),
       ),
     };
+  }
+
+  private addBackendSleepStatus(server: ConfiguredServerReadModel): ConfiguredServerReadModel {
+    if (server.source !== 'mcpServers') return server;
+    const sleep = this.options.getBackendSleep?.(server.id);
+    if (!sleep) return server;
+    server.sleep = {
+      ...sleep,
+      blockers: sleep.blockers.map((blocker) => String(sanitizeForLogging(blocker))),
+      ...(sleep.failure ? { failure: String(sanitizeForLogging(sleep.failure)) } : {}),
+    };
+    return server;
   }
 
   private previewConfiguredServerDeleteResult(

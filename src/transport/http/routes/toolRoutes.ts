@@ -246,7 +246,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
             cursor,
           },
           visibility,
-          !cursor && (await catalog.requiresToolListingRecovery(visibility)) ? { refreshIntent: 'force' } : {},
+          !cursor && (await catalog.requiresToolListingRecovery(visibility)) ? { refreshIntent: 'ifStale' } : {},
         );
         if (catalogResult.tools.length > 0 || catalogResult.totalCount > 0 || catalogResult._meta) {
           res.json({

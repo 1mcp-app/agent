@@ -1,3 +1,4 @@
+import type { BackendSleepSnapshot } from '@src/core/server/backendSleep.js';
 import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { ClientStatus } from '@src/core/types/index.js';
 
@@ -92,6 +93,19 @@ describe('HealthService', () => {
   });
 
   describe('performHealthCheck', () => {
+    it('keeps an intentionally sleeping backend healthy', async () => {
+      mockAgentConfig.get.mockImplementation((key: string) =>
+        key === 'health' ? { detailLevel: 'full' } : { auth: false },
+      );
+      mockServerManager.getClients.mockReturnValue(
+        new Map([['worker', { status: 'sleeping', sleep: { state: 'sleeping' } }]]),
+      );
+      mockMcpConfig.getTransportConfig.mockReturnValue({ worker: { command: 'node' } });
+      const result = await healthService.performHealthCheck();
+      expect(result.servers.healthy).toBe(1);
+      expect(result.servers.unhealthy).toBe(0);
+    });
+
     it('should return healthy status when all servers are connected', async () => {
       // Set to full detail level for this test
       mockAgentConfig.get.mockImplementation((key: string) => {
@@ -379,6 +393,25 @@ describe('HealthService', () => {
       const code = healthService.getHttpStatusCode('unknown' as HealthStatus);
       expect(code).toBe(500);
     });
+  });
+
+  it('respects health disclosure and sanitizes Backend Sleep diagnostics', () => {
+    const snapshots: Record<string, BackendSleepSnapshot> = {
+      worker: {
+        state: 'wake-failed',
+        lastActivityAt: null,
+        idleTimeoutMs: 300000,
+        blockers: ['token=secret'],
+        failure: 'https://private.example/mcp token=secret',
+        retryAt: 30000,
+      },
+    };
+    expect(healthService.serializeBackendSleep(snapshots)).toEqual({});
+    mockAgentConfig.get.mockReturnValue({ detailLevel: 'basic' });
+    const result = healthService.serializeBackendSleep(snapshots);
+    expect(result.worker).toMatchObject({ state: 'wake-failed', idleTimeoutMs: 300000, retryAt: 30000 });
+    expect(JSON.stringify(result)).not.toContain('private.example');
+    expect(JSON.stringify(result)).not.toContain('token=secret');
   });
 
   describe('serializeBackendSupervision', () => {

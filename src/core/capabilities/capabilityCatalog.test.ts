@@ -4,6 +4,8 @@ import * as toolSchemaBoundary from '@src/core/validation/toolSchemaBoundary.js'
 import * as localDiagnostics from '@src/logger/localDiagnostics.js';
 import logger, * as loggerModule from '@src/logger/logger.js';
 import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
+import { BackendSleep } from '@src/core/server/backendSleep.js';
+import { BackendSleepAdapter } from '@src/core/server/backendSleepAdapter.js';
 import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
@@ -128,6 +130,46 @@ describe('CapabilityCatalog', () => {
   }
 
   afterEach(() => vi.restoreAllMocks());
+
+  it('keeps sleeping discovery under current visibility and only explicit permitted refresh wakes it', async () => {
+    vi.useFakeTimers();
+    const connection = outboundConnections.get('filesystem')!;
+    const wake = vi.fn(async () => {});
+    const lifecycle = new BackendSleep({
+      idleTimeoutMs: 30_000,
+      release: async () => {},
+      wake,
+      isCurrent: () => true,
+      onChange: (snapshot) => {
+        connection.status = snapshot.state === 'awake' ? ClientStatus.Connected : ClientStatus.Sleeping;
+      },
+    });
+    const raw = connection.adapter;
+    vi.mocked(raw.request).mockResolvedValue({ tools: [{ name: 'read_file', inputSchema: { type: 'object' } }] });
+    const adapter = new BackendSleepAdapter(raw, lifecycle);
+    Object.assign(connection, { adapter });
+    await adapter.refresh({ tools: {} });
+    lifecycle.ready();
+    registry = registry.withConnections(outboundConnections);
+    try {
+      await vi.advanceTimersByTimeAsync(30_000);
+      const catalog = createCatalog();
+      const allowed = createCapabilityVisibility([['filesystem', 'filesystem']]);
+      const denied = createCapabilityVisibility([]);
+      expect((await catalog.listVisibleTools({}, allowed)).tools.map((tool) => tool.name)).toEqual(['read_file']);
+      expect((await catalog.listVisibleTools({}, denied)).tools).toEqual([]);
+      expect(
+        (await catalog.invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} }, denied)).error,
+      ).toBeDefined();
+      await catalog.listVisibleTools({}, denied, { refreshIntent: 'force' });
+      expect(wake).not.toHaveBeenCalled();
+      await catalog.listVisibleTools({}, allowed, { refreshIntent: 'force' });
+      expect(wake).toHaveBeenCalledTimes(1);
+    } finally {
+      lifecycle.stop();
+      vi.useRealTimers();
+    }
+  });
 
   it('reports unresolved selection labels for an admitted target backend while excluded backends remain hidden', async () => {
     const catalog = createCatalog(undefined, {

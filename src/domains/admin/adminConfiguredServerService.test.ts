@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import ConfigContext from '@src/config/configContext.js';
+import type { BackendSleepSnapshot } from '@src/core/server/backendSleep.js';
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -229,6 +230,26 @@ describe('AdminConfiguredServerService', () => {
     expect(readConfig().mcpServers.filesystem.disabled).toBe(true);
     expect(reload).not.toHaveBeenCalled();
     expect(service.getRecentAuditFacts()).toEqual([]);
+  });
+
+  it('includes current Backend Sleep status for static servers only', async () => {
+    writeConfig({ mcpServers: { worker: { command: 'node' } }, mcpTemplates: { worker: { command: 'node' } } });
+    const sleep: BackendSleepSnapshot = {
+      state: 'sleeping',
+      lastActivityAt: 1000,
+      idleTimeoutMs: 300000,
+      blockers: [],
+    };
+    const service = createService({ getBackendSleep: () => sleep });
+    const result = await service.listConfiguredServers({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      result: { servers: [{ source: 'mcpServers', sleep }, { source: 'mcpTemplates' }] },
+    });
+    if (!result.ok) throw new Error('Expected successful status read');
+    expect(result.result.servers[1]).not.toHaveProperty('sleep');
   });
 
   it('lists configured servers from the injected config document reader', async () => {
@@ -6154,6 +6175,7 @@ describe('AdminConfiguredServerService', () => {
       }) => Promise<ConfiguredToolInventory>;
       checkConnectivity?: ConfiguredServerConnectivityChecker;
       mutationAvailability?: { available: boolean; reason?: 'writer_lock_unavailable' };
+      getBackendSleep?: (serverName: string) => BackendSleepSnapshot | undefined;
       getTemplateActiveInstanceCount?: (templateName: string) => number;
       getTemplateActiveInstanceIdentities?: (templateName: string) => string[];
       observeTemplateDefinitionRetirement?: (

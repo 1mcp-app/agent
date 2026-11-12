@@ -9,7 +9,12 @@ import {
 } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import { revalidateLegacyRequestAuthInfo } from '@src/sdk/legacy/server/auth/requestAuthRevalidation.js';
 import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInboundConnection.js';
-import { CompleteRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema } from '@src/sdk/legacy/types.js';
+import {
+  CompleteRequestSchema,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
+  McpError,
+} from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
@@ -65,17 +70,48 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
         route.entry,
         extra,
         request.params._meta?.progressToken,
-        () =>
-          withPrivateInteractionConnection(route.connection!, inboundConn, extra, route.entry, (selected) =>
-            withSelectedNativeInputResponses(
-              request.params.name,
-              'prompts/get',
-              selected.adapter,
-              route.entry.route.upstreamIdentity,
-              () =>
-                requestLegacyOutbound(selected, 'prompts/get', { ...params, name: route.entry.route.upstreamIdentity }),
-            ),
-          ),
+        async () => {
+          const refreshed = await acquire();
+          const current = refreshed.resolve('prompts', request.params.name);
+          if (!current?.connection) throw new McpError(-32602, `Unknown prompt: ${request.params.name}`);
+          if (
+            current.connection !== route.connection ||
+            JSON.stringify(current.entry.sourceObject) !== JSON.stringify(route.entry.sourceObject)
+          ) {
+            throw new McpError(-32602, 'Prompt contract changed after wake; inspect prompts again');
+          }
+          const assertCurrent = () => {
+            const visibility = resolveCapabilityVisibility(
+              outboundConns,
+              inboundConn,
+              getRequestSession(inboundConn),
+              'prompts',
+            );
+            if (!visibility.serverCandidates.has(route.entry.route.connectionKey) || !refreshed.isCurrent()) {
+              throw new McpError(-32602, 'Prompt route is no longer available');
+            }
+          };
+          assertCurrent();
+          return withPrivateInteractionConnection(
+            route.connection!,
+            inboundConn,
+            extra,
+            current.entry,
+            (selected) =>
+              withSelectedNativeInputResponses(
+                request.params.name,
+                'prompts/get',
+                selected.adapter,
+                route.entry.route.upstreamIdentity,
+                () =>
+                  requestLegacyOutbound(selected, 'prompts/get', {
+                    ...params,
+                    name: route.entry.route.upstreamIdentity,
+                  }),
+              ),
+            assertCurrent,
+          );
+        },
       );
     }, 'Error getting prompt'),
   );

@@ -11,6 +11,11 @@ import {
 } from '@src/core/context/projectPreparationAuthority.js';
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import {
+  BackendSleepAdapter,
+  prepareBackendOperation,
+  unwrapBackendSleepAdapter,
+} from '@src/core/server/backendSleepAdapter.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { releaseSubscriptionOwner, reserveSubscriptionOwner } from '@src/core/server/sessionAdmission.js';
 import { ClientStatus, type InboundConnection, ServerStatus } from '@src/core/types/index.js';
@@ -152,11 +157,11 @@ async function resolve(owner: Owner, uri: string, snapshot?: RuntimeCapabilitySn
 }
 
 export function setupOwnedResourceNotifications(connection: LegacyOutboundConnection): void {
-  if (installed.get(connection) === connection.adapter) return;
-  const adapter = connection.adapter;
+  const adapter = unwrapBackendSleepAdapter(connection.adapter);
+  if (installed.get(connection) === adapter) return;
   installed.set(connection, adapter);
   setOutboundNotificationHandler(connection, ResourceUpdatedNotificationSchema, (notification) => {
-    if (connection.adapter === adapter) deliverOwnedResourceUpdate(connection, notification);
+    if (unwrapBackendSleepAdapter(connection.adapter) === adapter) deliverOwnedResourceUpdate(connection, notification);
   });
   if (connection.adapter.protocol?.era === 'modern') {
     setOutboundNotificationHandler(
@@ -166,7 +171,7 @@ export function setupOwnedResourceNotifications(connection: LegacyOutboundConnec
         params: z.object({ uri: z.string().optional(), catalog: z.boolean().optional() }),
       }),
       (notification) => {
-        if (connection.adapter !== adapter) return;
+        if (unwrapBackendSleepAdapter(connection.adapter) !== adapter) return;
         if (notification.params?.catalog === true) {
           for (const owner of Array.from(catalogOwners.get(connection) ?? [])) terminate(owner);
         }
@@ -796,9 +801,24 @@ export async function subscribeOwnedResource(
   };
   signal?.addEventListener('abort', cancel, { once: true });
   watch.ready = (async () => {
+    let releaseWake: (() => void) | undefined;
     try {
       if (authorize && !(await authorize())) throw new Error('Resource subscription authorization lost');
       const route = await resolve(owner, uri);
+      releaseWake = await prepareBackendOperation(route.connection.adapter, signal);
+      const assertWakeRouteCurrent = async () => {
+        if (!(route.connection.adapter instanceof BackendSleepAdapter)) return;
+        if (authorize && !(await authorize())) throw new Error('Resource subscription authorization lost');
+        const current = await resolve(owner, uri);
+        if (
+          current.connection !== route.connection ||
+          current.upstreamIdentity !== route.upstreamIdentity ||
+          current.entry.route.kind !== route.entry.route.kind ||
+          JSON.stringify(current.entry.sourceObject) !== JSON.stringify(route.entry.sourceObject)
+        )
+          throw new Error('Resource subscription contract changed after wake');
+      };
+      await assertWakeRouteCurrent();
       if (!watch.active || owner.closed) throw new Error('Resource subscription cancelled');
       watch.connection = route.connection;
       watch.adapter = route.connection.adapter;
@@ -852,6 +872,8 @@ export async function subscribeOwnedResource(
         .then(async () => {
           if (!watch.active) return;
           if (selected.subscribed && !selected.cleanupFailed) return;
+          await assertWakeRouteCurrent();
+          if (!watch.active || owner.closed) throw new Error('Resource subscription cancelled');
           await requestLegacyOutbound(selected.connection, 'resources/subscribe', { uri: route.upstreamIdentity });
           selected.subscribed = true;
           selected.cleanupFailed = false;
@@ -865,6 +887,7 @@ export async function subscribeOwnedResource(
       await detach(watch).catch(() => {});
       throw error;
     } finally {
+      releaseWake?.();
       signal?.removeEventListener('abort', cancel);
       setupCount--;
       owner.setups--;

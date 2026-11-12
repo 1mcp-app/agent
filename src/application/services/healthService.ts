@@ -1,6 +1,7 @@
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import type { BackendSleepSnapshot } from '@src/core/server/backendSleep.js';
 import type { BackendSupervisionSnapshot, BackendSupervisionState } from '@src/core/server/backendStdioSupervisor.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundSupervisionSnapshot } from '@src/core/types/index.js';
@@ -153,6 +154,20 @@ export class HealthService {
   /**
    * Apply the configured health disclosure level to backend supervision facts.
    */
+  public serializeBackendSleep(snapshots: Record<string, BackendSleepSnapshot>): Record<string, BackendSleepSnapshot> {
+    if (this.agentConfig.get('health').detailLevel === 'minimal') return {};
+    return Object.fromEntries(
+      Object.entries(snapshots).map(([name, snapshot]) => [
+        name,
+        {
+          ...snapshot,
+          blockers: snapshot.blockers.map((blocker) => this.sanitizeErrorMessage(blocker) ?? ''),
+          ...(snapshot.failure ? { failure: this.sanitizeErrorMessage(snapshot.failure) } : {}),
+        },
+      ]),
+    );
+  }
+
   public serializeBackendSupervision(
     snapshots: Record<string, BackendSupervisionSnapshot | OutboundSupervisionSnapshot>,
   ): BackendSupervisionHealth {
@@ -344,7 +359,7 @@ export class HealthService {
       let unhealthyCount = 0;
 
       for (const [name, clientInfo] of clients.entries()) {
-        const isHealthy = clientInfo.status === ClientStatus.Connected;
+        const isHealthy = clientInfo.status === ClientStatus.Connected || clientInfo.sleep?.state === 'sleeping';
 
         if (isHealthy) {
           healthyCount++;

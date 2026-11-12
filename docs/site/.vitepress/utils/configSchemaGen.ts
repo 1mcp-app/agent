@@ -117,6 +117,21 @@ function preserveMcpInputRefinements(schema: Record<string, unknown>): void {
   for (const field of ['mcpServers', 'mcpTemplates']) {
     const transport = properties?.[field]?.additionalProperties as Record<string, unknown> | undefined;
     const transportProperties = transport?.properties as Record<string, Record<string, unknown>> | undefined;
+    if (transport && transportProperties?.sleep) {
+      transport.allOf =
+        field === 'mcpTemplates'
+          ? [{ not: { required: ['sleep'] } }]
+          : [
+              {
+                if: { required: ['sleep'] },
+                then: {
+                  required: ['command'],
+                  properties: { type: { const: 'stdio' }, command: { type: 'string', minLength: 1 } },
+                  not: { required: ['url'] },
+                },
+              },
+            ];
+    }
     const preparation = transportProperties?.preparation;
     if (preparation) {
       preparation.allOf = [

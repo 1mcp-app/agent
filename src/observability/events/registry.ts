@@ -2,6 +2,16 @@ import type { FieldRule } from '../privacy/fields.js';
 
 /** Registered local instrumentation only; backend diagnostics are isolated. */
 export const EVENT_REGISTRY = {
+  'backend.sleep.state.changed': {
+    message: 'Backend Sleep state changed',
+    fields: {
+      server: 'identity:server',
+      state: 'backendSleepState',
+      idleTimeoutMs: 'number',
+      blockerCount: 'number',
+      error: 'error',
+    },
+  },
   'processIdentity.acquisition-failed': {
     message: 'Process birth evidence acquisition failed',
     fields: {

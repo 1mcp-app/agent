@@ -4,6 +4,7 @@ import {
 } from '@modelcontextprotocol/client';
 import { StdioClientTransport as ModernStdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
+import type { ChildProcess } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import type { Readable } from 'node:stream';
 
@@ -16,6 +17,7 @@ import { getRuntimeScopeEnvironment, sanitizeRuntimeScopeError } from '@src/conf
 import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { inspectProcessIdentity, type ProcessIdentity, readProcessIdentity } from '@src/core/server/processIdentity.js';
 import { MCPServerParams, transportConfigSchema } from '@src/core/types/index.js';
 import { createBackendLogProjection } from '@src/domains/backend-logs/backendLogProjection.js';
 import { getBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
@@ -332,11 +334,32 @@ function createStdioTransport(
     readonly pid: number | null;
   };
   let lastExit: ReturnType<NonNullable<AuthProviderTransport['stdioSupervision']>['getLastExit']> = null;
+  let ownedChild: ChildProcess | undefined;
+  let spawnFailedWithoutChild = false;
+  let ownedIdentity: ProcessIdentity | undefined;
+  const sleepPolicy = (
+    validatedTransport as ValidatedTransport & { sleep?: { enabled: boolean; idleTimeoutMs?: number } }
+  ).sleep;
+  const sleepEnabled = source.kind === 'static' && sleepPolicy?.enabled === true;
   const startTransport = transport.start.bind(transport);
   transport.start = async (): Promise<void> => {
-    await startTransport();
+    spawnFailedWithoutChild = false;
+    try {
+      await startTransport();
+    } catch (error) {
+      // These Node spawn failures reject before assigning a child PID. This is absence,
+      // unlike a transport error after spawning, which still requires release proof.
+      if (error instanceof Error && 'code' in error && transport.pid === null) {
+        spawnFailedWithoutChild = error.code === 'ENOENT' || error.code === 'EACCES';
+      }
+      throw error;
+    }
     const child = (transport as unknown as { _process?: EventEmitter & { pid?: number } })._process;
     const pid = child?.pid ?? transport.pid;
+    if (sleepEnabled && child?.pid) {
+      ownedChild = child as ChildProcess;
+      ownedIdentity = readProcessIdentity(child.pid);
+    }
     child?.prependOnceListener('exit', (code: number | null, signal: string | null) => {
       lastExit = { code, signal, pid, at: new Date() };
     });
@@ -354,6 +377,47 @@ function createStdioTransport(
     };
   }
   const authTransport = transport as AuthProviderTransport;
+  if (sleepEnabled) {
+    const ownershipBlocker = (): string | undefined => {
+      if (!ownedChild?.pid || !ownedIdentity) return 'ownership-unverified';
+      if (ownedChild.exitCode !== null || ownedChild.signalCode !== null) return 'owned-process-exited';
+      return undefined;
+    };
+    authTransport.backendSleep = {
+      idleTimeoutMs: sleepPolicy?.idleTimeoutMs,
+      recreate: () => createStdioTransport(name, validatedTransport, source),
+      ownershipBlocker,
+      release: async () => {
+        if (spawnFailedWithoutChild && transport.pid === null) {
+          await transport.close();
+          return;
+        }
+        if (ownedChild && (ownedChild.exitCode !== null || ownedChild.signalCode !== null)) {
+          await transport.close();
+          return;
+        }
+        if (ownershipBlocker() || inspectProcessIdentity(ownedChild!.pid!, ownedIdentity) !== 'alive')
+          throw new Error('Exclusive backend process ownership cannot be verified');
+        const child = ownedChild!;
+        const exited = new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            child.off('exit', onExit);
+            reject(new Error('Backend process exit was not verified'));
+          }, 10_000);
+          const onExit = () => {
+            clearTimeout(timeout);
+            resolve();
+          };
+          child.once('exit', onExit);
+        });
+        // Observe rejection immediately even if the SDK close itself remains pending.
+        void exited.catch(() => undefined);
+        await Promise.race([transport.close().then(() => exited), exited]);
+        if (child.exitCode === null && child.signalCode === null)
+          throw new Error('Backend process release remains uncertain');
+      },
+    };
+  }
   if (validatedTransport.restartOnExit) {
     logger.info('transportFactory.enabling.runtime.owned.stdio.supervision.for.2c7492df');
     authTransport.stdioSupervision = {
@@ -423,6 +487,12 @@ function assignTransport(
     assignTransport({}, name, recreated, validatedTransport, backendLogSource);
     return recreated;
   };
+  if (transport.backendSleep) {
+    transport.backendSleep = {
+      ...transport.backendSleep,
+      recreate: () => transport.recreate!(),
+    };
+  }
   if (transport.stdioSupervision) {
     transport.stdioSupervision = {
       ...transport.stdioSupervision,
