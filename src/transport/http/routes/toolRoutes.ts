@@ -16,11 +16,12 @@ import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { type ServerAdapter, ServerType } from '@src/core/server/adapters/types.js';
+import { acquireBackendDispatch, prepareBackendOperation } from '@src/core/server/backendSleepAdapter.js';
 import { createConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { runtimeAdmission, RuntimeDrainingError } from '@src/core/server/runtimeDrain.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import { isBackendDiscoverable, type OutboundConnection } from '@src/core/types/client.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
 import { isProjectBackendVisible } from '@src/domains/project-selection/projectPolicy.js';
@@ -128,7 +129,7 @@ async function createFallbackCapabilityCatalog(
   const degradedServers: string[] = [];
 
   for (const [connectionKey, conn] of clients) {
-    if (conn.status !== ClientStatus.Connected) continue;
+    if (!isBackendDiscoverable(conn)) continue;
     try {
       const logicalServerName =
         conn.name || (connectionKey.includes(':') ? connectionKey.split(':')[0] : connectionKey);
@@ -311,6 +312,8 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
 
   async function invoke(req: Request, res: Response): Promise<void> {
     const controller = new AbortController();
+    let releaseBackend: (() => void) | undefined;
+    let releaseDispatch: (() => void) | undefined;
     const abort = () => controller.abort();
     req.once?.('aborted', abort);
     res.once?.('close', abort);
@@ -431,11 +434,13 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           (allowGenericFallback ? resolveConnectionByServerName(filteredConnections, target.serverName) : undefined) ??
           (allowGenericFallback ? serverManager.getClient(target.serverName) : undefined)) as
           OutboundConnection | undefined;
-        if (!connection || connection.status !== ClientStatus.Connected) {
+        if (!connection || !isBackendDiscoverable(connection)) {
           res.status(503).json({ error: `Server not connected: ${target.serverName}` });
           return;
         }
         try {
+          releaseBackend = await prepareBackendOperation(connection.adapter, controller.signal);
+          releaseDispatch = await acquireBackendDispatch(connection.adapter, controller.signal);
           const catalogConnections = Array.from(allConnections.values()).includes(connection)
             ? allConnections
             : new Map([[`\0app.1mcp/resolved/${target.serverName}`, connection]]);
@@ -545,6 +550,16 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
             visibility?.filterSelection,
           ),
         };
+        const selectedConnections = new Map(
+          Array.from(connections).filter(([key]) => selectedVisibility.serverCandidates.has(key)),
+        );
+        const connection = createConnectionResolver(
+          selectedConnections,
+          getTemplateHashProvider(serverManager),
+        ).resolve(target.serverName, requestSessionId);
+        if (connection && isBackendDiscoverable(connection)) {
+          releaseBackend = await prepareBackendOperation(connection.adapter, controller.signal);
+        }
         let snapshot: Awaited<ReturnType<typeof acquireRuntimeCapabilityCatalog>>;
         try {
           snapshot = await acquireRuntimeCapabilityCatalog(connections, selectedVisibility, {
@@ -562,14 +577,9 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           res.status(503).json({ error: `Tool inventory not available: ${target.serverName}` });
           return;
         }
-        if (selectedVisibility.serverCandidates.size > 0) {
-          const connected = Array.from(selectedVisibility.serverCandidates.keys()).some(
-            (key) => connections.get(key)?.status === ClientStatus.Connected,
-          );
-          if (!connected) {
-            res.status(503).json({ error: `Server not connected: ${target.serverName}` });
-            return;
-          }
+        if (selectedVisibility.serverCandidates.size > 0 && (!connection || !isBackendDiscoverable(connection))) {
+          res.status(503).json({ error: `Server not connected: ${target.serverName}` });
+          return;
         }
         const toolRegistry = ToolRegistry.fromCapabilitySnapshot(snapshot);
         const catalog = new CapabilityCatalog({
@@ -666,6 +676,8 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       logger.error('toolRoutes.api.tool.invocations.handler.error.398a77aa', { error: _error });
       res.status(500).json({ error: 'Internal server error' });
     } finally {
+      releaseDispatch?.();
+      releaseBackend?.();
       req.off?.('aborted', abort);
       res.off?.('close', abort);
     }
