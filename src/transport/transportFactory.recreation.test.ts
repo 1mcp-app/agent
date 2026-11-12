@@ -4,6 +4,7 @@ import {
   StreamableHTTPClientTransport as ModernStreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
 
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -158,6 +159,49 @@ describe.each(['auto', 'legacy', '2026-07-28'] as const)('factory recreation (%s
 });
 
 describe.each(['legacy', '2026-07-28'] as const)('Backend Sleep failed spawn cleanup (%s)', (protocolVersion) => {
+  it('releases a synchronous native spawn failure without a child', async () => {
+    const prototype = Object.getPrototypeOf(
+      createTransports({ sample: { command: 'unused', type: 'stdio', protocolVersion } }).sample,
+    );
+    const start = vi
+      .spyOn(prototype, 'start')
+      .mockRejectedValue(Object.assign(new Error('spawn EPERM'), { code: 'EPERM', syscall: 'spawn' }));
+    const transport = createTransports({
+      rejected: { command: 'unused', type: 'stdio', protocolVersion, sleep: { enabled: true } },
+    }).rejected;
+    try {
+      await expect(transport.start()).rejects.toMatchObject({ code: 'EPERM' });
+      await expect(transport.backendSleep!.release()).resolves.toBeUndefined();
+    } finally {
+      start.mockRestore();
+      await transport.close();
+    }
+  });
+
+  it.each([undefined, 12345])('retains child creation evidence through a rejected start (pid %s)', async (pid) => {
+    const transportClass = Object.getPrototypeOf(
+      createTransports({ sample: { command: 'unused', type: 'stdio', protocolVersion } }).sample,
+    );
+    const start = vi.spyOn(transportClass, 'start').mockImplementation(function (this: { _process?: unknown }) {
+      this._process = Object.assign(new EventEmitter(), { pid });
+      return Promise.resolve().then(() => {
+        this._process = undefined;
+        throw Object.assign(new Error('spawn rejected'), { code: 'EPERM' });
+      });
+    });
+    const transport = createTransports({
+      rejected: { command: 'unused', type: 'stdio', protocolVersion, sleep: { enabled: true } },
+    }).rejected;
+    try {
+      await expect(transport.start()).rejects.toMatchObject({ code: 'EPERM' });
+      if (pid === undefined) await expect(transport.backendSleep!.release()).resolves.toBeUndefined();
+      else await expect(transport.backendSleep!.release()).rejects.toThrow(/ownership/);
+    } finally {
+      start.mockRestore();
+      await transport.close();
+    }
+  });
+
   it('proves no child needs release when spawning an absent executable fails', async () => {
     const transports = await createTransports({
       missing: {

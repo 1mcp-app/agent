@@ -173,3 +173,91 @@ describe.each([
     }
   });
 });
+
+it.each(['read', 'subscribe'] as const)('cancels %s during post-wake resource discovery', async (operation) => {
+  vi.useFakeTimers();
+  const resource = { name: 'document', uri: 'file:///document' };
+  let slow = false;
+  let started!: () => void;
+  const listingStarted = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let finish!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const request = vi.fn(async ({ method }: { method: string }) => {
+    if (method === 'resources/list') {
+      if (slow) {
+        started();
+        await blocked;
+      }
+      return { resources: [resource] };
+    }
+    if (method === 'resources/templates/list') return { resourceTemplates: [] };
+    return { contents: [] };
+  });
+  const original = createMockLegacyOutboundConnection({
+    name: 'provider',
+    capabilities: { resources: { subscribe: true } },
+    client: createMockClient({ request: request as never }) as Client,
+  });
+  const lifecycle = new BackendSleep({
+    idleTimeoutMs: 30_000,
+    release: async () => {},
+    isCurrent: () => true,
+    wake: async () => {
+      await adapter.refresh({ resources: { subscribe: true } });
+      slow = true;
+    },
+  });
+  const adapter = new BackendSleepAdapter(original.adapter, lifecycle);
+  const connection = { ...original, adapter };
+  const connections = new Map([['provider', connection]]);
+  const setRequestHandler = vi.fn();
+  const inbound = createMockLegacyInboundConnection({
+    tags: [],
+    server: createMockServer({ setRequestHandler, getClientCapabilities: () => ({}) }) as Server,
+  });
+  await adapter.refresh({ resources: { subscribe: true } });
+  const catalog = await acquireRuntimeCapabilityCatalog(
+    connections,
+    resolveCapabilityVisibility(connections, inbound, getRequestSession(inbound), 'resources'),
+  );
+  const uri = projectResourceUri(catalog, 'provider', resource.uri);
+  registerResourceHandlers(connections, inbound);
+  const handler = setRequestHandler.mock.calls.find(
+    ([schema]) => schema === (operation === 'read' ? ReadResourceRequestSchema : SubscribeRequestSchema),
+  )![1];
+  lifecycle.ready();
+  await vi.advanceTimersByTimeAsync(30_000);
+  const controller = new AbortController();
+  let settled = false;
+  const pending = handler(
+    { method: `resources/${operation}`, params: { uri } },
+    { signal: controller.signal, requestId: 'cancel-resource', sendNotification: vi.fn(), sendRequest: vi.fn() },
+  );
+  const outcome = pending.then(
+    () => {
+      settled = true;
+      return 'resolved';
+    },
+    () => {
+      settled = true;
+      return 'rejected';
+    },
+  );
+  try {
+    await listingStarted;
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toBe(true);
+    expect(await outcome).toBe('rejected');
+    expect(request.mock.calls.filter(([request]) => request.method === `resources/${operation}`)).toHaveLength(0);
+  } finally {
+    finish();
+    await outcome;
+    await cleanupOwnedResources(inbound);
+    lifecycle.stop();
+  }
+});

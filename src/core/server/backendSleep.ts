@@ -35,6 +35,7 @@ export class BackendSleep {
   private retryAt?: number;
   private idleTimeoutMs: number;
   private uncertain = false;
+  private discoveryFailed = false;
   private releaseUncertain = false;
   private reservations = 0;
   private needsIdleReset = false;
@@ -52,6 +53,12 @@ export class BackendSleep {
     this.state = 'awake';
     this.lastActivityAt = Date.now();
     this.publish();
+  }
+
+  keepAwakeAfterDiscoveryFailure(error: unknown): void {
+    this.discoveryFailed = true;
+    this.failure = error instanceof Error ? error.message : 'Backend capability discovery failed';
+    this.ready();
   }
 
   reserve(): () => void {
@@ -141,6 +148,7 @@ export class BackendSleep {
       blockers: [
         ...(this.reservations ? [`admissions:${this.reservations}`] : []),
         ...(this.uncertain ? ['uncertain-completion'] : []),
+        ...(this.discoveryFailed ? ['capability-discovery-failed'] : []),
         ...(ownership ? [ownership] : []),
         ...(this.pending.size ? [`requests:${this.pending.size}`] : []),
         ...(this.subscriptions.size ? [`subscriptions:${this.subscriptions.size}`] : []),
@@ -157,6 +165,7 @@ export class BackendSleep {
     this.assertCurrent(signal);
     if (this.state === 'release-failed') throw new Error('Backend release failed; ownership is uncertain');
     if (this.state === 'awake') return;
+    if (this.state === 'initializing') throw new Error('Backend capability discovery has not completed');
     if (this.retryAt !== undefined && Date.now() < this.retryAt) throw new Error('Backend wake cooldown is active');
     if (!this.transition) {
       this.state = 'waking';

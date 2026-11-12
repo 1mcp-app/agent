@@ -1,5 +1,9 @@
 import { Client as ModernClient } from '@modelcontextprotocol/client';
 
+import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
+import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
+import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { BackendSleepAdapter } from '@src/core/server/backendSleepAdapter.js';
 import { ClientStatus } from '@src/core/types/index.js';
 import type { LegacyRequestId } from '@src/sdk/contracts/index.js';
@@ -37,7 +41,8 @@ vi.mock('@src/config/configManager.js', () => ({
 }));
 
 // registerCapabilityPaginationNotifications would touch the (mock) transport; stub it.
-vi.mock('@src/core/capabilities/capabilityPagination.js', () => ({
+vi.mock('@src/core/capabilities/capabilityPagination.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@src/core/capabilities/capabilityPagination.js')>()),
   registerCapabilityPaginationNotifications: vi.fn(),
   notifyBackendCapabilityChanges: vi.fn(),
 }));
@@ -51,7 +56,9 @@ const testEnv = vi.hoisted(() => {
       getServerCapabilities: vi.fn(() => transport?.__caps),
       getInstructions: vi.fn(() => transport?.__instr),
       setNotificationHandler: vi.fn(),
-      request: vi.fn().mockResolvedValue({ content: [] }),
+      request: vi.fn(async (...args: unknown[]) =>
+        transport?.__request ? transport.__request(...args) : { content: [] },
+      ),
       close: vi.fn().mockResolvedValue(undefined),
       onclose: undefined,
       onerror: undefined,
@@ -95,6 +102,107 @@ function makeTransport(caps: any, instr: string, recreate?: () => any): any {
 }
 
 describe('ClientManager Backend Sleep', () => {
+  it.each(['failure', 'success'])('preserves disconnection when initial discovery settles with %s', async (outcome) => {
+    ClientManager.resetInstance();
+    const cm = ClientManager.getOrCreateInstance();
+    const initial = makeTransport({ tools: {} }, 'closed');
+    delete initial.stdioSupervision;
+    let resolve!: (result: unknown) => void;
+    let reject!: (error: Error) => void;
+    initial.__request = () =>
+      new Promise((done, fail) => {
+        resolve = done;
+        reject = fail;
+      });
+    initial.backendSleep = { release: vi.fn(async () => {}), recreate: vi.fn(), ownershipBlocker: () => undefined };
+    await cm.createSingleClient('closed', initial);
+    testEnv.createdClients.at(-1).onclose();
+    if (outcome === 'failure') reject(new Error('transport closed'));
+    else resolve({ tools: [] });
+    await expect(cm.ensureBackendAwake('closed')).rejects.toThrow(/removed|replaced/);
+    expect(cm.getClient('closed').status).toBe(ClientStatus.Disconnected);
+    expect(initial.backendSleep.recreate).not.toHaveBeenCalled();
+  });
+
+  it('holds an admission while an operation prepares to dispatch', async () => {
+    vi.useFakeTimers();
+    ClientManager.resetInstance();
+    const cm = ClientManager.getOrCreateInstance();
+    const initial = makeTransport({}, 'reserved');
+    initial.backendSleep = {
+      idleTimeoutMs: 30_000,
+      release: vi.fn(async () => {}),
+      recreate: vi.fn(),
+      ownershipBlocker: () => undefined,
+    };
+    await cm.createSingleClient('reserved', initial);
+    let finish!: () => void;
+    const pending = cm.executeClientOperation(
+      'reserved',
+      async () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(initial.backendSleep.release).not.toHaveBeenCalled();
+    finish();
+    await pending;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(initial.backendSleep.release).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the original backend usable with sleep blocked after initial discovery fails', async () => {
+    vi.useFakeTimers();
+    ClientManager.resetInstance();
+    const cm = ClientManager.getOrCreateInstance();
+    const initial = makeTransport({ tools: {} }, 'retained');
+    initial.__request = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('initial discovery failed'))
+      .mockImplementation(async ({ method }: { method: string }) =>
+        method === 'tools/list' ? { tools: [{ name: 'hello', inputSchema: { type: 'object' } }] } : { content: [] },
+      );
+    initial.backendSleep = {
+      idleTimeoutMs: 30_000,
+      release: vi.fn(async () => {}),
+      recreate: vi.fn(() => makeTransport({}, 'unused')),
+      ownershipBlocker: () => undefined,
+    };
+    await cm.createSingleClient('retained', initial);
+    await expect(cm.ensureBackendAwake('retained')).resolves.toBeUndefined();
+    const connection = cm.getClient('retained');
+    expect(connection.status).toBe(ClientStatus.Connected);
+    expect(connection.sleep).toMatchObject({
+      state: 'awake',
+      blockers: ['capability-discovery-failed'],
+      failure: expect.any(String),
+    });
+    await expect(
+      connection.adapter.request({
+        id: 'retained' as LegacyRequestId,
+        method: 'tools/call',
+        params: { name: 'hello' },
+      }),
+    ).resolves.toEqual({ content: [] });
+    const snapshot = await acquireRuntimeCapabilityCatalog(cm.getClients());
+    const catalog = new CapabilityCatalog({
+      getToolRegistry: () => ToolRegistry.fromGeneration(snapshot.generation).withConnections(cm.getClients()),
+      schemaCache: new SchemaCache({ maxEntries: 100 }),
+      outboundConnections: cm.getClients(),
+      getServerConfigs: () => ({ retained: { type: 'stdio', command: 'unused' } }),
+    });
+    expect((await catalog.listVisibleTools({})).tools.map((tool) => tool.name)).toEqual(['hello']);
+    const result = await catalog.invokeVisibleTool({ server: 'retained', toolName: 'hello', args: {} });
+    expect(result.error).toBeUndefined();
+    expect(result.result).toEqual({ content: [] });
+    await vi.advanceTimersByTimeAsync(90_000);
+    expect(initial.backendSleep.release).not.toHaveBeenCalled();
+    expect(initial.backendSleep.recreate).not.toHaveBeenCalled();
+    await cm.removeClient('retained');
+    expect(initial.close).toHaveBeenCalled();
+  });
+
   it('closes catalog listeners locally before intentional process release', async () => {
     vi.useFakeTimers();
     ClientManager.resetInstance();

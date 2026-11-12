@@ -72,6 +72,8 @@ Discovery and status reads use cached metadata without waking or extending the i
 
 Cached capabilities remain subject to current permissions, filters, and disabled-tool/server settings. After wake, 1MCP refreshes capabilities and validates the operation again. Concurrent callers share one startup attempt; each retains its own cancellation and deadline. Wake errors are returned without replay. Failure imposes a `30000` ms cooldown; a later request may retry, but cooldown expiry alone does not start a process.
 
+If the first capability refresh fails, the original backend stays connected and usable, but `capability-discovery-failed` blocks sleep. Restart the backend or replace its configuration to retry sleep initialization; an ordinary forced discovery refresh does not clear this blocker.
+
 Configuration reload applies policy changes: enabling sleep or changing the timeout starts a fresh idle window; disabling sleep wakes a sleeping backend. Server disable/removal and runtime shutdown take precedence. Intentional sleep does not consume the crash-recovery budget or trigger automatic restart supervision.
 
 Only verified exclusively owned processes can be terminated. Uncertain ownership blocks sleep, and failed release blocks replacement. Shared daemons keep their own lifecycle; releasing a connection does not reclaim all daemon memory. CLI/Admin status shows lifecycle state, last activity, timeout, blockers, and wake or release failures. Platform-specific process-release evidence belongs to the release's test results; configuration acceptance alone does not prove reclamation.

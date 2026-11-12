@@ -760,9 +760,25 @@ export class ClientManager extends EventEmitter {
     Object.assign(connection, { adapter });
     transport.backendSleepTracker = lifecycle;
     this.backendSleeps.set(name, lifecycle);
-    const initialization = adapter.refresh(connection.capabilities ?? {}).then(() => {
-      if (isCurrent()) lifecycle.ready();
-    });
+    const initialization = adapter.refresh(connection.capabilities ?? {}).then(
+      () => {
+        if (!isCurrent()) return;
+        if (connection.status !== ClientStatus.Connected) {
+          lifecycle.stop();
+          return;
+        }
+        lifecycle.ready();
+      },
+      (error: unknown) => {
+        // Incomplete metadata cannot support sleep, but the original session is still usable.
+        if (!isCurrent()) return;
+        if (connection.status !== ClientStatus.Connected) {
+          lifecycle.stop();
+          return;
+        }
+        lifecycle.keepAwakeAfterDiscoveryFailure(error);
+      },
+    );
     adapter.initialization = initialization;
     this.backendSleepInitialization.set(name, initialization);
     void initialization
@@ -915,18 +931,25 @@ export class ClientManager extends EventEmitter {
     options: OperationOptions = {},
     requiredCapability?: ServerCapability,
   ): Promise<T> {
-    await this.ensureBackendAwake(clientName);
-    const outboundConn = this.getClient(clientName);
+    await this.backendSleepInitialization.get(clientName);
+    const lifecycle = this.backendSleeps.get(clientName);
+    const release = lifecycle?.reserve();
+    try {
+      await lifecycle?.ensureAwake();
+      const outboundConn = this.getClient(clientName);
 
-    if (outboundConn.status !== ClientStatus.Connected) {
-      throw new ClientConnectionError(clientName, new Error('Client not connected'));
+      if (outboundConn.status !== ClientStatus.Connected) {
+        throw new ClientConnectionError(clientName, new Error('Client not connected'));
+      }
+
+      if (requiredCapability && !outboundConn.capabilities?.[requiredCapability]) {
+        throw new CapabilityError(clientName, String(requiredCapability));
+      }
+
+      return await executeOperation(() => operation(outboundConn), `client ${clientName}`, options);
+    } finally {
+      release?.();
     }
-
-    if (requiredCapability && !outboundConn.capabilities?.[requiredCapability]) {
-      throw new CapabilityError(clientName, String(requiredCapability));
-    }
-
-    return executeOperation(() => operation(outboundConn), `client ${clientName}`, options);
   }
 
   public createClientInstance(): Client {

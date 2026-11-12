@@ -11,6 +11,15 @@ import { BackendSleep } from './backendSleep.js';
 afterEach(() => vi.useRealTimers());
 
 describe('Backend Sleep lifecycle', () => {
+  it('never replaces the owned process before initial discovery completes', async () => {
+    const wake = vi.fn(async () => {});
+    const backend = new BackendSleep({ release: async () => {}, wake, isCurrent: () => true });
+    await expect(backend.ensureAwake()).rejects.toThrow(/discovery/);
+    expect(wake).not.toHaveBeenCalled();
+    expect(backend.snapshot().state).toBe('initializing');
+    backend.stop();
+  });
+
   it.each(['tools/call', 'resources/read', 'tasks/get'] as const)(
     'does not treat server cancellation as completion of %s',
     async (method) => {

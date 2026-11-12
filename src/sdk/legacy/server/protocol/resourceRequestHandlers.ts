@@ -40,11 +40,14 @@ export function registerResourceHandlers(
 ): void {
   const handle = <T, Args extends readonly unknown[]>(work: (...args: Args) => Promise<T>, message: string) =>
     withErrorHandling(withInboundProjectAdmission(inboundConn, work), message);
-  const acquire = (cursor?: string, kind: 'resources' | 'resourceTemplates' = 'resources') =>
+  const acquire = (cursor?: string, kind: 'resources' | 'resourceTemplates' = 'resources', signal?: AbortSignal) =>
     acquireRuntimeCapabilityCatalog(
       outboundConns,
       resolveCapabilityVisibility(outboundConns, inboundConn, getRequestSession(inboundConn), 'resources'),
-      { continuation: cursor ? { kind, cursor, enablePagination: inboundConn.enablePagination ?? false } : undefined },
+      {
+        signal,
+        continuation: cursor ? { kind, cursor, enablePagination: inboundConn.enablePagination ?? false } : undefined,
+      },
     );
   const server = getLegacyInboundServer(inboundConn);
   server.setRequestHandler(
@@ -112,7 +115,7 @@ export function registerResourceHandlers(
   server.setRequestHandler(
     ReadResourceRequestSchema,
     handle(async (request, extra) => {
-      let snapshot = await acquire();
+      let snapshot = await acquire(undefined, 'resources', extra.signal);
       const route = resolveResourceRoute(snapshot, request.params.uri);
       const assertResourceCurrent = () => {
         // A private lease can wait past handle expiry or owner revocation.
@@ -146,7 +149,8 @@ export function registerResourceHandlers(
         extra,
         request.params._meta?.progressToken,
         async () => {
-          if (route.connection.adapter instanceof BackendSleepAdapter) snapshot = await acquire();
+          if (route.connection.adapter instanceof BackendSleepAdapter)
+            snapshot = await acquire(undefined, 'resources', extra.signal);
           assertResourceCurrent();
           return withPrivateInteractionConnection(
             route.connection,

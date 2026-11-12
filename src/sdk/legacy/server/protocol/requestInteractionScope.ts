@@ -34,6 +34,7 @@ type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 interface Scope {
   readonly inbound: InboundConnection;
   readonly adapter: OutboundConnection['adapter'];
+  readonly delegate: ReturnType<typeof unwrapBackendSleepAdapter>;
   readonly extra: Extra;
   readonly callbacks: { pending: number };
   readonly runTrace: ReturnType<typeof captureTraceContext>;
@@ -144,7 +145,7 @@ export async function withRequestInteractionScope<T>(
             const scope = callbackScope(connection);
             if (
               !scope ||
-              unwrapBackendSleepAdapter(scope.adapter) !== installedAdapter ||
+              scope.delegate !== installedAdapter ||
               unwrapBackendSleepAdapter(connection.adapter) !== installedAdapter ||
               scope.extra.signal.aborted
             )
@@ -210,7 +211,7 @@ export async function withRequestInteractionScope<T>(
                 scope.extra.signal.aborted ||
                 !ownsScope(connection, scope) ||
                 unwrapBackendSleepAdapter(connection.adapter) !== installedAdapter ||
-                unwrapBackendSleepAdapter(scope.adapter) !== installedAdapter
+                scope.delegate !== installedAdapter
               )
                 throw new McpError(-32000, 'interaction_lost');
               return stripBaggage(response);
@@ -238,6 +239,7 @@ export async function withRequestInteractionScope<T>(
           inbound,
           extra: scopedExtra,
           adapter: connection.adapter,
+          delegate: unwrapBackendSleepAdapter(connection.adapter),
           callbacks: { pending: 0 },
           runTrace: captureTraceContext(),
           abort,

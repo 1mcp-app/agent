@@ -344,13 +344,18 @@ function createStdioTransport(
   const startTransport = transport.start.bind(transport);
   transport.start = async (): Promise<void> => {
     spawnFailedWithoutChild = false;
+    let startingChild: ChildProcess | undefined;
     try {
-      await startTransport();
+      const starting = startTransport();
+      // Both SDKs assign the ChildProcess synchronously. Retain it before their
+      // close handler clears _process; a null current PID alone proves nothing.
+      startingChild = (transport as unknown as { _process?: ChildProcess })._process;
+      await starting;
     } catch (error) {
-      // These Node spawn failures reject before assigning a child PID. This is absence,
-      // unlike a transport error after spawning, which still requires release proof.
-      if (error instanceof Error && 'code' in error && transport.pid === null) {
-        spawnFailedWithoutChild = error.code === 'ENOENT' || error.code === 'EACCES';
+      if (startingChild) spawnFailedWithoutChild = startingChild.pid === undefined;
+      else if (!ownedChild && error instanceof Error && 'syscall' in error && error.syscall === 'spawn') {
+        // Native spawn threw before returning a ChildProcess to either SDK.
+        spawnFailedWithoutChild = true;
       }
       throw error;
     }

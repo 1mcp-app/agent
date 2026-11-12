@@ -197,7 +197,11 @@ async function showAllServersStatus(
     const effectiveConfig = allEffectiveServers[serverName];
     displayServerStatusSummary(serverName, effectiveConfig);
     const target = resolveServerTarget(serverName);
-    displayRuntimeSupervision(runtimeStatusForTarget(aggregateRuntimeStatus, serverName, target?.source), verbose);
+    let runtimeStatus = runtimeStatusForTarget(aggregateRuntimeStatus, serverName, target?.source);
+    if (!runtimeStatus && target?.source === 'mcpServers' && aggregateRuntimeStatus) {
+      runtimeStatus = await fetchRuntimeStatus(argv, dependencies, serverName);
+    }
+    displayRuntimeSupervision(runtimeStatus, verbose);
     if (verbose && allServers[serverName]) {
       const inherited = getInheritedKeys(allServers[serverName], effectiveConfig, globalConfig);
       if (inherited.length > 0) {

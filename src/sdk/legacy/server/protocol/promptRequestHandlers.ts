@@ -1,3 +1,8 @@
+import {
+  getCapabilityPaginationGeneration,
+  registerCapabilityPaginationNotifications,
+  unregisterCapabilityPaginationConnections,
+} from '@src/core/capabilities/capabilityPagination.js';
 import { acquireRuntimeCapabilityCatalog } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { InboundConnection } from '@src/core/types/index.js';
@@ -71,46 +76,57 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
         extra,
         request.params._meta?.progressToken,
         async () => {
-          const refreshed = await acquire();
-          const current = refreshed.resolve('prompts', request.params.name);
-          if (!current?.connection) throw new McpError(-32602, `Unknown prompt: ${request.params.name}`);
-          if (
-            current.connection !== route.connection ||
-            JSON.stringify(current.entry.sourceObject) !== JSON.stringify(route.entry.sourceObject)
-          ) {
-            throw new McpError(-32602, 'Prompt contract changed after wake; inspect prompts again');
-          }
-          const assertCurrent = () => {
-            const visibility = resolveCapabilityVisibility(
-              outboundConns,
-              inboundConn,
-              getRequestSession(inboundConn),
-              'prompts',
-            );
-            if (!visibility.serverCandidates.has(route.entry.route.connectionKey) || !refreshed.isCurrent()) {
-              throw new McpError(-32602, 'Prompt route is no longer available');
+          const observed = new Map([[route.entry.route.connectionKey, route.connection!]]);
+          registerCapabilityPaginationNotifications(observed, route.connection!);
+          const generation = getCapabilityPaginationGeneration(observed, 'prompts');
+          try {
+            const refreshed = await acquire();
+            const current = refreshed.resolve('prompts', request.params.name);
+            if (!current?.connection) throw new McpError(-32602, `Unknown prompt: ${request.params.name}`);
+            if (
+              current.connection !== route.connection ||
+              JSON.stringify(current.entry.sourceObject) !== JSON.stringify(route.entry.sourceObject)
+            ) {
+              throw new McpError(-32602, 'Prompt contract changed after wake; inspect prompts again');
             }
-          };
-          assertCurrent();
-          return withPrivateInteractionConnection(
-            route.connection!,
-            inboundConn,
-            extra,
-            current.entry,
-            (selected) =>
-              withSelectedNativeInputResponses(
-                request.params.name,
-                'prompts/get',
-                selected.adapter,
-                route.entry.route.upstreamIdentity,
-                () =>
-                  requestLegacyOutbound(selected, 'prompts/get', {
-                    ...params,
-                    name: route.entry.route.upstreamIdentity,
-                  }),
-              ),
-            assertCurrent,
-          );
+            const assertCurrent = () => {
+              const visibility = resolveCapabilityVisibility(
+                outboundConns,
+                inboundConn,
+                getRequestSession(inboundConn),
+                'prompts',
+              );
+              if (
+                !visibility.serverCandidates.has(route.entry.route.connectionKey) ||
+                !refreshed.isCurrent() ||
+                getCapabilityPaginationGeneration(observed, 'prompts') !== generation
+              ) {
+                throw new McpError(-32602, 'Prompt route is no longer available');
+              }
+            };
+            assertCurrent();
+            return await withPrivateInteractionConnection(
+              route.connection!,
+              inboundConn,
+              extra,
+              current.entry,
+              (selected) =>
+                withSelectedNativeInputResponses(
+                  request.params.name,
+                  'prompts/get',
+                  selected.adapter,
+                  route.entry.route.upstreamIdentity,
+                  () =>
+                    requestLegacyOutbound(selected, 'prompts/get', {
+                      ...params,
+                      name: route.entry.route.upstreamIdentity,
+                    }),
+                ),
+              assertCurrent,
+            );
+          } finally {
+            unregisterCapabilityPaginationConnections(observed);
+          }
         },
       );
     }, 'Error getting prompt'),

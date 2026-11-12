@@ -1,5 +1,4 @@
-import { randomUUID } from 'node:crypto';
-
+import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { createLegacyTimeoutMs, ErrorCode, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 import type {
   JsonObject,
@@ -113,7 +112,8 @@ export class BackendSleepAdapter implements LegacySdkAdapter {
     return this.current.close();
   }
 
-  async refresh(capabilities: JsonObject, deadline = Date.now() + 60_000): Promise<string[]> {
+  async refresh(capabilities: JsonObject, deadline = Date.now() + 60_000, signal?: AbortSignal): Promise<string[]> {
+    signal?.throwIfAborted();
     const next = new Map<string, JsonValue>();
     const methods = [
       ...(capabilities.tools ? ['tools/list'] : []),
@@ -126,23 +126,19 @@ export class BackendSleepAdapter implements LegacySdkAdapter {
       do {
         const params = cursor ? { cursor } : undefined;
         if (Date.now() >= deadline) throw new Error('Backend capability refresh deadline exceeded');
-        const result = await this.current
-          .request({
-            timeoutMs: createLegacyTimeoutMs(Math.max(1, deadline - Date.now())),
-            id: randomUUID() as LegacyRequestId,
-            method,
-            ...(params ? { params } : {}),
-          })
-          .catch((error: unknown) => {
-            if (
-              method === 'resources/templates/list' &&
-              error instanceof OneMcpProtocolError &&
-              error.code === ErrorCode.MethodNotFound
-            ) {
-              return { resourceTemplates: [] };
-            }
-            throw error;
-          });
+        const result = await requestLegacyAdapter(this.current, method, params, {
+          timeoutMs: Math.max(1, deadline - Date.now()),
+          signal,
+        }).catch((error: unknown) => {
+          if (
+            method === 'resources/templates/list' &&
+            error instanceof OneMcpProtocolError &&
+            error.code === ErrorCode.MethodNotFound
+          ) {
+            return { resourceTemplates: [] };
+          }
+          throw error;
+        });
         next.set(this.key(method, params), structuredClone(result));
         const value = result as JsonObject;
         cursor = typeof value.nextCursor === 'string' ? value.nextCursor : undefined;
@@ -157,6 +153,7 @@ export class BackendSleepAdapter implements LegacySdkAdapter {
         [...cache].filter(([key]) => (JSON.parse(key) as unknown[])[0] === method);
       return JSON.stringify(pages(this.cache)) !== JSON.stringify(pages(next));
     });
+    signal?.throwIfAborted();
     this.cache = next;
     return changed;
   }
@@ -267,11 +264,18 @@ export async function prepareBackendOperation(adapter: LegacySdkAdapter, signal?
   }
 }
 
-export async function refreshBackendDiscovery(adapter: LegacySdkAdapter, capabilities: JsonObject): Promise<void> {
+export async function refreshBackendDiscovery(
+  adapter: LegacySdkAdapter,
+  capabilities: JsonObject,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted();
   if (!(adapter instanceof BackendSleepAdapter)) return;
-  const release = await prepareBackendOperation(adapter);
+  const release = await prepareBackendOperation(adapter, signal);
   try {
-    await adapter.refresh(capabilities);
+    signal?.throwIfAborted();
+    await adapter.refresh(capabilities, undefined, signal);
+    signal?.throwIfAborted();
   } finally {
     release();
   }

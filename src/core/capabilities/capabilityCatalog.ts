@@ -332,7 +332,12 @@ export class CapabilityCatalog {
     const attempt = ++this.listingState.nextAttempt;
     this.listingState.activeAttempts.add(attempt);
     try {
-      const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'list', visibility);
+      const refresh = await this.resolveRefreshFacts(
+        queryOptions.refreshIntent ?? 'never',
+        'list',
+        visibility,
+        queryOptions.signal,
+      );
       const sourceRegistry = queryOptions.toolRegistry ?? (await this.deps.getToolRegistry());
       const registry = await this.visibleToolRegistry(visibility, sourceRegistry);
       const admitted = [];
@@ -632,7 +637,12 @@ export class CapabilityCatalog {
     visibility?: CapabilityVisibility,
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<DescribeVisibleToolResult> {
-    const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'describe', visibility);
+    const refresh = await this.resolveRefreshFacts(
+      queryOptions.refreshIntent ?? 'never',
+      'describe',
+      visibility,
+      queryOptions.signal,
+    );
     const access = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
     if (access.error) {
       const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
@@ -751,7 +761,12 @@ export class CapabilityCatalog {
     const requested = { callId: randomUUID(), requestedServer: args.server, requestedTool: args.toolName };
     writeLocalDiagnostic('info', 'tool.requested', requested);
     writeLocalDiagnostic('debug', 'tool.arguments', () => ({ ...requested, arguments: args.args }));
-    const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'invoke', visibility);
+    const refresh = await this.resolveRefreshFacts(
+      queryOptions.refreshIntent ?? 'never',
+      'invoke',
+      visibility,
+      queryOptions.signal,
+    );
     const access = await this.resolveVisibleToolAccess(args, visibility, queryOptions.toolRegistry);
     if (access.error) {
       const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
@@ -781,7 +796,7 @@ export class CapabilityCatalog {
 
     const { route } = access;
     const connection = access.connection ?? this.deps.outboundConnections.get(route.connectionKey);
-    const admittedGeneration = getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools');
+    let admittedGeneration = getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools');
     const diagnosticRoute = {
       ...requested,
       server: route.server,
@@ -820,6 +835,7 @@ export class CapabilityCatalog {
     let releaseDispatch: (() => void) | undefined;
     try {
       releaseBackend = await prepareBackendOperation(connection.adapter, queryOptions.signal);
+      admittedGeneration = getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools');
       releaseDispatch = await acquireBackendDispatch(connection.adapter, queryOptions.signal);
       const targetArgs = projectToolArguments(
         this.deps.getServerConfigs()[route.server],
@@ -975,6 +991,7 @@ export class CapabilityCatalog {
     intent: CapabilityRefreshIntent,
     reason: CapabilityRefreshReason,
     visibility?: CapabilityVisibility,
+    signal?: AbortSignal,
   ): Promise<CapabilityRefreshFacts> {
     if (intent === 'never') {
       return NEVER_REFRESH;
@@ -983,12 +1000,14 @@ export class CapabilityCatalog {
     if (intent === 'force') {
       const effective = visibility ?? this.deps.defaultVisibility;
       for (const [key, connection] of this.deps.outboundConnections) {
+        signal?.throwIfAborted();
         if (effective && !effective.serverCandidates.has(key)) continue;
         if (this.deps.getServerConfigs()[connection.name]?.disabled) continue;
-        await refreshBackendDiscovery(connection.adapter, connection.capabilities ?? {});
+        await refreshBackendDiscovery(connection.adapter, connection.capabilities ?? {}, signal);
       }
     }
 
+    signal?.throwIfAborted();
     if (!this.deps.refreshCapabilities) {
       return {
         intent,

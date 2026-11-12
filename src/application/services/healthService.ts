@@ -154,6 +154,12 @@ export class HealthService {
   /**
    * Apply the configured health disclosure level to backend supervision facts.
    */
+  private backendSleepFailureCode(snapshot: BackendSleepSnapshot): string {
+    if (snapshot.blockers.includes('capability-discovery-failed')) return 'backend_discovery_failed';
+    if (snapshot.state === 'release-failed') return 'backend_release_failed';
+    return 'backend_wake_failed';
+  }
+
   public serializeBackendSleep(snapshots: Record<string, BackendSleepSnapshot>): Record<string, BackendSleepSnapshot> {
     if (this.agentConfig.get('health').detailLevel === 'minimal') return {};
     return Object.fromEntries(
@@ -162,7 +168,7 @@ export class HealthService {
         {
           ...snapshot,
           blockers: snapshot.blockers.map((blocker) => this.sanitizeErrorMessage(blocker) ?? ''),
-          ...(snapshot.failure ? { failure: this.sanitizeErrorMessage(snapshot.failure) } : {}),
+          ...(snapshot.failure ? { failure: this.backendSleepFailureCode(snapshot) } : {}),
         },
       ]),
     );
@@ -195,7 +201,7 @@ export class HealthService {
 
     return Object.fromEntries(
       Object.entries(snapshots).map(([name, snapshot]) => {
-        const lastError = this.sanitizeErrorMessage(snapshot.lastError?.message) ?? null;
+        const lastError = snapshot.lastError ? 'backend_supervision_failed' : null;
         if (detailLevel === 'basic') {
           return [
             name,

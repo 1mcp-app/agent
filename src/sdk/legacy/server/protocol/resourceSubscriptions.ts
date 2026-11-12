@@ -141,9 +141,12 @@ function countUnconfirmedUpstreamWatches(): number {
   return count;
 }
 
-async function acquireOwnerCatalog(owner: Owner): Promise<RuntimeCapabilitySnapshot> {
+async function acquireOwnerCatalog(
+  owner: Owner,
+  signal: AbortSignal = owner.abort.signal,
+): Promise<RuntimeCapabilitySnapshot> {
   const visibility = ownerVisibility(owner, 'resources');
-  return acquireRuntimeCapabilityCatalog(owner.connections, visibility, { signal: owner.abort.signal });
+  return acquireRuntimeCapabilityCatalog(owner.connections, visibility, { signal });
 }
 
 function ownerVisibility(owner: Owner, kind: 'tools' | 'resources' | 'prompts') {
@@ -151,8 +154,8 @@ function ownerVisibility(owner: Owner, kind: 'tools' | 'resources' | 'prompts') 
   return owner.binding ? withProjectBinding(owner.binding.bindingId, owner.binding.context, resolve) : resolve();
 }
 
-async function resolve(owner: Owner, uri: string, snapshot?: RuntimeCapabilitySnapshot) {
-  snapshot ??= await acquireOwnerCatalog(owner);
+async function resolve(owner: Owner, uri: string, snapshot?: RuntimeCapabilitySnapshot, signal?: AbortSignal) {
+  snapshot ??= await acquireOwnerCatalog(owner, signal);
   return resolveResourceRoute(snapshot, uri);
 }
 
@@ -800,16 +803,17 @@ export async function subscribeOwnedResource(
     void detach(watch).catch(() => {});
   };
   signal?.addEventListener('abort', cancel, { once: true });
+  const setupSignal = AbortSignal.any([owner.abort.signal, watch.abort.signal]);
   watch.ready = (async () => {
     let releaseWake: (() => void) | undefined;
     try {
       if (authorize && !(await authorize())) throw new Error('Resource subscription authorization lost');
-      const route = await resolve(owner, uri);
-      releaseWake = await prepareBackendOperation(route.connection.adapter, signal);
+      const route = await resolve(owner, uri, undefined, setupSignal);
+      releaseWake = await prepareBackendOperation(route.connection.adapter, setupSignal);
       const assertWakeRouteCurrent = async () => {
         if (!(route.connection.adapter instanceof BackendSleepAdapter)) return;
         if (authorize && !(await authorize())) throw new Error('Resource subscription authorization lost');
-        const current = await resolve(owner, uri);
+        const current = await resolve(owner, uri, undefined, setupSignal);
         if (
           current.connection !== route.connection ||
           current.upstreamIdentity !== route.upstreamIdentity ||

@@ -395,6 +395,39 @@ describe('HealthService', () => {
     });
   });
 
+  it.each(['basic', 'full'])('returns fixed Backend Sleep failures at %s detail', (detailLevel) => {
+    const snapshots: Record<string, BackendSleepSnapshot> = {
+      worker: {
+        state: 'wake-failed',
+        lastActivityAt: null,
+        idleTimeoutMs: 300000,
+        blockers: [],
+        failure: 'customer Acme invoice confidential',
+      },
+      discovery: {
+        state: 'awake',
+        lastActivityAt: 0,
+        idleTimeoutMs: 300000,
+        blockers: ['capability-discovery-failed'],
+        failure: 'customer Acme invoice confidential',
+      },
+      releasing: {
+        state: 'release-failed',
+        lastActivityAt: null,
+        idleTimeoutMs: 300000,
+        blockers: [],
+        failure: 'customer Acme invoice confidential',
+      },
+    };
+    mockAgentConfig.get.mockReturnValue({ detailLevel });
+    const result = healthService.serializeBackendSleep(snapshots);
+    expect(result.worker.failure).toBe('backend_wake_failed');
+    expect(result.discovery.failure).toBe('backend_discovery_failed');
+    expect(result.releasing.failure).toBe('backend_release_failed');
+    expect(JSON.stringify(result)).not.toContain('Acme');
+    expect(snapshots.worker.failure).toBe('customer Acme invoice confidential');
+  });
+
   it('respects health disclosure and sanitizes Backend Sleep diagnostics', () => {
     const snapshots: Record<string, BackendSleepSnapshot> = {
       worker: {
@@ -428,7 +461,7 @@ describe('HealthService', () => {
           pid: 4321,
           at: new Date('2026-07-23T12:00:00.000Z'),
         },
-        lastError: new Error('token=secret /private/config.json'),
+        lastError: new Error('customer Acme invoice confidential token=secret /private/config.json'),
         currentPid: null,
       },
       healthy: {
@@ -462,7 +495,7 @@ describe('HealthService', () => {
       expect(JSON.stringify(result)).not.toContain('4321');
     });
 
-    it('sanitizes errors and removes process IDs at basic detail', () => {
+    it('returns a fixed failure code and removes process IDs at basic detail', () => {
       mockAgentConfig.get.mockImplementation((key: string) =>
         key === 'health' ? { detailLevel: 'basic' } : undefined,
       );
@@ -478,13 +511,13 @@ describe('HealthService', () => {
           signal: null,
           at: new Date('2026-07-23T12:00:00.000Z'),
         },
-        lastError: '[REDACTED_CREDENTIAL] [REDACTED_PATH]',
+        lastError: 'backend_supervision_failed',
       });
       expect(result.worker.currentPid).toBeUndefined();
       expect(result.worker.lastExit.pid).toBeUndefined();
     });
 
-    it('preserves process facts but still sanitizes errors at full detail', () => {
+    it('preserves process facts but returns a fixed failure code at full detail', () => {
       mockAgentConfig.get.mockImplementation((key: string) => (key === 'health' ? { detailLevel: 'full' } : undefined));
 
       const result = healthService.serializeBackendSupervision(snapshots) as Record<string, any>;
@@ -494,9 +527,11 @@ describe('HealthService', () => {
         state: 'crash-loop',
         currentPid: null,
         lastExit: { pid: 4321 },
-        lastError: '[REDACTED_CREDENTIAL] [REDACTED_PATH]',
+        lastError: 'backend_supervision_failed',
       });
       expect(result.healthy.currentPid).toBe(9876);
+      expect(result.healthy.lastError).toBeNull();
+      expect(snapshots.worker.lastError.message).toContain('Acme');
     });
   });
 
