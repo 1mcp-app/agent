@@ -2,6 +2,7 @@ import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
 import { STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import { authorizeTemplateContext, createTemplateContextProof } from '@src/core/context/templateContextTrust.js';
+import { SessionAdmissionCapacityError } from '@src/core/server/sessionAdmission.js';
 import {
   StreamableSessionLifecycle,
   StreamableSessionMissingReason,
@@ -112,6 +113,7 @@ describe('Streamable HTTP Routes', () => {
 
     // Mock streamable session lifecycle
     mockLifecycle = {
+      protectSession: vi.fn(() => vi.fn()),
       resolvePostSession: vi.fn(),
       resolveExistingSession: vi.fn(),
       storeInitializeResponse: vi.fn(),
@@ -404,6 +406,7 @@ describe('Streamable HTTP Routes', () => {
       let persistedConfig: any;
       let persistedSession: any;
       const repository = {
+        protectSession: vi.fn(() => vi.fn()),
         create: vi.fn((sessionId, config) => {
           persistedConfig = config;
           persistedSession = { ...config, sessionId };
@@ -613,6 +616,90 @@ describe('Streamable HTTP Routes', () => {
     });
   });
 
+  describe('response activity ownership', () => {
+    const release = vi.fn();
+    beforeEach(() => {
+      release.mockReset();
+      mockLifecycle.protectSession.mockReturnValue(release);
+      setupStreamableHttpRoutes(
+        mockRouter,
+        mockServerManager,
+        mockSessionRepository,
+        vi.fn(),
+        undefined,
+        undefined,
+        undefined,
+        mockLifecycle,
+      );
+      getHandler = mockRouter.get.mock.calls[0].at(-1);
+      postHandler = mockRouter.post.mock.calls[0].at(-1);
+      mockRequest.headers['mcp-session-id'] = 'valid-session';
+    });
+
+    it('protects a silent SSE response after SDK setup returns, until response close', async () => {
+      mockLifecycle.resolveExistingSession.mockResolvedValue({
+        status: StreamableSessionStatus.Active,
+        sessionId: 'valid-session',
+        transport: { handleRequest: vi.fn().mockResolvedValue(undefined) },
+      });
+      await getHandler(mockRequest, mockResponse);
+      expect(release).not.toHaveBeenCalled();
+      const close = mockResponse.on.mock.calls.find(([event]: [string]) => event === 'close')[1];
+      close();
+      expect(release).toHaveBeenCalledWith(true);
+      expect(mockLifecycle.handleAbnormalDisconnect).not.toHaveBeenCalled();
+    });
+
+    it('retains in-flight work after response close until the SDK request settles', async () => {
+      let finish!: () => void;
+      mockLifecycle.resolveExistingSession.mockResolvedValue({
+        status: StreamableSessionStatus.Active,
+        sessionId: 'valid-session',
+        transport: {
+          handleRequest: () =>
+            new Promise<void>((resolve) => {
+              finish = resolve;
+            }),
+        },
+      });
+      const request = getHandler(mockRequest, mockResponse);
+      await vi.waitFor(() => expect(mockResponse.on).toHaveBeenCalled());
+      const close = mockResponse.on.mock.calls.find(([event]: [string]) => event === 'close')[1];
+      close();
+      expect(release).not.toHaveBeenCalled();
+      finish();
+      await request;
+      expect(release).toHaveBeenCalledWith(true);
+    });
+
+    it('ends rejected response protection without recording activity', async () => {
+      mockLifecycle.resolveExistingSession.mockResolvedValue({
+        status: StreamableSessionStatus.Active,
+        sessionId: 'valid-session',
+        transport: {
+          handleRequest: async () => {
+            mockResponse.statusCode = 400;
+            mockResponse.writableEnded = true;
+          },
+        },
+      });
+      await getHandler(mockRequest, mockResponse);
+      expect(release).toHaveBeenCalledWith(false);
+      expect(mockLifecycle.resolveExistingSession).toHaveBeenCalledWith('valid-session', undefined, false);
+    });
+
+    it('maps owner admission failure to an explicit 503 response', async () => {
+      mockLifecycle.resolvePostSession.mockRejectedValue(new SessionAdmissionCapacityError());
+      await postHandler(mockRequest, mockResponse, vi.fn());
+      expect(mockResponse.status).toHaveBeenCalledWith(503);
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: expect.objectContaining({ message: expect.stringContaining('capacity exhausted') }),
+        }),
+      );
+    });
+  });
+
   describe('GET Handler', () => {
     beforeEach(() => {
       const mockAuthMiddleware = vi.fn((req, res, next) => next());
@@ -649,7 +736,7 @@ describe('Streamable HTTP Routes', () => {
       mockRequest.headers = { 'mcp-session-id': 'unknown-session' };
       await getHandler(mockRequest, mockResponse);
 
-      expect(mockLifecycle.resolveExistingSession).toHaveBeenCalledWith('unknown-session', undefined);
+      expect(mockLifecycle.resolveExistingSession).toHaveBeenCalledWith('unknown-session', undefined, false);
       expect(mockResponse.status).toHaveBeenCalledWith(404);
     });
 
@@ -667,7 +754,7 @@ describe('Streamable HTTP Routes', () => {
       mockRequest.headers = { 'mcp-session-id': 'valid-session' };
       await getHandler(mockRequest, mockResponse);
 
-      expect(mockLifecycle.resolveExistingSession).toHaveBeenCalledWith('valid-session', undefined);
+      expect(mockLifecycle.resolveExistingSession).toHaveBeenCalledWith('valid-session', undefined, false);
       expect(mockTransport.handleRequest).toHaveBeenCalled();
     });
 

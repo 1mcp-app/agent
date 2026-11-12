@@ -374,6 +374,23 @@ describe('FileStorageService', () => {
       expect(deleted).toBe(false);
     });
 
+    it('returns false only when unlink confirms a valid record is absent', () => {
+      const deleted = service.deleteData(testPrefix, testId);
+      expect(deleted).toBe(false);
+    });
+
+    it('propagates deletion access failures even when an existence probe would hide the file', () => {
+      service.writeData(testPrefix, testId, testData);
+      const denied = Object.assign(new Error('directory access denied'), { code: 'EACCES' });
+      const probe = vi.spyOn(fs, 'existsSync').mockReturnValue(false);
+      const unlink = vi.spyOn(fs, 'unlinkSync').mockImplementation(() => {
+        throw denied;
+      });
+      expect(() => service.deleteData(testPrefix, testId)).toThrow(denied);
+      expect(probe).not.toHaveBeenCalled();
+      expect(unlink).toHaveBeenCalledWith(service.getFilePath(testPrefix, testId));
+    });
+
     it('should handle file path generation correctly', () => {
       const filePath = service.getFilePath(testPrefix, testId);
       const expectedPath = path.join(tempDir, 'sessions', `${testPrefix}${testId}.json`);

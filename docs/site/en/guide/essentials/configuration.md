@@ -242,6 +242,8 @@ Authentication, authorization, and security features.
 - `--rate-limit-window <minutes>`: OAuth rate limit window (default: 15)
 - `--rate-limit-max <requests>`: Maximum requests per window (default: 100)
 
+For Streamable HTTP, this TTL is the idle deadline for both live sessions and restoration records. Authorized activity renews it; rejected requests do not. In-flight requests and open SSE streams (including silent streams) prevent idle reclamation. Once activity finishes, the idle interval starts again. Abandoned sessions are reclaimed by the background session sweep; expired IDs follow the normal missing-session initialization recovery flow and cannot restore stale cached or persisted state.
+
 **Examples:**
 
 ```bash

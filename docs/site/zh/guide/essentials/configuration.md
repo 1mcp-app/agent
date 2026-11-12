@@ -232,9 +232,12 @@ ONE_MCP_CONFIG_DIR=/opt/1mcp/config 1mcp
 **会话管理：**
 
 - `--session-ttl <minutes>`：会话过期时间（默认：1440）
+
 - `--session-storage-path <path>`：自定义会话存储目录
 - `--rate-limit-window <minutes>`：OAuth 速率限制窗口（默认：15）
 - `--rate-limit-max <requests>`：每个窗口的最大请求数（默认：100）
+
+对于 Streamable HTTP，此 TTL 同时约束运行中的会话和用于恢复的记录。已授权的活动会续期，被拒绝的请求不会续期。正在执行的请求和保持连接的 SSE 流（包括无消息的流）可防止空闲回收。活动结束后重新计算空闲时间。后台会话清理会回收被遗弃的会话；过期 ID 遵循正常的会话缺失初始化恢复流程，不会从过期缓存或持久化记录中恢复。
 
 **示例：**
 

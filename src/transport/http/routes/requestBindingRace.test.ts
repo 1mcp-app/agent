@@ -183,6 +183,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
         undefined,
         undefined,
         {
+          protectSession: () => () => undefined,
           resolvePostSession: async () => ({
             status: StreamableSessionStatus.Created,
             sessionId: 'session-a',

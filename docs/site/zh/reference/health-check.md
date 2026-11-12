@@ -162,6 +162,8 @@ X-Uptime-Seconds: 3600
 
 ### `GET /health/ready`
 
+会话准入单独通过 `sessionAdmission.available` 报告。达到现有订阅所有者安全上限时，新的 Streamable HTTP 初始化请求返回 HTTP `503`，就绪探针返回 `503` 和 `not_ready`；已有会话仍可使用。删除会话或回收空闲会话后，准入会自动恢复。后端健康和监督状态的含义保持不变。
+
 **描述**：配置和受监管后端就绪探针。任何受监管的 stdio 后端正在重启或进入崩溃循环时，它会返回 `503`。它不会等待后端加载或达到服务器数量门槛；后端加载进度请查看 `/health/mcp`。
 
 **身份验证**：无需
@@ -176,6 +178,7 @@ X-Uptime-Seconds: 3600
 ```json
 {
   "status": "ready|not_ready",
+  "sessionAdmission": { "available": true },
   "timestamp": "2025-01-30T12:00:00.000Z",
   "configuration": {
     "loaded": true,
