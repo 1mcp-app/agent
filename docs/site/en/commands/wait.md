@@ -8,7 +8,7 @@ description: Wait for configured static MCP servers to become connected and avai
 Wait for enabled configured static MCP servers to become connected and available through the authenticated `/api/v1/inspect` status contract.
 
 ```bash
-npx -y @1mcp/agent wait [server] [options]
+1mcp wait [server] [options]
 ```
 
 Without a server, `wait` covers all matching configured static servers. Templates and disabled servers are excluded. A template target returns `server_not_load_tracked`; an unknown target returns `server_not_found`.

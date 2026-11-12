@@ -1,113 +1,38 @@
 ---
 title: Management Tools
-description: MCP internal tools for managing MCP server state, configuration, health monitoring, and operational control
-head:
-  - ['meta', { name: 'keywords', content: 'MCP management,server control,monitoring,AI assistant' }]
-  - ['meta', { property: 'og:title', content: 'Management Tools - 1MCP Internal Tools' }]
-  - [
-      'meta',
-      { property: 'og:description', content: 'MCP internal tools for server management and operational control' },
-    ]
+description: Inspect and change backend state through enabled internal management tools.
 ---
 
 # Management Tools
 
-Management tools provide comprehensive operational control over MCP servers, including state management, configuration editing, health monitoring, and performance optimization. These tools focus on providing fine-grained control and real-time visibility for AI assistants.
+These MCP tools operate on backend state and configuration when enabled. See [Internal tools](/reference/internal-tools/) for access requirements. Inspect the exposed input schema before a call; MCP tool names and options are not CLI subcommands.
 
-## Tools Overview
+## mcp_enable and mcp_disable
 
-### mcp_enable
+Both require `name`. Enabling or disabling changes the configured target's state; it does not validate a dependency graph or certify that all backend prerequisites are satisfied. Read the result's status, warnings, and reload recommendation, then verify runtime state. Disabling an independently hosted remote backend does not shut down that remote service.
 
-Enable disabled MCP servers, supporting selective feature activation and dependency validation. Ensures servers meet all operational requirements before being enabled.
+## mcp_list
 
-### mcp_disable
+List configured servers. Inputs include `status`, `transport`, `tags`, `format`, `detailed`, `includeCapabilities`, `includeHealth`, and `sortBy`. Use the returned state as an observation, not a guarantee that a later tool call will succeed.
 
-Gracefully disable MCP servers, supporting connection drainage and state preservation. Supports temporary disabling or complete service shutdown.
+## mcp_status
 
-### mcp_list
+Omit `name` for all targets or supply one target name. `details` defaults to `false`; enable it for instance and supervision details. `health` defaults to `true`.
 
-List all configured MCP servers, supporting filtering by status, tags, and functionality. Provides detailed runtime information and configuration overview.
+The result is a current snapshot. It does not provide historical status tracking or trend analysis.
 
-### mcp_status
+## mcp_reload
 
-Get detailed status information for specific servers, including health metrics, performance statistics, and diagnostic information. Supports historical status tracking and trend analysis.
+Request configuration reload or a named backend restart. `configOnly` defaults to `true`; `timeout` is in milliseconds and defaults to `30000`. Review `status`, `error`, and any structured `outcome`, including ambiguous-instance or disabled-target results.
 
-- `details` defaults to `false`; set it to `true` to include per-instance and supervision details.
-- `health` defaults to `true`; set it to `false` to omit health results.
+Reload is not a zero-downtime or automatic rollback guarantee. It can affect connected work. `mcp_reload` is an MCP tool; there is no corresponding `1mcp mcp reload` CLI subcommand. For the supported CLI restart workflow, see [mcp restart](/commands/mcp/restart).
 
-### mcp_reload
+## mcp_edit
 
-Reload server configurations or restart servers, supporting hot reload and zero-downtime updates. Includes rollback mechanisms and configuration validation.
+Edit one target identified by `name`. Supported fields include launch arguments, environment, URL, headers, tags, timeouts, and supervision settings. `env` and `tags` replace their existing values rather than appending to them.
 
-### mcp_edit
+Use `preview: true` to review changes before applying them. `backup` controls backup creation; inspect the result for `backupPath`, warnings, and `reloadRecommended`. A successful edit does not establish backend readiness. This API does not provide a syntax-highlighting editor or batch-edit interface.
 
-Edit MCP server configurations, providing real-time validation, schema checking, and syntax highlighting. Supports configuration templates and batch updates.
+## Verify a change
 
-## Usage Patterns
-
-### Server Lifecycle Management
-
-AI assistants manage server states through simple tool calls:
-
-- Use `mcp_enable` to activate disabled servers with validation options
-- Use `mcp_disable` to gracefully shut down servers with connection drainage
-- Use `mcp_status` to verify server state before and after operations
-- Use `mcp_list` to discover servers and filter by status or tags
-
-### Configuration Management
-
-AI assistants manage configurations through:
-
-- `mcp_edit` for making configuration changes with validation
-- `mcp_reload` for applying configuration updates
-- Built-in backup and rollback capabilities in `mcp_edit`
-- Hot reload support for zero-downtime updates
-
-### Health Monitoring
-
-AI assistants monitor server health by:
-
-- Using `mcp_status` with metrics and diagnostics options
-- Monitoring multiple servers through `mcp_list` followed by status checks
-- Analyzing performance trends and resource usage
-- Identifying and responding to health issues
-
-## AI Assistant Use Cases
-
-### Server Health Monitoring
-
-AI assistants can maintain server health by regularly checking status across all servers, identifying unhealthy or inactive servers, and reporting issues for attention.
-
-### Configuration Management
-
-AI assistants can automate configuration tasks by applying standard configurations across server groups, validating changes before application, and using backup features for safe modifications.
-
-### Troubleshooting
-
-AI assistants can diagnose server issues by collecting status and diagnostic information, analyzing common problems like high resource usage or error rates, and providing actionable recommendations.
-
-## Tool Interactions
-
-Management tools work effectively in sequences:
-
-- **State Management**: `mcp_list` → `mcp_status` → `mcp_enable/disable`
-- **Configuration Updates**: `mcp_status` → `mcp_edit` → `mcp_reload`
-- **Health Monitoring**: `mcp_status` with metrics for ongoing monitoring
-- **Targeted Operations**: `mcp_list` with filtering for specific server groups
-
-## Best Practices for AI Assistants
-
-1. **Verify prerequisites** before making changes
-2. **Use status checks** to confirm operation success
-3. **Handle errors gracefully** and provide clear feedback
-4. **Monitor server health** before and after operations
-5. **Create backups** using mcp_edit options before configuration changes
-6. **Use batch operations** efficiently for multiple server management
-7. **Implement retry logic** for transient failures
-8. **Validate configurations** before applying changes
-
-## See Also
-
-- [Discovery Tools](./discovery) - Server discovery and evaluation
-- [Installation Tools](./installation) - Server lifecycle management
-- [MCP Commands Reference](../../commands/mcp/) - CLI server management commands
+Check the target's current state, preview the intended edit where supported, apply only the authorized change, then inspect the result and runtime state again. A failed or ambiguous response is not a reason to repeat a mutation without checking whether it already took effect.

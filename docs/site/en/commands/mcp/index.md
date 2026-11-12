@@ -22,7 +22,7 @@ Manage MCP server configurations within your 1MCP instance.
 
 These commands allow you to discover, install, configure, and manage the lifecycle of MCP servers through both manual configuration and the 1MCP registry.
 
-For a detailed guide on server management, including registry-based installation and best practices, please see the **[Server Management Guide](../../guide/essentials/server-management)**.
+For a detailed guide on server management, including registry-based installation and best practices, please see the **[Server Management Guide](/guide/essentials/server-management)**.
 
 ## Configure installed backends
 
@@ -34,91 +34,88 @@ Configure CodeGraph, Code Review Graph, or Serena with a maintained example:
 1mcp mcp setup --known codegraph
 ```
 
-## Registry-Based Commands (Recommended)
+## Registry Commands
 
-### [install](./install)
+### [install](/commands/mcp/install)
 
-Install MCP servers from the 1MCP registry with automatic dependency resolution and version management.
-
-```bash
-npx -y @1mcp/agent mcp install filesystem
-npx -y @1mcp/agent mcp install --interactive
-```
-
-### [uninstall](./uninstall)
-
-Safely remove MCP servers with automatic backup creation and dependency validation.
+Generate backend configuration from registry metadata. Use the interactive wizard to select a server.
 
 ```bash
-npx -y @1mcp/agent mcp uninstall filesystem
-npx -y @1mcp/agent mcp uninstall test-server --force
+1mcp mcp install --interactive
 ```
 
-### [search](./search)
+### [uninstall](/commands/mcp/uninstall)
+
+Remove server configuration, creating a backup before the write by default.
+
+```bash
+1mcp mcp uninstall filesystem
+```
+
+### [search](/commands/mcp/search)
 
 Search the MCP registry for available servers.
 
 ```bash
-npx -y @1mcp/agent mcp search database
-npx -y @1mcp/agent mcp search --category=filesystem
+1mcp mcp search database
 ```
 
 ## Manual Configuration Commands
 
-### [add](./add)
+### [add](/commands/mcp/add)
 
 Manually add a new MCP server to the configuration.
 
 ```bash
-npx -y @1mcp/agent mcp add my-server --type=stdio --command="node server.js"
+1mcp mcp add my-server --type=stdio -- node server.js
 ```
 
-### [remove](./remove)
+### [remove](/commands/mcp/remove)
 
 Remove an MCP server from the configuration.
 
 ```bash
-npx -y @1mcp/agent mcp remove my-server
+1mcp mcp remove my-server
 ```
 
-### [update](./update)
+### [update](/commands/mcp/update)
 
 Update an existing MCP server's configuration.
 
 ```bash
-npx -y @1mcp/agent mcp update my-server --tags=prod
+1mcp mcp update my-server --tags=prod
 ```
 
-### [enable / disable](./enable-disable)
+### [enable / disable](/commands/mcp/enable-disable)
 
 Enable or disable an MCP server without removing it.
 
 ```bash
-npx -y @1mcp/agent mcp disable my-server
+1mcp mcp disable my-server
 ```
 
-### [list](./list)
+### [list](/commands/mcp/list)
 
 List all configured MCP servers.
 
 ```bash
-npx -y @1mcp/agent mcp list --tags=prod
+1mcp mcp list --tags=prod
 ```
 
-### [status](./status)
+### [status](/commands/mcp/status)
 
 Check the status and details of configured servers.
 
 ```bash
-npx -y @1mcp/agent mcp status my-server
+1mcp mcp status my-server
 ```
 
-### [tokens](./tokens)
+### [tokens](/commands/mcp/tokens)
 
 Estimate MCP token usage for server capabilities by connecting to servers and analyzing their tools, resources, and prompts.
 
 ```bash
-npx -y @1mcp/agent mcp tokens --model=gpt-3.5-turbo --format=summary
+1mcp mcp tokens --model=gpt-3.5-turbo --format=summary
 ```
 
 ### [tools](/commands/mcp/tools)
@@ -126,22 +123,22 @@ npx -y @1mcp/agent mcp tokens --model=gpt-3.5-turbo --format=summary
 List, disable, and re-enable individual tools for a configured server without disabling the entire server.
 
 ```bash
-npx -y @1mcp/agent mcp tools list filesystem --disabled
-npx -y @1mcp/agent mcp tools disable filesystem write_file
+1mcp mcp tools list filesystem --disabled
+1mcp mcp tools disable filesystem write_file
 ```
 
 ## Runtime Operations
 
-### [restart](./restart)
+### [restart](/commands/mcp/restart)
 
 Restart a static backend or one or more active instances of a template backend in the running aggregated runtime.
 
 ```bash
-npx -y @1mcp/agent mcp restart my-server
+1mcp mcp restart my-server
 ```
 
 ## See Also
 
-- **[Server Management Guide](../../guide/essentials/server-management)**
-- **[Registry Commands](../registry/)** - Server discovery and installation
-- **[App Consolidation Guide](../../guide/integrations/app-consolidation)**
+- **[Server Management Guide](/guide/essentials/server-management)**
+- **[Registry Commands](/commands/registry/)** - Server discovery and installation
+- **[App Consolidation Guide](/guide/integrations/app-consolidation)**

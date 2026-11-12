@@ -16,10 +16,10 @@ head:
 ## 摘要
 
 ```bash
-npx -y @1mcp/agent mcp tools
-npx -y @1mcp/agent mcp tools list [server] [--disabled]
-npx -y @1mcp/agent mcp tools disable <server> <tool>
-npx -y @1mcp/agent mcp tools enable <server> <tool>
+1mcp mcp tools
+1mcp mcp tools list [server] [--disabled]
+1mcp mcp tools disable <server> <tool>
+1mcp mcp tools enable <server> <tool>
 ```
 
 ## 描述
@@ -29,7 +29,7 @@ npx -y @1mcp/agent mcp tools enable <server> <tool>
 如果 `1mcp serve` 已经在运行，它会通过配置热重载观察到 `mcp.json` 的变化。可以使用下面的命令确认当前状态：
 
 ```bash
-npx -y @1mcp/agent mcp tools list <server> --disabled
+1mcp mcp tools list <server> --disabled
 ```
 
 ## 参数
@@ -57,19 +57,19 @@ npx -y @1mcp/agent mcp tools list <server> --disabled
 
 ```bash
 # 打开交互式工具浏览器
-npx -y @1mcp/agent mcp tools
+1mcp mcp tools
 
 # 显示所有服务器的禁用工具数量
-npx -y @1mcp/agent mcp tools list
+1mcp mcp tools list
 
 # 显示一个服务器的禁用工具
-npx -y @1mcp/agent mcp tools list filesystem --disabled
+1mcp mcp tools list filesystem --disabled
 
 # 禁用一个工具，但不禁用整个服务器
-npx -y @1mcp/agent mcp tools disable filesystem write_file
+1mcp mcp tools disable filesystem write_file
 
 # 稍后重新启用该工具
-npx -y @1mcp/agent mcp tools enable filesystem write_file
+1mcp mcp tools enable filesystem write_file
 ```
 
 ## 配置行为

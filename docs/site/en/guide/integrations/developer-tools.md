@@ -98,7 +98,7 @@ Authorization: Bearer {token}
 
 ```bash
 # Hot-reload configuration changes
-npx -y @1mcp/agent --config dev.json
+1mcp --config dev.json
 # Edit dev.json → changes applied automatically
 
 # Use MCP Inspector for testing
@@ -106,11 +106,11 @@ npx @modelcontextprotocol/inspector
 # Connect to http://localhost:3050 for interactive testing
 
 # Environment-specific logging
-ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent --config dev.json
+ONE_MCP_LOG_LEVEL=debug 1mcp --config dev.json
 
 # Multiple environment configs
-npx -y @1mcp/agent --config dev.json --port 3051
-npx -y @1mcp/agent --config staging.json --port 3052
+1mcp --config dev.json --port 3051
+1mcp --config staging.json --port 3052
 ```
 
 **⏱️ Setup Time**: Built-in development features
@@ -220,7 +220,7 @@ For a workflow across repositories and Git worktrees, see [Working Across Projec
 - **Authentication Setup** → [Authentication Guide](/guide/advanced/authentication)
 - **Configuration Reference** → [Configuration Guide](/guide/essentials/configuration)
 - **API Documentation** → [API Reference](/reference/health-check)
-- **CLI Workflow Commands** → [instructions](/commands/instructions.md), [inspect](/commands/inspect.md), [run](/commands/run.md), [cli-setup](/commands/cli-setup.md)
+- **CLI Workflow Commands** → [instructions](/commands/instructions), [inspect](/commands/inspect), [run](/commands/run), [cli-setup](/commands/cli-setup)
 
 ---
 

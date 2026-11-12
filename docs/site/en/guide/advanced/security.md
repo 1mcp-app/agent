@@ -85,14 +85,14 @@ Demo: 'tag:web' # Public APIs only
 
 ```bash
 # Configure via CLI flags
-npx -y @1mcp/agent --config mcp.json --enable-auth \
-  --rate-limit-window 15 \     # 15 minute window
+1mcp --config mcp.json --enable-auth \
+  --rate-limit-window 15 \
   --rate-limit-max 100         # 100 requests per window
 
 # Or via environment variables
 export ONE_MCP_RATE_LIMIT_WINDOW=15
 export ONE_MCP_RATE_LIMIT_MAX=100
-npx -y @1mcp/agent --config mcp.json --enable-auth
+1mcp --config mcp.json --enable-auth
 ```
 
 **⏱️ Setup Time**: Built-in with sensible defaults

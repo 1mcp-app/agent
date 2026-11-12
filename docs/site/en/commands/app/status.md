@@ -25,12 +25,12 @@ Shows the current consolidation status of your desktop applications.
 
 This command checks whether an application is configured to connect directly to its own MCP servers or to a central 1MCP instance.
 
-For a complete overview of the consolidation workflow, see the **[App Consolidation Guide](../../guide/integrations/app-consolidation)**.
+For a complete overview of the consolidation workflow, see the **[App Consolidation Guide](/guide/integrations/app-consolidation)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent app status [app-name] [options]
+1mcp app status [app-name] [options]
 ```
 
 ## Arguments
@@ -47,15 +47,15 @@ npx -y @1mcp/agent app status [app-name] [options]
 
 ```bash
 # Show the status of all applications
-npx -y @1mcp/agent app status
+1mcp app status
 
 # Show the status for a specific app
-npx -y @1mcp/agent app status claude-desktop
+1mcp app status claude-desktop
 
 # Show detailed status information
-ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent app status
+ONE_MCP_LOG_LEVEL=debug 1mcp app status
 ```
 
 ## See Also
 
-- **[App Consolidation Guide](../../guide/integrations/app-consolidation#the-consolidation-workflow)**
+- **[App Consolidation Guide](/guide/integrations/app-consolidation)**

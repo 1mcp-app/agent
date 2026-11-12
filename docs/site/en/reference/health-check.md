@@ -34,25 +34,27 @@ The health endpoints include configurable security features to control informati
 
 - **`full`**: Complete system information with error sanitization
 - **`basic`**: Limited system details, sanitized errors, server status
-- **`minimal`** (default): Only essential status information, no sensitive details
+- **`minimal`** (default): Only essential status information for `/health`; diagnostic routes have separate disclosure limits
 
 **Configuration**:
 
 ```bash
 # CLI option (default is minimal)
-npx -y @1mcp/agent --config mcp.json --health-info-level basic
+1mcp --config mcp.json --health-info-level basic
 
 # Environment variable
 export ONE_MCP_HEALTH_INFO_LEVEL=basic
-npx -y @1mcp/agent --config mcp.json
+1mcp --config mcp.json
 ```
 
 **Sanitization Features**:
 
-- Automatic error message sanitization
+- Automatic error message sanitization for `/health` and serialized supervision fields
 - Credential pattern removal (user:password@, tokens, keys)
 - URL and file path redaction
 - IP address anonymization
+
+The detail policy applies to `/health` and serialized `backendSupervision` fields. It does not redact all loading diagnostics in `/health/mcp` or `/health/mcp/:serverName`: backend errors and OAuth authorization URLs can remain visible even at `minimal`. Health routes are not protected by MCP authentication. Restrict diagnostic routes at your network or reverse proxy rather than relying on the detail level alone.
 
 ## Endpoints
 
@@ -382,24 +384,26 @@ fi
 
 **Information Exposure Control**:
 
-- Use `basic` or `minimal` detail levels for public-facing deployments
+- Use `basic` or `minimal` for `/health`, and restrict access to diagnostic `/health/mcp` routes
 - `full` detail level recommended only for private networks
-- Error sanitization is always enabled to prevent credential leakage
+- `/health` and serialized supervision fields sanitize errors; raw loading diagnostics require separate access restrictions
 
 **Example Security Configuration**:
 
 ```bash
 # Development environment
-npx -y @1mcp/agent --config mcp.json --health-info-level full
+1mcp --config mcp.json --health-info-level full
 
 # Staging environment
-npx -y @1mcp/agent --config mcp.json --health-info-level basic
+1mcp --config mcp.json --health-info-level basic
 
-# Production environment (default minimal level is secure)
-npx -y @1mcp/agent --config mcp.json
+# Production: minimal /health detail; restrict diagnostic routes separately
+1mcp --config mcp.json
 ```
 
 ### Detail Level Impact
+
+This table covers `/health` and serialized supervision output, not the raw loading diagnostics in `/health/mcp`.
 
 | Level     | System Info | Server Details       | Backend Supervision         | Error Messages | Use Case              |
 | --------- | ----------- | -------------------- | --------------------------- | -------------- | --------------------- |

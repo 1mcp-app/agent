@@ -7,16 +7,16 @@ description: 更新已配置 MCP 服务器的命令、传输和选项。
 
 更新现有 MCP 服务器的配置。
 
-有关服务器管理的完整概述，请参阅 **[服务器管理指南](../../guide/essentials/server-management)**。
+有关服务器管理的完整概述，请参阅 **[服务器管理指南](/zh/guide/essentials/server-management)**。
 
 ## 摘要
 
 ```bash
 # 标准语法
-npx -y @1mcp/agent mcp update <name> [options]
+1mcp mcp update <name> [options]
 
 # 使用“ -- ”模式的快速语法（更新命令和参数）
-npx -y @1mcp/agent mcp update <name> [options] -- <command> [args...]
+1mcp mcp update <name> [options] -- <command> [args...]
 ```
 
 ## 参数
@@ -71,35 +71,35 @@ npx -y @1mcp/agent mcp update <name> [options] -- <command> [args...]
 
 ```bash
 # 更新服务器的标签
-npx -y @1mcp/agent mcp update my-server --tags="new-tag,another-tag"
+1mcp mcp update my-server --tags="new-tag,another-tag"
 
 # 更新环境变量
-npx -y @1mcp/agent mcp update my-stdio-server --env="NODE_ENV=production"
+1mcp mcp update my-stdio-server --env="NODE_ENV=production"
 
 # 更改 HTTP 服务器的 URL
-npx -y @1mcp/agent mcp update my-http-server --url="https://new.api.com/mcp"
+1mcp mcp update my-http-server --url="https://new.api.com/mcp"
 ```
 
 ### 快速“ -- ”模式语法
 
 ```bash
 # 使用“ -- ”模式更新服务器命令
-npx -y @1mcp/agent mcp update my-server -- npx -y updated-package
+1mcp mcp update my-server -- npx -y updated-package
 
 # 在保留环境变量和标签的同时更新命令
-npx -y @1mcp/agent mcp update airtable -- npx -y @airtable/mcp-server-v2
+1mcp mcp update airtable -- npx -y @airtable/mcp-server-v2
 
 # 使用其他选项进行更新
-npx -y @1mcp/agent mcp update my-server --timeout=10000 -- node updated-server.js
+1mcp mcp update my-server --timeout=10000 -- node updated-server.js
 
 # 更新重启配置
-npx -y @1mcp/agent mcp update my-server --restart-on-exit --max-restarts=3 --restart-delay=1500
+1mcp mcp update my-server --restart-on-exit --max-restarts=3 --restart-delay=1500
 
 # 更新工作目录和 HTTP 标头
-npx -y @1mcp/agent mcp update stdio-server --cwd=/new/path
-npx -y @1mcp/agent mcp update http-server --headers="Authorization=Bearer newtoken" --timeout=5000
+1mcp mcp update stdio-server --cwd=/new/path
+1mcp mcp update http-server --headers="Authorization=Bearer newtoken" --timeout=5000
 ```
 
 ## 另请参阅
 
-- **[服务器管理指南](../../guide/essentials/server-management)**
+- **[服务器管理指南](/zh/guide/essentials/server-management)**

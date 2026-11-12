@@ -86,7 +86,7 @@ Once created, presets can be used via URL query parameters:
 
 ## Commands
 
-### [Smart Interactive Mode](./) (no subcommand)
+### [Smart Interactive Mode](/commands/preset/) (no subcommand)
 
 Smart interactive mode that auto-detects existing presets and offers options to create new or edit existing ones.
 
@@ -94,7 +94,7 @@ Smart interactive mode that auto-detects existing presets and offers options to 
 1mcp preset                              # Auto-detects and offers options
 ```
 
-### [edit](./edit)
+### [edit](/commands/preset/edit)
 
 Edit existing preset interactively with visual server selection.
 
@@ -102,7 +102,7 @@ Edit existing preset interactively with visual server selection.
 1mcp preset edit development              # Edit existing preset
 ```
 
-### [create](./create)
+### [create](/commands/preset/create)
 
 Command-line preset creation using filter expressions.
 
@@ -111,7 +111,7 @@ Command-line preset creation using filter expressions.
 1mcp preset create prod --filter "web AND database AND monitoring"
 ```
 
-### [list](./list)
+### [list](/commands/preset/list)
 
 Display all available presets in a formatted table.
 
@@ -119,7 +119,7 @@ Display all available presets in a formatted table.
 1mcp preset list
 ```
 
-### [show](./show)
+### [show](/commands/preset/show)
 
 Display detailed information about a specific preset.
 
@@ -127,7 +127,7 @@ Display detailed information about a specific preset.
 1mcp preset show development
 ```
 
-### [url](./url)
+### [url](/commands/preset/url)
 
 Generate the client URL for a preset.
 
@@ -135,7 +135,7 @@ Generate the client URL for a preset.
 1mcp preset url development
 ```
 
-### [test](./test)
+### [test](/commands/preset/test)
 
 Test a preset against your current server configuration.
 
@@ -143,7 +143,7 @@ Test a preset against your current server configuration.
 1mcp preset test development
 ```
 
-### [delete](./delete)
+### [delete](/commands/preset/delete)
 
 Remove a preset from your configuration.
 
@@ -240,8 +240,8 @@ Use the stdio proxy to connect Claude Desktop to a running 1MCP HTTP server and 
 {
   "mcpServers": {
     "1mcp-development": {
-      "command": "npx",
-      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "development"]
+      "command": "1mcp",
+      "args": ["proxy", "--preset", "development"]
     }
   }
 }

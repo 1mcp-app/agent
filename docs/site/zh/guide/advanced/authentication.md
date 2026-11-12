@@ -22,7 +22,7 @@ head:
 要启用身份验证，请使用 `--enable-auth` 标志启动代理：
 
 ```bash
-npx -y @1mcp/agent --config mcp.json --enable-auth
+1mcp --config mcp.json --enable-auth
 ```
 
 这会为 MCP 传输和 API 请求启用 OAuth 2.1 bearer 保护。它不会让每个 HTTP 路由都要求 bearer token：健康检查路由以及 OAuth 发现和授权端点会有意保持可访问，以便客户端和运维人员发现服务并完成 OAuth。
@@ -69,7 +69,7 @@ Admin Console 是独立的访问面。其浏览器路由使用 Admin Session 登
 要启用基于标签的范围验证，请使用 `--enable-scope-validation` 标志：
 
 ```bash
-npx -y @1mcp/agent --config mcp.json --enable-auth --enable-scope-validation
+1mcp --config mcp.json --enable-auth --enable-scope-validation
 ```
 
 ## 配置

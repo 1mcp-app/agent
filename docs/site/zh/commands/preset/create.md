@@ -7,12 +7,12 @@ description: 使用筛选表达式创建可复用的命名预设。
 
 使用过滤表达式进行命令行预设创建。
 
-有关预设管理的完整概述，请参阅 **[预设命令概述](./index)**。
+有关预设管理的完整概述，请参阅 **[预设命令概述](/zh/commands/preset/)**。
 
 ## 概要
 
 ```bash
-npx -y @1mcp/agent preset create <name> --filter <expression> [options]
+1mcp preset create <name> --filter <expression> [options]
 ```
 
 ## 参数
@@ -80,36 +80,36 @@ npx -y @1mcp/agent preset create <name> --filter <expression> [options]
 
 ```bash
 # 具有 web、api 或 database 的开发服务器
-npx -y @1mcp/agent preset create development --filter "web,api,database"
+1mcp preset create development --filter "web,api,database"
 
 # 测试服务器
-npx -y @1mcp/agent preset create testing --filter "test,staging,qa"
+1mcp preset create testing --filter "test,staging,qa"
 ```
 
 ### AND 逻辑过滤器
 
 ```bash
 # 同时具有 web 和 database 的生产服务器
-npx -y @1mcp/agent preset create production --filter "web AND database"
+1mcp preset create production --filter "web AND database"
 
 # 受监控的 web 服务
-npx -y @1mcp/agent preset create monitored-web --filter "web AND monitoring"
+1mcp preset create monitored-web --filter "web AND monitoring"
 ```
 
 ### 复杂布尔表达式
 
 ```bash
 # 安全的生产环境
-npx -y @1mcp/agent preset create secure-prod \
+1mcp preset create secure-prod \
   --filter "web AND database AND NOT experimental" \
   --description "排除实验性功能的生产服务器"
 
 # 跨职能开发团队
-npx -y @1mcp/agent preset create fullstack-dev \
+1mcp preset create fullstack-dev \
   --filter "(frontend OR backend) AND development"
 
 # 多环境排除
-npx -y @1mcp/agent preset create staging-safe \
+1mcp preset create staging-safe \
   --filter "(staging OR test) AND NOT deprecated"
 ```
 
@@ -117,7 +117,7 @@ npx -y @1mcp/agent preset create staging-safe \
 
 ```bash
 # 为团队共享添加有意义的描述
-npx -y @1mcp/agent preset create team-prod \
+1mcp preset create team-prod \
   --filter "web AND database AND monitoring" \
   --description "具有完整监控功能的团队生产环境"
 ```
@@ -193,8 +193,8 @@ Error: Filter expression cannot be empty
 
 ## 另请参阅
 
-- **[智能交互模式](./)** - 基于 TUI 的交互式预设创建
-- **[preset list](./list)** - 列出所有可用的预设
-- **[preset show](./show)** - 显示详细的预设信息
-- **[preset test](./test)** - 测试预设服务器匹配
-- **[preset url](./url)** - 为客户端配置生成预设 URL
+- **[智能交互模式](/zh/commands/preset/)** - 基于 TUI 的交互式预设创建
+- **[preset list](/zh/commands/preset/list)** - 列出所有可用的预设
+- **[preset show](/zh/commands/preset/show)** - 显示详细的预设信息
+- **[preset test](/zh/commands/preset/test)** - 测试预设服务器匹配
+- **[preset url](/zh/commands/preset/url)** - 为客户端配置生成预设 URL

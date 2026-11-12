@@ -131,9 +131,20 @@ npm install -g @1mcp/agent
 # 或
 pnpm add -g @1mcp/agent
 
-# 直接使用
-npx @1mcp/agent --config mcp.json
+# 运行已安装的命令
+1mcp --config mcp.json
 ```
+
+### 替代方式：不进行全局安装
+
+本文档中的示例默认已安装 `1mcp`，且该命令在 PATH 中可用。如果不希望全局安装，执行单次命令时可将 `1mcp` 替换为 `npx -y @1mcp/agent`：
+
+```bash
+npx -y @1mcp/agent --version
+npx -y @1mcp/agent serve --config mcp.json
+```
+
+客户端启动配置中的等效替代写法是 `"command": "npx"` 和 `"args": ["-y", "@1mcp/agent", "proxy"]`。如果 GUI 应用的 PATH 与终端不同，可能需要使用已安装可执行文件的绝对路径。
 
 ### Docker
 
@@ -265,11 +276,8 @@ node build/index.js --config mcp.json
 验证安装：
 
 ```bash
-# 二进制安装:
+# 二进制或全局 npm/pnpm 安装：
 1mcp --version
-
-# NPM 安装:
-npx @1mcp/agent --version
 ```
 
 ## 系统要求

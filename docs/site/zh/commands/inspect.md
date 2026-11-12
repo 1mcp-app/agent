@@ -12,7 +12,7 @@ description: 使用 inspect 命令列出服务器、检查服务器工具，并�
 ## 概要
 
 ```bash
-npx -y @1mcp/agent inspect [target] [选项]
+1mcp inspect [target] [选项]
 ```
 
 不指定目标的 `1mcp inspect` 直接返回当前服务器清单，不启动模板后端、不刷新能力，也不请求工具列表。工具数量仅来自当前可见连接的有效、完整元数据。数量未知时，文本和 TOON 显示 `unknown`；JSON 保留数值字段 `toolCount`，并返回 `toolCountKnown: false`。未知不表示零个工具。需要查询某个服务器的当前工具清单时，使用 `inspect <server>`。请求超时和连接失败会单独报告，不再误报为服务器不支持检查端点。
@@ -103,25 +103,25 @@ npx -y @1mcp/agent inspect [target] [选项]
 ### 列出全部服务器
 
 ```bash
-npx -y @1mcp/agent inspect
+1mcp inspect
 ```
 
 ### 列出某个服务器的工具
 
 ```bash
-npx -y @1mcp/agent inspect filesystem
+1mcp inspect filesystem
 ```
 
 ### 查看工具 schema
 
 ```bash
-npx -y @1mcp/agent inspect filesystem/read_file
+1mcp inspect filesystem/read_file
 ```
 
 ### 使用 JSON 输出进行脚本处理
 
 ```bash
-npx -y @1mcp/agent inspect filesystem --format json
+1mcp inspect filesystem --format json
 ```
 
 ### 通过 Runtime Target Context 查看
@@ -133,13 +133,13 @@ npx -y @1mcp/agent inspect filesystem --format json
 ### 一次拉取服务器的全部工具
 
 ```bash
-npx -y @1mcp/agent inspect filesystem --all
+1mcp inspect filesystem --all
 ```
 
 ### 继续分页列表
 
 ```bash
-npx -y @1mcp/agent inspect filesystem --limit 20 --cursor next-page-token
+1mcp inspect filesystem --limit 20 --cursor next-page-token
 ```
 
 ## 适用场景
@@ -154,11 +154,11 @@ npx -y @1mcp/agent inspect filesystem --limit 20 --cursor next-page-token
 
 ## 另请参阅
 
-- **[CLI 模式指南](../guide/integrations/cli-mode.md)** - 为什么推荐先缩小范围再执行
-- **[Instructions 命令](./instructions.md)** - 先读取当前工作流和服务器清单
-- **[Run 命令](./run.md)** - 在确认 schema 后调用工具
-- **[Serve 命令](./serve.md)** - 启动 `inspect` 所查询的 1MCP 服务器
-- **[配置深入指南](../guide/essentials/configuration.md)** - 包含 CLI 会话缓存等全局配置
+- **[CLI 模式指南](/zh/guide/integrations/cli-mode)** - 为什么推荐先缩小范围再执行
+- **[Instructions 命令](/zh/commands/instructions)** - 先读取当前工作流和服务器清单
+- **[Run 命令](/zh/commands/run)** - 在确认 schema 后调用工具
+- **[Serve 命令](/zh/commands/serve)** - 启动 `inspect` 所查询的 1MCP 服务器
+- **[配置深入指南](/zh/guide/essentials/configuration)** - 包含 CLI 会话缓存等全局配置
 
 ### 工具输出与分页
 

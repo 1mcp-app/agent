@@ -14,12 +14,12 @@ head:
 
 Checks the status and details of configured MCP servers.
 
-For a complete overview of server management, see the **[Server Management Guide](../../guide/essentials/server-management)**.
+For a complete overview of server management, see the **[Server Management Guide](/guide/essentials/server-management)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent mcp status [name] [options]
+1mcp mcp status [name] [options]
 ```
 
 ## Arguments
@@ -51,18 +51,18 @@ Runtime lookup uses the current Runtime Target Context. If no runtime is discove
 
 ```bash
 # Check the status of all servers
-npx -y @1mcp/agent mcp status
+1mcp mcp status
 
 # Check the status of a specific server
-npx -y @1mcp/agent mcp status my-server
+1mcp mcp status my-server
 
 # Get detailed status information
-npx -y @1mcp/agent mcp status --verbose
+1mcp mcp status --verbose
 
 # Inspect each active instance of one template
-npx -y @1mcp/agent mcp status github --verbose
+1mcp mcp status github --verbose
 ```
 
 ## See Also
 
-- **[Server Management Guide](../../guide/essentials/server-management)**
+- **[Server Management Guide](/guide/essentials/server-management)**

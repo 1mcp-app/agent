@@ -7,54 +7,54 @@ description: 浏览用于发现、整合、恢复和检查桌面应用 MCP 配�
 
 `app` 命令组可帮助您将来自各种桌面应用程序的 MCP 服务器配置整合到一个统一的 1MCP 代理中。
 
-有关整合工作流程、支持的应用程序和最佳实践的完整概述，请参阅 **[应用程序整合指南](../../guide/integrations/app-consolidation)**。
+有关整合工作流程、支持的应用程序和最佳实践的完整概述，请参阅 **[应用程序整合指南](/zh/guide/integrations/app-consolidation)**。
 
 ## 命令
 
-### [consolidate](./consolidate)
+### [consolidate](/zh/commands/app/consolidate)
 
 将来自桌面应用程序的 MCP 服务器整合到 1MCP 中。
 
 ```bash
-npx -y @1mcp/agent app consolidate claude-desktop cursor vscode
+1mcp app consolidate claude-desktop cursor vscode
 ```
 
-### [restore](./restore)
+### [restore](/zh/commands/app/restore)
 
 将桌面应用程序恢复到其整合前的状态。
 
 ```bash
-npx -y @1mcp/agent app restore claude-desktop
+1mcp app restore claude-desktop
 ```
 
-### [list](./list)
+### [list](/zh/commands/app/list)
 
 列出支持的桌面应用程序及其配置状态。
 
 ```bash
-npx -y @1mcp/agent app list
+1mcp app list
 ```
 
-### [discover](./discover)
+### [discover](/zh/commands/app/discover)
 
 发现已安装的具有 MCP 配置的应用程序。
 
 ```bash
-npx -y @1mcp/agent app discover
+1mcp app discover
 ```
 
-### [status](./status)
+### [status](/zh/commands/app/status)
 
 显示您的应用程序的当前整合状态。
 
 ```bash
-npx -y @1mcp/agent app status
+1mcp app status
 ```
 
-### [backups](./backups)
+### [backups](/zh/commands/app/backups)
 
 列出和管理配置备份。
 
 ```bash
-npx -y @1mcp/agent app backups --cleanup=30
+1mcp app backups --cleanup=30
 ```

@@ -14,12 +14,12 @@ head:
 
 Remove a preset from your configuration.
 
-For a complete overview of preset management, see the **[Preset Commands Overview](./index)**.
+For a complete overview of preset management, see the **[Preset Commands Overview](/commands/preset/)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent preset delete <name>
+1mcp preset delete <name>
 ```
 
 ## Arguments
@@ -45,16 +45,16 @@ The `preset delete` command permanently removes a preset from your configuration
 
 ```bash
 # Delete a specific preset
-npx -y @1mcp/agent preset delete old-staging
+1mcp preset delete old-staging
 
 # Delete development preset
-npx -y @1mcp/agent preset delete temp-dev
+1mcp preset delete temp-dev
 ```
 
 ### Example Output
 
 ```bash
-npx -y @1mcp/agent preset delete old-staging
+1mcp preset delete old-staging
 
 ⚠️  Delete preset 'old-staging'?
    This action cannot be undone.
@@ -71,7 +71,7 @@ npx -y @1mcp/agent preset delete old-staging
 ### Confirmation Declined
 
 ```bash
-npx -y @1mcp/agent preset delete production
+1mcp preset delete production
 
 ⚠️  Delete preset 'production'?
    This action cannot be undone.
@@ -92,28 +92,28 @@ npx -y @1mcp/agent preset delete production
 
 ```bash
 # Review unused presets
-npx -y @1mcp/agent preset list
+1mcp preset list
 
 # Delete presets that show "never" in Last Used column
-npx -y @1mcp/agent preset delete unused-preset
-npx -y @1mcp/agent preset delete old-experiment
+1mcp preset delete unused-preset
+1mcp preset delete old-experiment
 ```
 
 ### Development Workflow
 
 ```bash
 # Clean up temporary presets after testing
-npx -y @1mcp/agent preset delete test-temp
-npx -y @1mcp/agent preset delete debug-session
-npx -y @1mcp/agent preset delete experiment-2024
+1mcp preset delete test-temp
+1mcp preset delete debug-session
+1mcp preset delete experiment-2024
 ```
 
 ### Team Environment Management
 
 ```bash
 # Remove deprecated team presets
-npx -y @1mcp/agent preset delete legacy-prod
-npx -y @1mcp/agent preset delete old-team-config
+1mcp preset delete legacy-prod
+1mcp preset delete old-team-config
 ```
 
 ## Safety Considerations
@@ -131,10 +131,10 @@ Before deleting presets that are actively used:
 
 ```bash
 # Export preset configuration before deletion (manual backup)
-npx -y @1mcp/agent preset show important-preset > backup-important-preset.txt
+1mcp preset show important-preset > backup-important-preset.txt
 
 # Then delete if needed
-npx -y @1mcp/agent preset delete important-preset
+1mcp preset delete important-preset
 ```
 
 ## Error Handling
@@ -142,7 +142,7 @@ npx -y @1mcp/agent preset delete important-preset
 ### Preset Not Found
 
 ```bash
-npx -y @1mcp/agent preset delete nonexistent
+1mcp preset delete nonexistent
 # Error: Preset 'nonexistent' not found
 ```
 
@@ -151,7 +151,7 @@ npx -y @1mcp/agent preset delete nonexistent
 If there are file system permission issues:
 
 ```bash
-npx -y @1mcp/agent preset delete locked-preset
+1mcp preset delete locked-preset
 # Error: Unable to delete preset: Permission denied
 ```
 
@@ -160,7 +160,7 @@ npx -y @1mcp/agent preset delete locked-preset
 If the preset configuration file is corrupted:
 
 ```bash
-npx -y @1mcp/agent preset delete corrupted-preset
+1mcp preset delete corrupted-preset
 # Error: Unable to read preset configuration file
 ```
 
@@ -170,24 +170,24 @@ npx -y @1mcp/agent preset delete corrupted-preset
 
 ```bash
 # 1. Review all presets
-npx -y @1mcp/agent preset list
+1mcp preset list
 
 # 2. Identify unused presets (Last Used: never, old dates)
 # 3. Verify with team that presets are truly unused
 # 4. Delete unused presets
-npx -y @1mcp/agent preset delete unused-1
-npx -y @1mcp/agent preset delete unused-2
+1mcp preset delete unused-1
+1mcp preset delete unused-2
 
 # 5. Verify cleanup
-npx -y @1mcp/agent preset list
+1mcp preset list
 ```
 
 ### After Project Changes
 
 ```bash
 # When project requirements change, remove obsolete presets
-npx -y @1mcp/agent preset delete old-architecture
-npx -y @1mcp/agent preset delete deprecated-stack
+1mcp preset delete old-architecture
+1mcp preset delete deprecated-stack
 ```
 
 ## Best Practices
@@ -205,8 +205,8 @@ For multiple presets, delete one at a time to maintain control:
 
 ```bash
 # Avoid bulk deletion scripts - delete individually for safety
-npx -y @1mcp/agent preset delete preset1
-npx -y @1mcp/agent preset delete preset2
+1mcp preset delete preset1
+1mcp preset delete preset2
 ```
 
 ### Team Coordination
@@ -230,13 +230,13 @@ Once a preset is deleted, it cannot be recovered through the CLI. However:
 
 ```bash
 # Export preset details before deletion for potential recovery
-npx -y @1mcp/agent preset show critical-preset > critical-preset-backup.json
-npx -y @1mcp/agent preset delete critical-preset
+1mcp preset show critical-preset > critical-preset-backup.json
+1mcp preset delete critical-preset
 ```
 
 ## See Also
 
-- **[preset list](./list)** - Review presets before deletion
-- **[preset show](./show)** - Export preset details for backup
-- **[preset create](./create)** - Recreate deleted presets
-- **[Smart Interactive Mode](./)** - Recreate deleted presets interactively
+- **[preset list](/commands/preset/list)** - Review presets before deletion
+- **[preset show](/commands/preset/show)** - Export preset details for backup
+- **[preset create](/commands/preset/create)** - Recreate deleted presets
+- **[Smart Interactive Mode](/commands/preset/)** - Recreate deleted presets interactively

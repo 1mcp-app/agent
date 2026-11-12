@@ -24,25 +24,27 @@ description: 查询 1MCP 健康检查端点、响应级别和部署监控行为�
 
 - **`full`**：完整的系统信息，带有错误清理功能
 - **`basic`**：有限的系统详细信息、经过清理的错误、服务器状态
-- **`minimal`**（默认）：仅包含必要的状态信息，无敏感详细信息
+- **`minimal`**（默认）：`/health` 仅包含必要的状态信息；诊断路由的信息披露限制另行说明
 
 **配置**：
 
 ```bash
 # CLI 选项（默认为 minimal）
-npx -y @1mcp/agent --config mcp.json --health-info-level basic
+1mcp --config mcp.json --health-info-level basic
 
 # 环境变量
 export ONE_MCP_HEALTH_INFO_LEVEL=basic
-npx -y @1mcp/agent --config mcp.json
+1mcp --config mcp.json
 ```
 
 **清理功能**：
 
-- 自动错误消息清理
+- 对 `/health` 和序列化后的监督字段自动清理错误消息
 - 删除凭据模式（user:password@、令牌、密钥）
 - URL 和文件路径编辑
 - IP 地址匿名化
+
+详细级别策略适用于 `/health` 和序列化后的 `backendSupervision` 字段，不会清理 `/health/mcp` 或 `/health/mcp/:serverName` 中的全部加载诊断：即使选择 `minimal`，后端错误和 OAuth 授权 URL 仍可能可见。健康路由不受 MCP 认证保护。请在网络或反向代理处限制诊断路由的访问，不要仅依赖详细级别设置。
 
 ## 端点
 
@@ -372,24 +374,26 @@ fi
 
 **信息暴露控制**：
 
-- 对面向公众的部署使用 `basic` 或 `minimal` 详细级别
+- 为 `/health` 使用 `basic` 或 `minimal`，并限制诊断用的 `/health/mcp` 路由访问
 - `full` 详细级别仅建议用于专用网络
-- 始终启用错误清理以防止凭据泄漏
+- `/health` 和序列化后的监督字段会清理错误；原始加载诊断需要单独的访问限制
 
 **示例安全配置**：
 
 ```bash
 # 开发环境
-npx -y @1mcp/agent --config mcp.json --health-info-level full
+1mcp --config mcp.json --health-info-level full
 
 # 暂存环境
-npx -y @1mcp/agent --config mcp.json --health-info-level basic
+1mcp --config mcp.json --health-info-level basic
 
-# 生产环境（默认的 minimal 级别是安全的）
-npx -y @1mcp/agent --config mcp.json
+# 生产环境：/health 使用 minimal；另外限制诊断路由访问
+1mcp --config mcp.json
 ```
 
 ### 详细级别影响
+
+此表描述 `/health` 和序列化后的监督输出，不适用于 `/health/mcp` 中的原始加载诊断。
 
 | 级别      | 系统信息   | 服务器详细信息 | 后端监督信息     | 错误消息 | 用例            |
 | --------- | ---------- | -------------- | ---------------- | -------- | --------------- |

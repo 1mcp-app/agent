@@ -21,7 +21,7 @@ Synchronous startup is the default. It waits to publish a complete initial catal
 Enable async loading only when early HTTP availability is worth this contract:
 
 ```bash
-npx -y @1mcp/agent --config mcp.json --enable-async-loading
+1mcp --config mcp.json --enable-async-loading
 ```
 
 ## Catalog Publication
@@ -61,7 +61,7 @@ Use the authenticated `/api/v1/inspect` endpoint or its CLI equivalent for clien
 A longer batch delay reduces notification bursts at the cost of delaying notifications after a changed snapshot is published. It does not delay listener availability or create a readiness gate.
 
 ```bash
-npx -y @1mcp/agent --config mcp.json --enable-async-loading \
+1mcp --config mcp.json --enable-async-loading \
   --async-notify-on-snapshot \
   --async-batch-delay 250
 ```

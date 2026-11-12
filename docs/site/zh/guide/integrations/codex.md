@@ -78,8 +78,8 @@ url = "http://localhost:3050/mcp"
 ```toml
 # 受信任项目的 .codex/config.toml
 [mcp_servers.1mcp]
-command = "npx"
-args = ["-y", "@1mcp/agent", "proxy", "--url", "http://localhost:3050/mcp"]
+command = "1mcp"
+args = ["proxy", "--url", "http://localhost:3050/mcp"]
 ```
 
 请从该项目根目录启动 Codex，使代理读取对应的 `.1mcprc`。不要同时添加直接 HTTP 条目。

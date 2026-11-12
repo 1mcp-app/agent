@@ -14,7 +14,7 @@ head:
 ## 概要
 
 ```bash
-npx -y @1mcp/agent auth <subcommand> [选项]
+1mcp auth <subcommand> [选项]
 ```
 
 ## 子命令
@@ -32,13 +32,13 @@ npx -y @1mcp/agent auth <subcommand> [选项]
 保存 Bearer Token，使 `inspect`、`run` 和 `instructions` 能自动完成认证。
 
 ```bash
-npx -y @1mcp/agent auth login [选项]
+1mcp auth login [选项]
 ```
 
 ### Token 解析顺序
 
 1. `--token` 参数（显式指定）
-2. 标准输入管道（`echo $TOKEN | npx -y @1mcp/agent auth login --context <name>`）
+2. 标准输入管道（`echo $TOKEN | 1mcp auth login --context <name>`）
 3. 对 localhost 服务器自动生成 CLI Token（服务器支持时）
 
 若服务器未启用认证，`login` 会提前退出并输出提示，不会保存任何 Token。
@@ -53,14 +53,14 @@ npx -y @1mcp/agent auth login [选项]
 
 ```bash
 # 为本地运行时 Context 保存 Token
-npx -y @1mcp/agent auth login --context local --token mytoken
+1mcp auth login --context local --token mytoken
 
 # 从密钥管理器通过管道传入 Token
-op read "op://vault/1mcp/token" | npx -y @1mcp/agent auth login --context prod
+op read "op://vault/1mcp/token" | 1mcp auth login --context prod
 
 # 为命名远程 Target 保存 Token
-npx -y @1mcp/agent target add prod https://1mcp.example.com
-npx -y @1mcp/agent auth login --context prod --token mytoken
+1mcp target add prod https://1mcp.example.com
+1mcp auth login --context prod --token mytoken
 ```
 
 ---
@@ -70,7 +70,7 @@ npx -y @1mcp/agent auth login --context prod --token mytoken
 查看已保存的认证配置并验证连通性。
 
 ```bash
-npx -y @1mcp/agent auth status [选项]
+1mcp auth status [选项]
 ```
 
 `status` 需要显式指定 Runtime Target Context，并且只检查该 Context 的作用域 Token。
@@ -84,10 +84,10 @@ npx -y @1mcp/agent auth status [选项]
 
 ```bash
 # 查看本地运行时 Context
-npx -y @1mcp/agent auth status --context local
+1mcp auth status --context local
 
 # 查看命名远程 Target
-npx -y @1mcp/agent auth status --context prod
+1mcp auth status --context prod
 ```
 
 ---
@@ -97,7 +97,7 @@ npx -y @1mcp/agent auth status --context prod
 删除已保存的认证配置。
 
 ```bash
-npx -y @1mcp/agent auth logout [选项]
+1mcp auth logout [选项]
 ```
 
 `logout` 需要显式指定 Runtime Target Context，并且只清除已观测运行时身份对应的 Token。
@@ -113,13 +113,13 @@ npx -y @1mcp/agent auth logout [选项]
 
 ```bash
 # 删除本地运行时 Context 的配置
-npx -y @1mcp/agent auth logout --context local
+1mcp auth logout --context local
 
 # 删除命名远程 Target 的配置
-npx -y @1mcp/agent auth logout --context prod
+1mcp auth logout --context prod
 
 # 不联系运行时，清除所有本地 OAuth Token 引用
-npx -y @1mcp/agent auth logout --context local --all-local
+1mcp auth logout --context local --all-local
 ```
 
 ---
@@ -155,7 +155,7 @@ npx -y @1mcp/agent auth logout --context local --all-local
 
 ## 另请参阅
 
-- **[CLI 模式指南](../guide/integrations/cli-mode.md)** - CLI 工作流概览
-- **[Instructions 命令](./instructions.md)** - 启动 CLI 工作流
-- **[Inspect 命令](./inspect.md)** - 发现运行中服务器的工具
-- **[Run 命令](./run.md)** - 执行工具调用
+- **[CLI 模式指南](/zh/guide/integrations/cli-mode)** - CLI 工作流概览
+- **[Instructions 命令](/zh/commands/instructions)** - 启动 CLI 工作流
+- **[Inspect 命令](/zh/commands/inspect)** - 发现运行中服务器的工具
+- **[Run 命令](/zh/commands/run)** - 执行工具调用

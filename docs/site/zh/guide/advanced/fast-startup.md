@@ -21,7 +21,7 @@ description: 选择同步或异步 MCP 服务器启动，并安全监控面向�
 只有在早期 HTTP 可用性值得采用该契约时，才启用异步加载：
 
 ```bash
-npx -y @1mcp/agent --config mcp.json --enable-async-loading
+1mcp --config mcp.json --enable-async-loading
 ```
 
 ## 目录发布
@@ -61,7 +61,7 @@ sequenceDiagram
 较长的批处理延迟可以减少通知突发，但会推迟能力快照发布后的通知；它不会延迟监听器可用性，也不会创建就绪门槛。
 
 ```bash
-npx -y @1mcp/agent --config mcp.json --enable-async-loading \
+1mcp --config mcp.json --enable-async-loading \
   --async-notify-on-snapshot \
   --async-batch-delay 250
 ```

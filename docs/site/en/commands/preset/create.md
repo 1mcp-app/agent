@@ -23,12 +23,12 @@ head:
 
 Command-line preset creation using filter expressions.
 
-For a complete overview of preset management, see the **[Preset Commands Overview](./index)**.
+For a complete overview of preset management, see the **[Preset Commands Overview](/commands/preset/)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent preset create <name> --filter <expression> [options]
+1mcp preset create <name> --filter <expression> [options]
 ```
 
 ## Arguments
@@ -96,36 +96,36 @@ The `preset create` command allows you to create presets quickly from the comman
 
 ```bash
 # Development servers with web, api, or database
-npx -y @1mcp/agent preset create development --filter "web,api,database"
+1mcp preset create development --filter "web,api,database"
 
 # Testing servers
-npx -y @1mcp/agent preset create testing --filter "test,staging,qa"
+1mcp preset create testing --filter "test,staging,qa"
 ```
 
 ### AND Logic Filters
 
 ```bash
 # Production servers with both web and database
-npx -y @1mcp/agent preset create production --filter "web AND database"
+1mcp preset create production --filter "web AND database"
 
 # Monitored web services
-npx -y @1mcp/agent preset create monitored-web --filter "web AND monitoring"
+1mcp preset create monitored-web --filter "web AND monitoring"
 ```
 
 ### Complex Boolean Expressions
 
 ```bash
 # Secure production environment
-npx -y @1mcp/agent preset create secure-prod \
+1mcp preset create secure-prod \
   --filter "web AND database AND NOT experimental" \
   --description "Production servers excluding experimental features"
 
 # Cross-functional development team
-npx -y @1mcp/agent preset create fullstack-dev \
+1mcp preset create fullstack-dev \
   --filter "(frontend OR backend) AND development"
 
 # Multi-environment with exclusions
-npx -y @1mcp/agent preset create staging-safe \
+1mcp preset create staging-safe \
   --filter "(staging OR test) AND NOT deprecated"
 ```
 
@@ -133,7 +133,7 @@ npx -y @1mcp/agent preset create staging-safe \
 
 ```bash
 # Add meaningful descriptions for team sharing
-npx -y @1mcp/agent preset create team-prod \
+1mcp preset create team-prod \
   --filter "web AND database AND monitoring" \
   --description "Team production environment with full monitoring"
 ```
@@ -209,8 +209,8 @@ Error: Filter expression cannot be empty
 
 ## See Also
 
-- **[Smart Interactive Mode](./)** - Interactive TUI-based preset creation
-- **[preset list](./list)** - List all available presets
-- **[preset show](./show)** - Show detailed preset information
-- **[preset test](./test)** - Test preset server matching
-- **[preset url](./url)** - Generate preset URL for client configuration
+- **[Smart Interactive Mode](/commands/preset/)** - Interactive TUI-based preset creation
+- **[preset list](/commands/preset/list)** - List all available presets
+- **[preset show](/commands/preset/show)** - Show detailed preset information
+- **[preset test](/commands/preset/test)** - Test preset server matching
+- **[preset url](/commands/preset/url)** - Generate preset URL for client configuration
