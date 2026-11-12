@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🐛 Bug Fixes
 - Backport HTTP and OAuth fixes to release-0.39
 
+### 🧪 Testing
+- Align refresh fixture assertions with release-0.39
+
 
 ## [0.39.8] - 2026-11-01
 
