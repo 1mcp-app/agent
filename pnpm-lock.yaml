@@ -430,7 +430,7 @@ importers:
         version: 10.9.2(@types/node@26.6.6)(typescript@5.9.3)
       tsc-alias:
         specifier: ^1.8.16
-        version: 1.9.5
+        version: 1.9.10
       tsc-watch:
         specifier: ^7.1.1
         version: 7.2.0(typescript@5.9.3)
@@ -4303,8 +4303,8 @@ packages:
       '@swc/wasm':
         optional: true
 
-  tsc-alias@1.9.5:
-    resolution: {integrity: sha512-B2M3D2Fsb8dPT04Jc52R2Erp9u7QUjXpjb648dvKb0esKVmo0CC28KFe98sFkjmnY36D+PFqnAE/UDbHGbV+mA==}
+  tsc-alias@1.9.10:
+    resolution: {integrity: sha512-dsZvDB/wgAtRPFDHPYy7X7uqKFR4jJ7VB/2ndPGZQkIMQREz8q74fFsMZL4UmCbUztXhxoA1brKfqW7XzQeMqA==}
     engines: {node: '>=16.20.2'}
     hasBin: true
 
@@ -8686,7 +8686,7 @@ snapshots:
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
 
-  tsc-alias@1.9.5:
+  tsc-alias@1.9.10:
     dependencies:
       chokidar: 3.6.0
       commander: 9.5.0
