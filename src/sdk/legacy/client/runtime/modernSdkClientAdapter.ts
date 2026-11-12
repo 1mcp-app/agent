@@ -3,6 +3,8 @@ import {
   MissingRequiredClientCapabilityError,
   type NotificationMethod,
   type RequestMethod,
+  SdkErrorCode,
+  SdkHttpError,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
 
@@ -89,6 +91,12 @@ interface ModernHandles {
 const modernHandles = new WeakMap<ModernSdkClientAdapter, ModernHandles>();
 
 function toProtocolError(error: unknown): OneMcpProtocolError {
+  if (
+    error instanceof SdkHttpError &&
+    error.code === SdkErrorCode.ClientHttpAuthentication &&
+    error.data.status === 401
+  )
+    return new OneMcpProtocolError(401, error.message);
   try {
     return OneMcpProtocolError.fromUnknown(error);
   } catch {

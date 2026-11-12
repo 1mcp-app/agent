@@ -104,6 +104,31 @@ describe('TransportRecreator', () => {
     expect(trustedFetch).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    ['legacy HTTP', StreamableHTTPClientTransport],
+    ['modern HTTP', ModernStreamableHTTPClientTransport],
+    ['legacy SSE', SSEClientTransport],
+    ['modern SSE', ModernSSEClientTransport],
+  ] as const)('routes fallback recreation through current credential ownership (%s)', async (_family, Transport) => {
+    const rawFetch = vi.fn();
+    const authorizedFetch = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
+    const provider = {
+      tokens: () => ({ access_token: 'current-token' }),
+      credentialSnapshot: () => ({ generation: 'current', revision: 4 }),
+      fetch: authorizedFetch,
+    };
+    const original = new Transport(new URL('https://example.com/mcp'), { fetch: rawFetch }) as AuthProviderTransport;
+    original.oauthProvider = provider as never;
+    const replacement = transportRecreator.recreateHttpTransport(original);
+    const fetch = (replacement as unknown as { _fetch: typeof globalThis.fetch })._fetch;
+    expect((await fetch('https://example.com/mcp')).status).toBe(202);
+    expect(rawFetch).not.toHaveBeenCalled();
+    expect(authorizedFetch).toHaveBeenCalledOnce();
+    const headers = new Headers(authorizedFetch.mock.calls[0][1]?.headers);
+    expect(headers.get('authorization')).toBe('Bearer current-token');
+    await replacement.close();
+  });
+
   describe('recreateHttpTransport', () => {
     describe('modern v2 transports', () => {
       it('preserves the Streamable HTTP family and recreation state', () => {
@@ -125,7 +150,7 @@ describe('TransportRecreator', () => {
         expect(recreated).toBeInstanceOf(ModernStreamableHTTPClientTransport);
         expect(recreated).not.toBeInstanceOf(ModernSSEClientTransport);
         expect((recreated as any)._requestInit).toBe(requestInit);
-        expect((recreated as any)._fetch).toBe(fetch);
+        expect((recreated as any)._fetch).not.toBe(fetch);
         expect((recreated as any)._sessionId).toBe('modern-session');
         expect((recreated as any)._protocolVersion).toBe('2026-07-28');
         expect(recreated.oauthProvider).toBe(authProvider);
@@ -157,7 +182,7 @@ describe('TransportRecreator', () => {
         expect(recreated).not.toBeInstanceOf(ModernStreamableHTTPClientTransport);
         expect((recreated as any)._requestInit).toBe(requestInit);
         expect((recreated as any)._eventSourceInit).toBe(eventSourceInit);
-        expect((recreated as any)._fetch).toBe(fetch);
+        expect((recreated as any)._fetch).not.toBe(fetch);
         expect(recreated.oauthProvider).toBe(authProvider);
         expect(recreated.outboundProtocolVersion).toBe('2026-07-28');
       });
@@ -202,7 +227,7 @@ describe('TransportRecreator', () => {
         expect(newTransport.timeout).toBe(30000);
         expect(newTransport.tags).toEqual(['test', 'http']);
         expect((newTransport as any)._requestInit).toBe(requestInit);
-        expect((newTransport as any)._fetch).toBe(customFetch);
+        expect((newTransport as any)._fetch).not.toBe(customFetch);
         expect((newTransport as any)._reconnectionOptions).toBe(reconnectionOptions);
         expect((newTransport as any)._sessionId).toBe('existing-session');
       });
@@ -305,7 +330,7 @@ describe('TransportRecreator', () => {
         expect(newTransport.oauthProvider).toBe(oauthProvider);
         expect(newTransport.tags).toEqual(['sse', 'realtime']);
         expect((newTransport as any)._requestInit).toBe(requestInit);
-        expect((newTransport as any)._fetch).toBe(customFetch);
+        expect((newTransport as any)._fetch).not.toBe(customFetch);
         expect((newTransport as any)._eventSourceInit).toBe(eventSourceInit);
       });
     });

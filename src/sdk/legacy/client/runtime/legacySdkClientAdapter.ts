@@ -227,14 +227,6 @@ export class LegacySdkClientAdapter implements LegacySdkAdapter {
       publishAwaitingOAuth(connection.name, error);
     }
 
-    try {
-      await staleTransport.oauthProvider?.invalidateCredentials('tokens');
-    } catch (invalidationError) {
-      logger.warn('legacySdkClientAdapter.failed.to.invalidate.oauth.credentials.for.648dfbe1', {
-        error: String(invalidationError),
-      });
-    }
-
     staleClient.onclose = undefined;
     try {
       await staleClient.close();
