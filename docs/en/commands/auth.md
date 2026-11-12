@@ -45,7 +45,7 @@ npx -y @1mcp/agent auth login [options]
 
 1. `--token` flag (explicit)
 2. Stdin pipe (`echo $TOKEN | npx -y @1mcp/agent auth login --context <name>`)
-3. Auto-generated CLI token for localhost servers (when the server supports it)
+3. Auto-generated CLI token for the verified local Runtime Target Context, using its owner-only credentials. Remote contexts require an explicit token, even when their URL points to localhost.
 
 If the server has auth disabled, `login` exits early with a message — no token is stored.
 

@@ -9,7 +9,12 @@ import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { ADMIN_SESSION_COOKIE_NAME, AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
 import { createOAuthRoutes } from '@src/transport/http/routes/oauthRoutes.js';
+import {
+  createOperatorConsentGuard,
+  createOperatorConsentRoutes,
+} from '@src/transport/http/routes/operatorConsentRoutes.js';
 
 import express from 'express';
 import { type Browser, chromium } from 'playwright';
@@ -34,6 +39,7 @@ describe('OAuth loopback consent browser flow', () => {
   let provider: SDKOAuthServerProvider;
   let storageDir: string;
   let originalAuthEnabled: boolean;
+  let operatorSession: string;
 
   beforeAll(async () => {
     storageDir = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-oauth-browser-'));
@@ -57,19 +63,25 @@ describe('OAuth loopback consent browser flow', () => {
     authBaseUrl = await listenOnLoopback(authServer);
     provider = new SDKOAuthServerProvider(storageDir, 'browser-runtime-scope');
     const issuerUrl = new URL(`${authBaseUrl}/`);
-    app.use(
-      mcpAuthRouter({
-        provider,
-        issuerUrl,
-        baseUrl: issuerUrl,
-        scopesSupported: ['tag:test', 'tag:other'],
-        authorizationOptions: { rateLimit: false },
-        tokenOptions: { rateLimit: false },
-        revocationOptions: { rateLimit: false },
-        clientRegistrationOptions: { rateLimit: false },
-      }),
-    );
-    app.use('/oauth', createOAuthRoutes(provider));
+    const authRouter = mcpAuthRouter({
+      provider,
+      issuerUrl,
+      baseUrl: issuerUrl,
+      scopesSupported: ['tag:test', 'tag:other'],
+      authorizationOptions: { rateLimit: false },
+      tokenOptions: { rateLimit: false },
+      revocationOptions: { rateLimit: false },
+      clientRegistrationOptions: { rateLimit: false },
+    });
+    const admin = new AdminIdentityService({ storageDir, runtimeScopeId: 'browser-runtime-scope' });
+    await admin.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    operatorSession = (await admin.login({ username: 'operator', password: 'correct horse battery staple' }))
+      .sessionToken;
+    const guard = createOperatorConsentGuard(admin, true);
+    const oauthRouter = createOAuthRoutes(provider, undefined, undefined, guard);
+    app.use(createOperatorConsentRoutes(authRouter, oauthRouter, guard));
+    app.use(authRouter);
+    app.use('/oauth', oauthRouter);
     browser = await chromium.launch({ headless: true });
   }, 30_000);
 
@@ -114,6 +126,16 @@ describe('OAuth loopback consent browser flow', () => {
     }).toString();
 
     const context = await browser.newContext();
+    await context.addCookies([
+      {
+        name: ADMIN_SESSION_COOKIE_NAME,
+        value: operatorSession,
+        domain: '127.0.0.1',
+        path: '/admin',
+        httpOnly: true,
+        sameSite: 'Strict',
+      },
+    ]);
     const page = await context.newPage();
     try {
       const consentResponse = await page.goto(authorizationUrl.toString());

@@ -4,6 +4,7 @@ import {
 } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { releaseSubscriptionOwner, reserveSubscriptionOwner } from '@src/core/server/sessionAdmission.js';
 import { ClientStatus, type InboundConnection, ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { toJsonValue } from '@src/sdk/contracts/index.js';
@@ -29,7 +30,6 @@ const MAX_URI_BYTES = 8192;
 const MAX_PENDING_UPDATES = 64;
 const MAX_PENDING_BYTES = 1024 * 1024;
 let watchCount = 0;
-let ownerCount = 0;
 let setupCount = 0;
 let pendingUpdates = 0;
 let pendingBytes = 0;
@@ -222,7 +222,7 @@ export async function cleanupOwnedResources(inbound: InboundConnection): Promise
   const owner = owners.get(inbound);
   if (!owner || owner.closed) return;
   owner.closed = true;
-  ownerCount--;
+  releaseSubscriptionOwner();
   owner.abort.abort();
   clearInterval(owner.monitor);
   for (const { connection } of owner.catalogs.values()) catalogOwners.get(connection)?.delete(owner);
@@ -254,8 +254,7 @@ function loseWatchCoverage(watch: Watch): void {
 function getOwner(connections: LegacyOutboundConnections, inbound: InboundConnection): Owner {
   let owner = owners.get(inbound);
   if (!owner) {
-    if (ownerCount >= MAX_PROCESS_WATCHES) throw new Error('Subscription owner admission limit exceeded');
-    ownerCount++;
+    reserveSubscriptionOwner();
     owner = {
       inbound,
       connections,

@@ -10,10 +10,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { createCliTokenAuthorization } from '@src/core/context/cliTokenProof.js';
+import { TemplateContextCapabilityStore } from '@src/core/context/templateContextTrust.js';
 import { Client } from '@src/sdk/legacy/client/index.js';
 import { StreamableHTTPClientTransport } from '@src/sdk/legacy/client/streamableHttp.js';
 
 import { describe, expect, it } from 'vitest';
+
+import { createTestProcessEnvironment } from '../../scripts/test-process-environment.mjs';
 
 const knownUri = 'test://owned-resource';
 const unknownUri = 'test://nonexistent-resource-for-conformance-testing';
@@ -93,6 +97,16 @@ describe('resource misses across real gateway HTTP eras', () => {
       const origin = await listen(reservation);
       const port = new URL(origin).port;
       await new Promise<void>((done) => reservation.close(() => done()));
+      const processEnv = createTestProcessEnvironment(
+        {},
+        {
+          PATH: process.env.PATH,
+          HOME: home,
+          NODE_ENV: 'test',
+          ONE_MCP_CONFIG_DIR: directory,
+          ONE_MCP_LOG_LEVEL: 'error',
+        },
+      );
       child = spawn(
         process.execPath,
         [
@@ -118,13 +132,20 @@ describe('resource misses across real gateway HTTP eras', () => {
         ],
         {
           cwd: directory,
-          env: { PATH: process.env.PATH, HOME: home, NODE_ENV: 'test', ONE_MCP_LOG_LEVEL: 'error' },
-          stdio: ['ignore', 'ignore', 'ignore'],
+          env: processEnv,
+          stdio: ['ignore', 'pipe', 'pipe'],
         },
       );
+      let startupOutput = '';
+      child.stdout?.on('data', (chunk) => {
+        startupOutput += chunk.toString();
+      });
+      child.stderr?.on('data', (chunk) => {
+        startupOutput += chunk.toString();
+      });
       let ready = false;
       for (let attempt = 0; attempt < 150; attempt++) {
-        if (child.exitCode !== null) throw new Error('Owned gateway exited before readiness');
+        if (child.exitCode !== null) throw new Error(`Owned gateway exited before readiness: ${startupOutput}`);
         try {
           if ((await fetch(`${origin}/health`, { signal: AbortSignal.timeout(500) })).ok) {
             ready = true;
@@ -138,7 +159,38 @@ describe('resource misses across real gateway HTTP eras', () => {
       expect(ready).toBe(true);
       const credentials: Record<string, string> = {};
       if (auth) {
-        const minted = await fetch(`${origin}/api/auth/cli-token`, { method: 'POST' });
+        const login = spawn(
+          process.execPath,
+          [resolve('build/index.js'), 'auth', 'login', '--context', 'local', '--config-dir', directory],
+          {
+            cwd: directory,
+            env: processEnv,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: 15_000,
+            killSignal: 'SIGKILL',
+          },
+        );
+        let loginOutput = '';
+        login.stdout.on('data', (chunk) => {
+          loginOutput += chunk.toString();
+        });
+        login.stderr.on('data', (chunk) => {
+          loginOutput += chunk.toString();
+        });
+        try {
+          const [exitCode] = await once(login, 'exit');
+          expect(exitCode, loginOutput).toBe(0);
+          expect(loginOutput).toContain('Auto-generated CLI token for the verified local runtime.');
+        } finally {
+          await stop(login);
+        }
+        const capability = new TemplateContextCapabilityStore({ storageDir: directory }).read();
+        if (!capability) throw new Error('Owned runtime capability is missing');
+        const minted = await fetch(`${origin}/api/auth/cli-token`, {
+          method: 'POST',
+          headers: { Authorization: createCliTokenAuthorization(capability) },
+          redirect: 'error',
+        });
         expect(minted.status).toBe(200);
         const grant = await minted.json();
         expect(grant.authRequired).toBe(true);

@@ -77,6 +77,7 @@ export async function proveLegacyRuntime(kind, command) {
         directory,
         '--enable-auth',
         'false',
+        ...(kind === 'docker' ? ['--allow-unauthenticated-network'] : []),
         '--async-max-retries',
         '0',
         '--no-async-background-retry',

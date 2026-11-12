@@ -4,10 +4,10 @@ import { vi } from 'vitest';
 
 vi.mock('@modelcontextprotocol/client', () => ({
   SSEClientTransport: vi.fn().mockImplementation(function () {
-    return { type: 'modern-sse', close: vi.fn() };
+    return { type: 'modern-sse', start: vi.fn(), close: vi.fn() };
   }),
   StreamableHTTPClientTransport: vi.fn().mockImplementation(function () {
-    return { type: 'modern-http', close: vi.fn() };
+    return { type: 'modern-http', start: vi.fn(), close: vi.fn() };
   }),
 }));
 
@@ -36,6 +36,7 @@ vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
   SSEClientTransport: vi.fn().mockImplementation(function () {
     return {
       type: 'sse',
+      start: vi.fn(),
       close: vi.fn(),
     };
   }),
@@ -45,6 +46,7 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
   StreamableHTTPClientTransport: vi.fn().mockImplementation(function () {
     return {
       type: 'http',
+      start: vi.fn(),
       close: vi.fn(),
     };
   }),

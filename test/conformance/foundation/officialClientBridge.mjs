@@ -4,6 +4,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 
+import { createCliTokenAuthorization } from '../../../build/core/context/cliTokenProof.js';
+import { TemplateContextCapabilityStore } from '../../../build/core/context/templateContextTrust.js';
 import { officialClientScenarioFamily } from './officialClientScenarioCatalog.mjs';
 
 const [fixture, builtEntryPath, statusDirectory, upstreamEndpoint] = process.argv.slice(2);
@@ -116,10 +118,13 @@ function runFixture(endpoint, home, credential) {
   });
 }
 
-async function provisionOwnedGatewayCredential(origin) {
+async function provisionOwnedGatewayCredential(origin, runtimeScope) {
+  const capability = new TemplateContextCapabilityStore({ storageDir: runtimeScope }).read({ readOnly: true });
+  if (!capability) throw new Error('OWNED_GATEWAY_CAPABILITY_MISSING');
   const response = await fetch(`${origin}/api/auth/cli-token`, {
     method: 'POST',
-    redirect: 'manual',
+    headers: { Authorization: createCliTokenAuthorization(capability) },
+    redirect: 'error',
     signal: AbortSignal.timeout(5000),
   });
   let token;
@@ -247,7 +252,7 @@ async function main() {
   let gateway = createGateway();
   try {
     await waitForGatewayReady(gateway, origin);
-    const credential = ownsRequestStateGrant ? await provisionOwnedGatewayCredential(origin) : undefined;
+    const credential = ownsRequestStateGrant ? await provisionOwnedGatewayCredential(origin, runtimeScope) : undefined;
     if (family === 'auth') {
       const authResult = await completeOwnedOAuth(origin, ownedIssuer, credential);
       if (!authResult) {
@@ -277,7 +282,7 @@ async function main() {
       );
       gateway = createGateway();
       await waitForGatewayReady(gateway, origin);
-      const nextCredential = await provisionOwnedGatewayCredential(origin);
+      const nextCredential = await provisionOwnedGatewayCredential(origin, runtimeScope);
       if (await completeOwnedOAuth(origin, nextIssuer, nextCredential)) result = { kind: 'attempted', exitCode: 0 };
     }
     await recordStatus(result.kind);

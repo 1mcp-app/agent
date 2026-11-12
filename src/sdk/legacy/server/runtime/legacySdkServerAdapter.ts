@@ -30,6 +30,7 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
   private lifecycleState: LegacySdkLifecycleState = 'idle';
   private readonly admittedInteractions = new Set<string | number>();
   private retiring = false;
+  private requestActivityTracker?: () => (accepted?: boolean) => void;
   private subscriptionDelivery?: (notification: LegacySdkNotification) => void;
   private closePromise?: Promise<void>;
   private drainPromise?: Promise<void>;
@@ -42,6 +43,14 @@ export class LegacySdkServerAdapter implements InboundConnectionAdapter {
     transport: Transport,
   ) {
     serverHandles.set(this, { server, transport });
+  }
+
+  public setRequestActivityTracker(retain: () => (accepted?: boolean) => void): void {
+    this.requestActivityTracker = retain;
+  }
+
+  public retainRequestActivity(): ((accepted?: boolean) => void) | undefined {
+    return this.requestActivityTracker?.();
   }
 
   public get state(): LegacySdkLifecycleState {
@@ -207,10 +216,21 @@ export function isLegacyServerConnected(adapter: LegacySdkServerAdapter): boolea
 }
 
 /** Install before registering runtime handlers so each request owns its async context. */
-export function installLegacyRequestTracing(server: Server): void {
+export function installLegacyRequestTracing(
+  server: Server,
+  retainActivity?: () => ((accepted?: boolean) => void) | undefined,
+): void {
   const register = server.setRequestHandler.bind(server);
   server.setRequestHandler = (schema, handler) =>
-    register(schema, (request, extra) =>
-      withMcpTraceContext(request.params, async () => handler(request, extra), extra.signal),
-    );
+    register(schema, async (request, extra) => {
+      const release = retainActivity?.();
+      let accepted = false;
+      try {
+        const result = await withMcpTraceContext(request.params, async () => handler(request, extra), extra.signal);
+        accepted = true;
+        return result;
+      } finally {
+        release?.(accepted);
+      }
+    });
 }

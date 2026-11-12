@@ -24,6 +24,7 @@ export type InboundConnectionAdapter = Pick<
   'connectionId' | 'state' | 'start' | 'notify' | 'close'
 > & {
   closeWhenIdle?(): Promise<void>;
+  setRequestActivityTracker?(retain: () => (accepted?: boolean) => void): void;
   notifySubscription?: LegacySdkAdapter['notify'];
 };
 

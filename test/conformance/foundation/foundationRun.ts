@@ -3,6 +3,9 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
+import { createCliTokenAuthorization } from '@src/core/context/cliTokenProof.js';
+import { TemplateContextCapabilityStore } from '@src/core/context/templateContextTrust.js';
+
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 
@@ -554,9 +557,13 @@ export async function startOfficialGateway(
   try {
     await waitForGatewayReady(child, origin);
     if (revision === '2026-07-28') {
-      // Provision exactly once through the real localhost route; credentials never enter args or evidence.
+      // Use the capability of this test-owned Runtime Scope; credentials never enter args or evidence.
+      const capability = new TemplateContextCapabilityStore({ storageDir: runtimeScope }).read({ readOnly: true });
+      if (!capability) throw new Error('official-gateway-capability-missing');
       const response = await fetch(`${origin}/api/auth/cli-token`, {
         method: 'POST',
+        headers: { Authorization: createCliTokenAuthorization(capability) },
+        redirect: 'error',
         signal: AbortSignal.timeout(5000),
       });
       if (response.status !== 200) throw new Error('official-gateway-credential-rejected');

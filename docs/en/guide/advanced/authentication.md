@@ -29,6 +29,12 @@ This enables OAuth 2.1 bearer protection for MCP transport and API requests. It 
 
 The Admin Console is a separate surface. Its browser routes use the Admin Session sign-in flow and session cookie; an MCP/API bearer token is not an Admin Console session, and an Admin Session is not an MCP bearer token.
 
+## Approving client access
+
+Create an administrator with `1mcp admin create` before approving MCP clients. The public `/authorize` endpoint redirects to `/admin/oauth/authorize`, where an active Admin Session is required. If prompted, sign in at `/admin` in the linked tab, then reload the consent page. Approval and denial require the session's CSRF token. Disabling Admin or leaving it without an account prevents browser approval; an MCP bearer token cannot substitute for an Admin Session.
+
+Local `1mcp auth login` can issue a token automatically only after verifying the selected local runtime and proving possession of its owner-only credentials. Remote contexts require an explicit token. See [auth commands](/commands/auth).
+
 ## Refresh Token Rotation
 
 Registered clients receive a refresh token only when they request the `refresh_token` grant. Refresh tokens are single-use and rotate on every successful exchange. Each family has a fixed 30-day lifetime, remains bound to its original client and resource, and permits only equal or narrower scopes.

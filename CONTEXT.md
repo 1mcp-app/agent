@@ -88,6 +88,10 @@ _Avoid_: user session, HTTP session, Request Session, OAuth session
 A named full-admin runtime operation, such as configuration mutation, backend OAuth consent, or admin session management. Adapters invoke these operations and translate structured result facts into HTTP responses, CLI output, and UI copy.
 _Avoid_: admin endpoint, frontend action, generic CRUD repository
 
+**Local CLI Token Authorization**:
+The authority of a local operator to request an MCP access token from a selected **Runtime Scope**. It requires possession of that scope's private credentials; a connection from the local machine alone does not establish this authority.
+_Avoid_: localhost trust, automatic remote login
+
 **CLI Admin Adapter**:
 The `/admin/cli/v1` HTTP adapter used by **Runtime-Backed Commands** to invoke **Admin Operations** on a selected **Runtime Target**. It is CLI-oriented and versioned separately from `/admin/api`.
 _Avoid_: public API, Admin Console API, frontend endpoint

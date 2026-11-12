@@ -1,4 +1,5 @@
 import { HealthStatus } from '@src/application/services/healthService.js';
+import { releaseSubscriptionOwner, reserveSubscriptionOwner } from '@src/core/server/sessionAdmission.js';
 
 import express from 'express';
 import request from 'supertest';
@@ -287,6 +288,7 @@ describe('Health Routes', () => {
       expect(response.headers['cache-control']).toBe('no-cache');
       expect(response.body).toEqual({
         status: 'ready',
+        sessionAdmission: { available: true },
         timestamp: expect.any(String),
         configuration: mockHealthData.configuration,
         backendSupervision: {},
@@ -310,6 +312,7 @@ describe('Health Routes', () => {
       expect(response.status).toBe(503);
       expect(response.body).toEqual({
         status: 'not_ready',
+        sessionAdmission: { available: true },
         timestamp: expect.any(String),
         configuration: mockHealthData.configuration,
         backendSupervision: {},
@@ -383,6 +386,22 @@ describe('Health Routes', () => {
       expect(mockHealthService.serializeBackendSupervision).toHaveBeenCalledWith({
         'private-worker': expect.objectContaining({ state: 'crash-loop' }),
       });
+    });
+
+    it('reports owner exhaustion separately and recovers when capacity is released', async () => {
+      for (let index = 0; index < 1024; index++) reserveSubscriptionOwner();
+      try {
+        const exhausted = await request(app).get('/health/ready');
+        expect(exhausted.status).toBe(503);
+        expect(exhausted.body.status).toBe('not_ready');
+        expect(exhausted.body.sessionAdmission).toEqual({ available: false });
+        expect(exhausted.body.backendSupervision).toEqual({});
+      } finally {
+        for (let index = 0; index < 1024; index++) releaseSubscriptionOwner();
+      }
+      const recovered = await request(app).get('/health/ready');
+      expect(recovered.status).toBe(200);
+      expect(recovered.body.sessionAdmission).toEqual({ available: true });
     });
 
     it('should handle readiness check errors with 503', async () => {

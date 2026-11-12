@@ -38,7 +38,10 @@ import errorHandler from '@src/transport/http/middlewares/errorHandler.js';
 import { httpRequestBodyLogger, httpRequestLogger } from '@src/transport/http/middlewares/httpRequestLogger.js';
 import { createMcpAvailabilityMiddleware } from '@src/transport/http/middlewares/mcpAvailabilityMiddleware.js';
 import { createScopeAuthMiddleware } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
-import { setupSecurityMiddleware } from '@src/transport/http/middlewares/securityMiddleware.js';
+import {
+  createSensitiveOperationLimiter,
+  setupSecurityMiddleware,
+} from '@src/transport/http/middlewares/securityMiddleware.js';
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { createAdminRoutes } from '@src/transport/http/routes/adminRoutes.js';
 import {
@@ -52,6 +55,10 @@ import createOAuthRoutes, {
   createBackendOAuthAuthorizationFlow,
   createBackendOAuthDashboardProvider,
 } from '@src/transport/http/routes/oauthRoutes.js';
+import {
+  createOperatorConsentGuard,
+  createOperatorConsentRoutes,
+} from '@src/transport/http/routes/operatorConsentRoutes.js';
 import { createRuntimeIdentityRoutes } from '@src/transport/http/routes/runtimeIdentityRoutes.js';
 import { setupSseRoutes } from '@src/transport/http/routes/sseRoutes.js';
 import { setupStreamableHttpRoutes } from '@src/transport/http/routes/streamableHttpRoutes.js';
@@ -428,11 +435,8 @@ export class ExpressServer {
         rateLimit: rateLimitConfig,
       },
     });
-    this.app.use(authRouter);
-
-    // Setup OAuth management routes (no auth required)
+    // Protocol callbacks remain public; human consent is mounted after Admin identity exists.
     const oauthFlow = createBackendOAuthAuthorizationFlow(this.oauthProvider, this.loadingManager);
-    this.app.use('/oauth', createOAuthRoutes(this.oauthProvider, this.loadingManager, oauthFlow));
     const getOAuthDashboard = createBackendOAuthDashboardProvider(this.oauthProvider, this.loadingManager, oauthFlow);
 
     // Setup health check routes (no auth required for monitoring)
@@ -515,6 +519,11 @@ export class ExpressServer {
       }),
       oauthFlow,
     });
+    const consentGuard = createOperatorConsentGuard(adminDomain.adminService, adminEnabled);
+    const oauthRoutes = createOAuthRoutes(this.oauthProvider, this.loadingManager, oauthFlow, consentGuard);
+    this.app.use(createOperatorConsentRoutes(authRouter, oauthRoutes, consentGuard));
+    this.app.use(authRouter);
+    this.app.use('/oauth', oauthRoutes);
     const adminRoutes = createAdminRoutes({
       adminEnabled,
       adminService: adminDomain.adminService,
@@ -538,7 +547,12 @@ export class ExpressServer {
 
     // CLI token endpoint (localhost-only, no auth middleware).
     // Reject browser-origin requests so a web page cannot silently obtain a full-scope token.
-    this.app.post('/api/auth/cli-token', rejectBrowserOriginRequests, createCliTokenRoute(this.oauthProvider));
+    this.app.post(
+      '/api/auth/cli-token',
+      rejectBrowserOriginRequests,
+      createSensitiveOperationLimiter(),
+      createCliTokenRoute(this.oauthProvider),
+    );
 
     // Setup API routes (CLI-oriented fast endpoints, auth via scopeAuthMiddleware)
     const scopeAuthMiddleware = createScopeAuthMiddleware(this.oauthProvider);
@@ -559,6 +573,8 @@ export class ExpressServer {
       [tagsExtractor, scopeAuthMiddleware, availabilityMiddleware],
       createModernInboundLegacyBridge,
       createModernHttpRequestPolicy(this.configManager),
+      undefined,
+      this.configManager.get('inboundHttpEra'),
     );
 
     setupStreamableHttpRoutes(

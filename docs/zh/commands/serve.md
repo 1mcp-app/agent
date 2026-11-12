@@ -61,12 +61,15 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 ### 安全
 
 - **`--enable-auth`**：为运行时启用基于 OAuth 的认证。
+- **`--allow-unauthenticated-network`**：当绑定到非回环地址时，显式确认 HTTP 服务未启用认证。仅在未启用认证时必需；启用 `--enable-auth` 或绑定到回环地址可免于确认。也可设置环境变量 `ONE_MCP_ALLOW_UNAUTHENTICATED_NETWORK=true`。
 - **`--enable-enhanced-security`**：启用额外的安全中间件。
 - **`--trust-proxy <config>`**：配置受信任反向代理行为。
 - **`--template-context-trust <verified|disabled|legacy>`**：控制请求上下文能否渲染模板服务器，默认值为 `verified`。
 - **`--confirm-untrusted-template-context`**：HTTP 绑定到非回环地址并使用 `legacy` 时必须显式提供。
 
 `verified` 会继续为第一方本地 `run`、`inspect`、`wait` 和 `proxy` 客户端提供零配置模板渲染。未签名的远程或第三方客户端仍可连接并使用静态服务器，但其上下文不能影响模板的 `command`、`args`、`cwd` 或 `env`。`legacy` 会恢复历史上的未验证行为，只应作为临时兼容模式使用。
+
+默认情况下，未启用认证的 HTTP 服务只能绑定到回环地址。若有意进行未认证的网络部署（包括由反向代理保护的部署），请传入 `--allow-unauthenticated-network`，或设置 `ONE_MCP_ALLOW_UNAUTHENTICATED_NETWORK=true`。官方 Compose 文件会将发布端口绑定到宿主机回环地址。
 
 ### 运行时行为
 
@@ -359,3 +362,23 @@ http://127.0.0.1:3051/mcp?app=cursor
 后端退出时，普通客户端连接仍可响应 ping 和健康后端请求；不可用的工具、资源和提示词会从目录中移除。进行中的请求遵循现有的有界失败策略，不会重放。如果配置的监督机制成功初始化替代后端，现有客户端连接即可使用恢复后的能力及目录变更通知。列表变更通知遵循现有通知设置和可见性规则。
 
 失败后端的资源订阅会丢失，健康后端的订阅保持有效。恢复后客户端必须显式重新订阅；系统不会自动恢复订阅或重放遗漏事件。显式现代订阅过滤器仍会在已确认的覆盖范围丢失时关闭。
+
+## 仅限旧版的入站 HTTP 兼容模式
+
+`--inbound-http-era <dual|legacy-only>` 决定此运行时的 HTTP MCP 端点提供哪些协议版本系列，默认值为 `dual`。如果有状态的旧版后端会返回进程内句柄，可使用 `legacy-only`：
+
+```bash
+1mcp serve --inbound-http-era legacy-only
+```
+
+对应的环境变量为 `ONE_MCP_INBOUND_HTTP_ERA=legacy-only`。也可以在 `config.toml` 顶层设置 `inboundHttpEra = "legacy-only"`。显式命令行参数优先于环境变量，环境变量优先于持久化配置。修改后需重启运行时。如果持久化的 `inboundHttpEra` 无效，即使命令行或环境变量提供了覆盖值，运行时也会拒绝启动，以免丢弃有效的身份验证设置。
+
+此设置作用于整个端点：支持自动协商的 SDK 客户端会回退到保留会话的旧版协议，固定使用现代协议的客户端会收到不支持协议版本的错误。此端点的所有客户端都将无法使用现代入站功能。身份验证失败及其他无关错误保持原有行为。每个上游的出站 `protocolVersion` 独立生效，现代出站协议仍受支持。
+
+如果只想影响一个客户端，可将该客户端的入站连接固定为旧版。例如，使用 `@modelcontextprotocol/client`：
+
+```ts
+const client = new Client({ name: 'my-client', version: '1.0.0' }, { versionNegotiation: { mode: 'legacy' } });
+```
+
+现代入站调用访问旧版后端时的状态连续性仍未解决。为保持交互隔离，每次现代调用可能使用新的私有旧版连接，因此上次调用返回的句柄可能无法在下次调用中使用。此兼容模式使用既有的旧版保留会话路径，不会增加持久化的现代会话亲和性，也不会在调用者之间共享私有交互状态。

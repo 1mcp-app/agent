@@ -35,6 +35,7 @@ import type { ContextData } from '@src/types/context.js';
 
 import { z, ZodError } from 'zod';
 
+import { bindCoordinatedOAuthTransport, createCoordinatedOAuthFetch } from '../auth/coordinatedOAuth.js';
 import type { AuthProviderTransport } from '../client/runtime/legacyTransport.js';
 
 type ValidatedTransport = z.infer<typeof transportConfigSchema>;
@@ -188,14 +189,24 @@ function createSSETransport(name: string, validatedTransport: ValidatedTransport
   };
 
   const oauthProvider = createOAuthProvider(name, validatedTransport);
-  sseOptions.authProvider = oauthProvider;
+  const oauthFetch = createCoordinatedOAuthFetch(
+    oauthProvider,
+    !usesModernClient(validatedTransport),
+    validatedTransport.url,
+  );
   let transport: AuthProviderTransport;
-  sseOptions.fetch = createSseWireLimitedFetch(oauthProvider.fetch, () => transport);
+  sseOptions.fetch = createSseWireLimitedFetch(oauthFetch, () => transport);
 
   const Transport = usesModernClient(validatedTransport) ? ModernSSEClientTransport : SSEClientTransport;
   transport = new Transport(new URL(validatedTransport.url), sseOptions as never) as AuthProviderTransport;
-  registerSseWireLimitOwner(transport, oauthProvider.fetch);
+  registerSseWireLimitOwner(transport, oauthFetch);
   transport.oauthProvider = oauthProvider;
+  bindCoordinatedOAuthTransport(
+    transport,
+    oauthProvider,
+    !usesModernClient(validatedTransport),
+    validatedTransport.url,
+  );
 
   return transport;
 }
@@ -225,16 +236,26 @@ function createHTTPTransport(
   };
 
   const oauthProvider = createOAuthProvider(name, validatedTransport);
-  httpOptions.authProvider = oauthProvider;
+  const oauthFetch = createCoordinatedOAuthFetch(
+    oauthProvider,
+    !usesModernClient(validatedTransport),
+    validatedTransport.url,
+  );
   let transport: AuthProviderTransport;
-  httpOptions.fetch = createSseWireLimitedFetch(oauthProvider.fetch, () => transport);
+  httpOptions.fetch = createSseWireLimitedFetch(oauthFetch, () => transport);
 
   const Transport = usesModernClient(validatedTransport)
     ? ModernStreamableHTTPClientTransport
     : StreamableHTTPClientTransport;
   transport = new Transport(new URL(validatedTransport.url), httpOptions as never) as AuthProviderTransport;
-  registerSseWireLimitOwner(transport, oauthProvider.fetch);
+  registerSseWireLimitOwner(transport, oauthFetch);
   transport.oauthProvider = oauthProvider;
+  bindCoordinatedOAuthTransport(
+    transport,
+    oauthProvider,
+    !usesModernClient(validatedTransport),
+    validatedTransport.url,
+  );
 
   return transport;
 }

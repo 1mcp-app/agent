@@ -246,6 +246,7 @@ describe('ExpressServer', () => {
         return undefined;
       }),
       getSessionStoragePath: vi.fn(() => '/tmp/sessions'),
+      getSessionTtlMinutes: vi.fn(() => 1440),
       isEnhancedSecurityEnabled: vi.fn(() => false),
       getTrustProxy: vi.fn(() => 'loopback'),
       getConfig: vi.fn(() => ({ host: 'localhost', port: 3050 })),
@@ -434,7 +435,12 @@ describe('ExpressServer', () => {
       const oauthFlow = createFlow.mock.results[0]?.value;
 
       expect(createFlow).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(oauthRoutesModule.default)).toHaveBeenCalledWith(expect.any(Object), undefined, oauthFlow);
+      expect(vi.mocked(oauthRoutesModule.default)).toHaveBeenCalledWith(
+        expect.any(Object),
+        undefined,
+        oauthFlow,
+        expect.any(Function),
+      );
       expect(vi.mocked(oauthRoutesModule.createBackendOAuthDashboardProvider)).toHaveBeenCalledWith(
         expect.any(Object),
         undefined,

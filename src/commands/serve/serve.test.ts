@@ -1,5 +1,6 @@
 import path from 'path';
 
+import { ConfigManager } from '@src/config/configManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -363,6 +364,46 @@ describe('serveCommand - config-dir session isolation', () => {
         'enable-internal-tools': false,
         ...overrides,
       }) as ServeOptions;
+
+    it('rejects an unauthenticated non-loopback host selected from app config', async () => {
+      const configManager = ConfigManager.getInstance();
+      vi.mocked(configManager.getAppConfig).mockReturnValueOnce({
+        host: '0.0.0.0',
+        auth: { enabled: false },
+      } as any);
+
+      await serveCommand(
+        buildOptions({
+          transport: 'http',
+          host: undefined,
+          auth: undefined,
+          'enable-auth': undefined,
+        }),
+      );
+
+      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(vi.mocked(AgentConfigManager.getInstance().updateConfig)).not.toHaveBeenCalled();
+    });
+
+    it('allows a non-loopback app config when authentication is enabled', async () => {
+      const configManager = ConfigManager.getInstance();
+      vi.mocked(configManager.getAppConfig).mockReturnValueOnce({
+        host: '0.0.0.0',
+        auth: { enabled: true },
+      } as any);
+
+      await serveCommand(
+        buildOptions({
+          transport: 'http',
+          host: undefined,
+          auth: undefined,
+          'enable-auth': undefined,
+        }),
+      );
+
+      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(vi.mocked(AgentConfigManager.getInstance().updateConfig)).toHaveBeenCalled();
+    });
 
     it('logs a WARN and preserves explicit scope validation when auth is disabled but scope validation is enabled', async () => {
       const logger = (await import('@src/logger/logger.js')).default;

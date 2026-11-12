@@ -37,6 +37,7 @@ function deepMerge<T extends Record<string, unknown>>(target: T, source: Partial
 export interface AgentConfig {
   host: string;
   port: number;
+  inboundHttpEra: 'dual' | 'legacy-only';
   externalUrl?: string;
   runtimeScopeStoragePath?: string;
   trustProxy: string | boolean;
@@ -149,6 +150,7 @@ export class AgentConfigManager {
     this.config = {
       host: HOST,
       port: PORT,
+      inboundHttpEra: 'dual',
       trustProxy: 'loopback',
       admin: {
         enabled: true,

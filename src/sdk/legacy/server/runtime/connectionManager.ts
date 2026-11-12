@@ -327,7 +327,7 @@ export class ConnectionManager {
     };
 
     // Enhance server with logging middleware
-    installLegacyRequestTracing(server);
+    installLegacyRequestTracing(server, () => adapter.retainRequestActivity());
     enhanceServerWithLogging(server);
 
     if (

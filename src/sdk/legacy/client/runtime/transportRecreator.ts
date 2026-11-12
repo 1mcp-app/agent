@@ -12,6 +12,7 @@ import {
   registerSseWireLimitOwner,
 } from '@src/transport/sseWireLimit.js';
 
+import { bindCoordinatedOAuthTransport, createCoordinatedOAuthFetch } from '../../auth/coordinatedOAuth.js';
 import type { AuthProviderTransport } from './legacyTransport.js';
 import type { RecreateHttpTransportOptions } from './recreateHttpTransportOptions.js';
 import type { TransportRecreationState } from './transportRecreationState.js';
@@ -65,10 +66,13 @@ export class TransportRecreator {
 
     let newTransport: AuthProviderTransport;
     const wireLimit = getSseWireLimitBinding(transport);
-    const recreatedFetch = wireLimit ? createSseWireLimitedFetch(wireLimit.fetch, () => newTransport) : state._fetch;
+    const legacy = !(
+      transport instanceof ModernStreamableHTTPClientTransport || transport instanceof ModernSSEClientTransport
+    );
+    const oauthFetch = oauthProvider ? createCoordinatedOAuthFetch(oauthProvider, legacy, state._url) : state._fetch;
+    const recreatedFetch = wireLimit ? createSseWireLimitedFetch(wireLimit.fetch, () => newTransport) : oauthFetch;
     if (transport instanceof ModernStreamableHTTPClientTransport) {
       newTransport = new ModernStreamableHTTPClientTransport(state._url, {
-        authProvider: oauthProvider as never,
         requestInit: state._requestInit,
         fetch: recreatedFetch as never,
         reconnectionOptions: state._reconnectionOptions,
@@ -78,7 +82,6 @@ export class TransportRecreator {
       }) as AuthProviderTransport;
     } else if (transport instanceof ModernSSEClientTransport) {
       newTransport = new ModernSSEClientTransport(state._url, {
-        authProvider: oauthProvider as never,
         requestInit: state._requestInit,
         fetch: recreatedFetch as never,
         eventSourceInit: state._eventSourceInit as never,
@@ -87,14 +90,12 @@ export class TransportRecreator {
       newTransport =
         transport instanceof StreamableHTTPClientTransport
           ? (new StreamableHTTPClientTransport(state._url, {
-              authProvider: oauthProvider,
               requestInit: state._requestInit,
               fetch: recreatedFetch as never,
               reconnectionOptions: state._reconnectionOptions as never,
               sessionId: preserveSessionId ? state._sessionId : undefined,
             }) as AuthProviderTransport)
           : (new SSEClientTransport(state._url, {
-              authProvider: oauthProvider,
               requestInit: state._requestInit,
               fetch: recreatedFetch as never,
               eventSourceInit: state._eventSourceInit as never,
@@ -103,6 +104,7 @@ export class TransportRecreator {
 
     if (wireLimit) registerSseWireLimitOwner(newTransport, wireLimit.fetch);
     newTransport.oauthProvider = oauthProvider;
+    if (oauthProvider) bindCoordinatedOAuthTransport(newTransport, oauthProvider, legacy, state._url);
     newTransport.connectionTimeout = authTransport.connectionTimeout;
     newTransport.requestTimeout = authTransport.requestTimeout;
     newTransport.timeout = authTransport.timeout;

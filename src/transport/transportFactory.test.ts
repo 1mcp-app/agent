@@ -470,7 +470,7 @@ describe('TransportFactory', () => {
               Authorization: 'Bearer token',
             },
           },
-          authProvider: expect.any(Object),
+          fetch: expect.any(Function),
         }),
       );
     });

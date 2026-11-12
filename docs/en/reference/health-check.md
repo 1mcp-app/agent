@@ -170,6 +170,8 @@ X-Uptime-Seconds: 3600
 
 ### `GET /health/ready`
 
+Session admission is reported separately as `sessionAdmission.available`. At the existing subscription-owner safety cap, fresh Streamable HTTP initialization returns HTTP `503` and readiness returns `503` with `not_ready`; existing sessions remain usable. Deleting a session or reclaiming an idle session restores admission automatically. Backend health and supervision keep their existing meanings.
+
 **Description**: Configuration and supervised-backend readiness probe. It returns `503` while any supervised stdio backend is restarting or in a crash loop. It does not wait for backend loading or a server-count threshold; use `/health/mcp` to inspect backend loading progress.
 
 **Authentication**: None required
@@ -184,6 +186,7 @@ X-Uptime-Seconds: 3600
 ```json
 {
   "status": "ready|not_ready",
+  "sessionAdmission": { "available": true },
   "timestamp": "2025-01-30T12:00:00.000Z",
   "configuration": {
     "loaded": true,

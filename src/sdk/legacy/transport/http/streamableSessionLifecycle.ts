@@ -6,6 +6,7 @@ import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrc
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { SessionAdmissionCapacityError } from '@src/core/server/sessionAdmission.js';
 import { InboundConnectionConfig } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { StreamableHTTPServerTransport } from '@src/sdk/legacy/server/streamableHttp.js';
@@ -88,6 +89,7 @@ export interface StreamableSessionCreateData {
 
 export interface ResolvePostSessionInput {
   authorizationBinding?: StreamableSessionAuthorizationBinding | null;
+  deferActivity?: boolean;
   sessionId?: string;
   isInitializeRequest: boolean;
   createSessionData: () => StreamableSessionCreateData;
@@ -136,6 +138,10 @@ function buildContextData(config: InboundConnectionConfig, sessionId: string): C
 }
 
 export class StreamableSessionLifecycle {
+  private stopped = false;
+  private readonly restoringSessions = new Map<string, Promise<StreamableSessionRestoreResult>>();
+  private readonly disconnectingSessions = new Map<string, Promise<void>>();
+  private readonly retiringSessions = new Map<string, Promise<void>>();
   private readonly pendingSessionIds = new Set<string>();
   private readonly activeBindings = new WeakMap<StreamableTransport, StreamableSessionAuthorizationBinding>();
   private createTransportImpl: (sessionId: string) => StreamableTransport;
@@ -161,6 +167,12 @@ export class StreamableSessionLifecycle {
           sessionIdGenerator: () => sessionId,
         }));
     this.isStreamableTransportImpl = options.isStreamableTransport ?? defaultIsStreamableTransport;
+    this.sessionRepository.setExpirationHandler?.((sessionIds) => this.expireIdleSessions(sessionIds));
+    this.serverManager.registerCleanup?.(async () => {
+      this.stopped = true;
+      this.sessionRepository.stopPeriodicFlush();
+      await Promise.allSettled([...this.retiringSessions.values(), ...this.disconnectingSessions.values()]);
+    });
   }
 
   async resolvePostSession(input: ResolvePostSessionInput): Promise<StreamablePostSessionResult> {
@@ -184,8 +196,11 @@ export class StreamableSessionLifecycle {
       return this.createSession(config, context, undefined, StreamableSessionStatus.Created, contextProof, binding);
     }
 
-    const existing = await this.resolveExistingSession(input.sessionId, binding);
+    const existing = await this.resolveExistingSession(input.sessionId, binding, !input.deferActivity);
     if (existing.status !== StreamableSessionStatus.Missing) {
+      return existing;
+    }
+    if (this.stopped || this.retiringSessions.has(input.sessionId) || this.disconnectingSessions.has(input.sessionId)) {
       return existing;
     }
 
@@ -237,6 +252,7 @@ export class StreamableSessionLifecycle {
   async resolveExistingSession(
     sessionId: string,
     authorizationBinding: StreamableSessionAuthorizationBinding | null | undefined = this.defaultAuthorizationBinding(),
+    recordActivity = true,
   ): Promise<StreamableSessionLookupResult> {
     if (!isValidSessionId(sessionId)) {
       logger.debug('streamableSessionLifecycle.invalid.sessionid.provided.to.streamable.lifecycle.lookup.946c0da3');
@@ -247,13 +263,20 @@ export class StreamableSessionLifecycle {
       };
     }
 
+    if (this.stopped || this.retiringSessions.has(sessionId) || this.disconnectingSessions.has(sessionId)) {
+      return { status: StreamableSessionStatus.Missing, sessionId, reason: StreamableSessionMissingReason.NotFound };
+    }
+    if (this.sessionRepository.isExpired?.(sessionId)) {
+      await this.completeExplicitDelete(sessionId);
+      return { status: StreamableSessionStatus.Missing, sessionId, reason: StreamableSessionMissingReason.NotFound };
+    }
     if (!this.isSessionAuthorized(sessionId, authorizationBinding)) {
       return { status: StreamableSessionStatus.Missing, sessionId, reason: StreamableSessionMissingReason.NotFound };
     }
     const existingTransport = this.serverManager.getTransport(sessionId);
     if (existingTransport) {
       if (this.isStreamableTransportImpl(existingTransport)) {
-        this.sessionRepository.updateAccess(sessionId);
+        if (recordActivity) this.sessionRepository.updateAccess(sessionId);
         return { status: StreamableSessionStatus.Active, sessionId, transport: existingTransport };
       }
 
@@ -264,7 +287,7 @@ export class StreamableSessionLifecycle {
       };
     }
 
-    const restoreResult = await this.restoreSession(sessionId, authorizationBinding);
+    const restoreResult = await this.restoreSession(sessionId, authorizationBinding, recordActivity);
     if (restoreResult.transport) {
       return { status: StreamableSessionStatus.Restored, sessionId, transport: restoreResult.transport };
     }
@@ -301,6 +324,7 @@ export class StreamableSessionLifecycle {
     if (authorization.status !== 'trusted') return false;
     if (authorization.provenance !== 'verified-local') return false;
     if (this.pendingSessionIds.has(sessionId)) return false;
+    if (this.stopped || this.retiringSessions.has(sessionId) || this.disconnectingSessions.has(sessionId)) return false;
     if (this.serverManager.getTransport(sessionId)) return false;
     return !this.sessionRepository.getSessionData(sessionId);
   }
@@ -310,6 +334,7 @@ export class StreamableSessionLifecycle {
     sessionId: string,
     authorizationBinding: StreamableSessionAuthorizationBinding | null | undefined = this.defaultAuthorizationBinding(),
   ): boolean {
+    if (this.stopped || this.retiringSessions.has(sessionId) || this.disconnectingSessions.has(sessionId)) return false;
     if (authorizationBinding === undefined) return true;
     if (authorizationBinding === null) return false;
     const transport = this.serverManager.getTransport(sessionId);
@@ -329,10 +354,34 @@ export class StreamableSessionLifecycle {
     return result.status === StreamableSessionStatus.Missing ? null : result.transport;
   }
 
-  async restoreSession(
+  restoreSession(
     sessionId: string,
     authorizationBinding: StreamableSessionAuthorizationBinding | null | undefined = this.defaultAuthorizationBinding(),
+    recordActivity = true,
   ): Promise<StreamableSessionRestoreResult> {
+    const pending = this.restoringSessions.get(sessionId);
+    if (pending)
+      return pending.then((result) => {
+        if (!this.isSessionAuthorized(sessionId, authorizationBinding))
+          return { transport: null, errorType: StreamableSessionRestoreErrorType.NotFound };
+        return result;
+      });
+    const restoration = this.performRestoreSession(sessionId, authorizationBinding, recordActivity);
+    this.restoringSessions.set(sessionId, restoration);
+    void restoration
+      .finally(() => {
+        if (this.restoringSessions.get(sessionId) === restoration) this.restoringSessions.delete(sessionId);
+      })
+      .catch(() => undefined);
+    return restoration;
+  }
+
+  private async performRestoreSession(
+    sessionId: string,
+    authorizationBinding: StreamableSessionAuthorizationBinding | null | undefined = this.defaultAuthorizationBinding(),
+    recordActivity = true,
+  ): Promise<StreamableSessionRestoreResult> {
+    let releaseProtection: ((accepted?: boolean) => void) | undefined;
     try {
       const sessionData = this.sessionRepository.getSessionData(sessionId);
       if (!sessionData) {
@@ -345,6 +394,8 @@ export class StreamableSessionLifecycle {
           return { transport: null, errorType: StreamableSessionRestoreErrorType.NotFound };
         }
       }
+
+      releaseProtection = this.sessionRepository.protectSession?.(sessionId);
 
       if (!sessionData.initializeResponse) {
         logger.warn(
@@ -396,11 +447,16 @@ export class StreamableSessionLifecycle {
           authorization?.status === 'trusted' ? authorization.context : undefined,
         );
       } catch (connectError) {
+        if (connectError instanceof SessionAdmissionCapacityError) throw connectError;
         const errorMessage = connectError instanceof Error ? connectError.message : String(connectError);
         logger.error('streamableSessionLifecycle.failed.to.connect.transport.90a65f89', { error: connectError });
         return { transport: null, error: errorMessage, errorType: StreamableSessionRestoreErrorType.ConnectionFailed };
       }
 
+      if (this.stopped) {
+        await this.serverManager.disconnectTransport(sessionId, true);
+        return { transport: null, errorType: StreamableSessionRestoreErrorType.ConnectionFailed };
+      }
       const initialized = this.setInitializedState(transport, sessionId);
       if (!initialized) {
         logError('streamableSessionLifecycle.could.not.set.initialized.state.during.session.restoration.69095992', {
@@ -418,14 +474,17 @@ export class StreamableSessionLifecycle {
       transport.markAsRestored();
       this.initializeNotifications(sessionId);
       this.setupTransportHandlers(transport, sessionId);
-      this.sessionRepository.updateAccess(sessionId);
+      if (recordActivity) this.sessionRepository.updateAccess(sessionId);
 
       logger.info('streamableSessionLifecycle.successfully.restored.streamable.session.restored.9648c603');
       return { transport };
     } catch (error) {
+      if (error instanceof SessionAdmissionCapacityError) throw error;
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('streamableSessionLifecycle.failed.to.restore.streamable.session.bf5b6a04', { error: error });
       return { transport: null, error: errorMessage, errorType: StreamableSessionRestoreErrorType.TransportFailed };
+    } finally {
+      releaseProtection?.(recordActivity);
     }
   }
 
@@ -437,6 +496,7 @@ export class StreamableSessionLifecycle {
     contextProof?: TemplateContextProof,
     authorizationBinding: StreamableSessionAuthorizationBinding | null | undefined = this.defaultAuthorizationBinding(),
   ): Promise<StreamableSessionCreateResult> {
+    if (this.stopped) throw new Error('Session admission is closed');
     const binding = canonicalSessionBinding(authorizationBinding);
     if (authorizationBinding !== undefined && !binding) throw new Error('Session authorization required');
     const sessionId = providedSessionId || AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX + randomUUID();
@@ -472,9 +532,15 @@ export class StreamableSessionLifecycle {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('streamableSessionLifecycle.failed.to.connect.transport.43c1f33b', { error: error });
+      if (this.serverManager.getTransport(sessionId)) await this.serverManager.disconnectTransport(sessionId, true);
+      if (error instanceof SessionAdmissionCapacityError) throw error;
       throw new Error(`Session creation failed: connection error - ${errorMessage}`);
     }
 
+    if (this.stopped) {
+      await this.serverManager.disconnectTransport(sessionId, true);
+      throw new Error('Session admission is closed');
+    }
     let persisted = false;
     let persistenceError: string | undefined;
     try {
@@ -495,22 +561,79 @@ export class StreamableSessionLifecycle {
     this.sessionRepository.storeInitializeResponse(sessionId, initializeResponse);
   }
 
-  async handleAbnormalDisconnect(sessionId: string): Promise<void> {
-    await this.serverManager.disconnectTransport(sessionId);
+  handleAbnormalDisconnect(sessionId: string): Promise<void> {
+    if (this.stopped || this.retiringSessions.has(sessionId)) return Promise.resolve();
+    const existing = this.disconnectingSessions.get(sessionId);
+    if (existing) return existing;
+    const disconnection = Promise.resolve().then(() => this.serverManager.disconnectTransport(sessionId));
+    this.disconnectingSessions.set(sessionId, disconnection);
+    void disconnection.then(
+      () => {
+        if (this.disconnectingSessions.get(sessionId) === disconnection) this.disconnectingSessions.delete(sessionId);
+      },
+      () => {
+        // Failed cleanup still owns resources and cannot be restored over.
+      },
+    );
+    return disconnection;
   }
 
-  async completeExplicitDelete(sessionId: string): Promise<void> {
-    try {
-      this.sessionRepository.delete(sessionId);
-    } catch (error) {
-      logError('streamableSessionLifecycle.session.deletion.failed.b8bfdce6', {
-        method: 'completeExplicitDelete',
-        sessionId: sessionId,
-        error: error,
-      });
-    }
+  protectSession(sessionId: string): (accepted?: boolean) => void {
+    if (this.stopped || this.retiringSessions.has(sessionId) || this.disconnectingSessions.has(sessionId))
+      throw new Error('Session is no longer active');
+    return this.sessionRepository.protectSession(sessionId);
+  }
 
-    await this.serverManager.disconnectTransport(sessionId, true);
+  async expireIdleSessions(sessionIds = this.sessionRepository.getExpiredSessionIds()): Promise<void> {
+    await Promise.all(
+      sessionIds.map(async (sessionId) => {
+        if (!this.sessionRepository.isExpired(sessionId)) return;
+        try {
+          await this.completeExplicitDelete(sessionId);
+        } catch (error) {
+          logError('streamableSessionLifecycle.session.deletion.failed.b8bfdce6', {
+            method: 'expireIdleSessions',
+            sessionId,
+            error,
+          });
+        }
+      }),
+    );
+  }
+
+  completeExplicitDelete(sessionId: string): Promise<void> {
+    const existing = this.retiringSessions.get(sessionId);
+    if (existing) return existing;
+    const disconnection = this.disconnectingSessions.get(sessionId);
+    // Revoke lookup before any asynchronous cleanup or transport onclose callback.
+    const retirement = Promise.resolve().then(async () => {
+      let deletionFailed = false;
+      let deletionError: unknown;
+      try {
+        this.sessionRepository.delete(sessionId);
+      } catch (error) {
+        deletionFailed = true;
+        deletionError = error;
+        logError('streamableSessionLifecycle.session.deletion.failed.b8bfdce6', {
+          method: 'completeExplicitDelete',
+          sessionId,
+          error,
+        });
+      }
+      if (disconnection) await disconnection;
+      else await this.serverManager.disconnectTransport(sessionId, true);
+      if (deletionFailed) throw deletionError;
+    });
+    this.retiringSessions.set(sessionId, retirement);
+    void retirement.then(
+      () => {
+        if (this.retiringSessions.get(sessionId) === retirement) this.retiringSessions.delete(sessionId);
+      },
+      () => {
+        // Keep failed cleanup retired: ownership may still hold upstream resources.
+      },
+    );
+    return retirement;
   }
 
   async deleteSession(sessionId: string): Promise<void> {
@@ -536,8 +659,16 @@ export class StreamableSessionLifecycle {
   }
 
   private setupTransportHandlers(transport: StreamableTransport, sessionId: string): void {
+    this.serverManager.getServer(sessionId)?.adapter?.setRequestActivityTracker?.(() => this.protectSession(sessionId));
     transport.onclose = () => {
-      void this.handleAbnormalDisconnect(sessionId);
+      if (this.serverManager.getTransport(sessionId) !== transport) return;
+      void this.handleAbnormalDisconnect(sessionId).catch((error) => {
+        logError('streamableSessionLifecycle.session.deletion.failed.b8bfdce6', {
+          method: 'handleAbnormalDisconnect',
+          sessionId,
+          error,
+        });
+      });
     };
 
     transport.onerror = (error) => {

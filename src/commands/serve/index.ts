@@ -72,6 +72,11 @@ export const serverOptions = {
     type: 'string' as const,
     choices: ['stdio', 'http', 'sse'] as const,
   },
+  'inbound-http-era': {
+    describe: 'Inbound HTTP protocol eras (dual or legacy-only); independent of upstream protocolVersion',
+    type: 'string' as const,
+    choices: ['dual', 'legacy-only'] as const,
+  },
   port: {
     alias: 'P',
     describe: 'HTTP port to listen on, applicable when transport is http',
@@ -117,6 +122,11 @@ export const serverOptions = {
   'enable-auth': {
     describe: 'Enable authentication (OAuth 2.1)',
     type: 'boolean' as const,
+  },
+  'allow-unauthenticated-network': {
+    describe: 'Acknowledge unauthenticated HTTP access on a non-loopback host',
+    type: 'boolean' as const,
+    default: false,
   },
   'enable-scope-validation': {
     describe: 'Enable tag-based scope validation',

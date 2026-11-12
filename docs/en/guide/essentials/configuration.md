@@ -74,6 +74,7 @@ All available command-line options and their corresponding environment variables
 | Option (CLI)                           | Environment Variable                         | Description                                                                                     |  Default   |
 | :------------------------------------- | :------------------------------------------- | :---------------------------------------------------------------------------------------------- | :--------: |
 | `--transport`, `-t`                    | `ONE_MCP_TRANSPORT`                          | Choose transport type ("stdio", "http", or "sse")                                               |   "http"   |
+| `--inbound-http-era`                   | `ONE_MCP_INBOUND_HTTP_ERA`                   | Inbound HTTP eras: `dual` or `legacy-only`; independent of upstream `protocolVersion`           |   `dual`   |
 | `--config`, `-c`                       | `ONE_MCP_CONFIG`                             | Use a specific config file                                                                      |            |
 | `--config-dir`, `-d`                   | `ONE_MCP_CONFIG_DIR`                         | Path to the config directory (overrides default config location)                                |            |
 | `--cli-session-cache-path`             | `ONE_MCP_CLI_SESSION_CACHE_PATH`             | Path template for the `run`/`inspect` CLI session cache file, supports `{pid}` and `{scope}`    |            |
@@ -241,6 +242,8 @@ Authentication, authorization, and security features.
 - `--session-storage-path <path>`: Custom session storage directory
 - `--rate-limit-window <minutes>`: OAuth rate limit window (default: 15)
 - `--rate-limit-max <requests>`: Maximum requests per window (default: 100)
+
+For Streamable HTTP, this TTL is the idle deadline for both live sessions and restoration records. Authorized activity renews it; rejected requests do not. In-flight requests and open SSE streams (including silent streams) prevent idle reclamation. Once activity finishes, the idle interval starts again. Abandoned sessions are reclaimed by the background session sweep; expired IDs follow the normal missing-session initialization recovery flow and cannot restore stale cached or persisted state.
 
 **Examples:**
 
@@ -923,3 +926,5 @@ npx -y @1mcp/agent \
 - **[Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)** - Public HTTPS deployment path
 - **[Health Check Reference](/reference/health-check)** - Monitoring and health endpoints
 - **[Security Guide](/reference/security)** - Security best practices
+
+Set the top-level `inboundHttpEra = "legacy-only"` in `config.toml` for endpoint-wide legacy compatibility. Omit it to retain `dual`. See [legacy-only inbound HTTP compatibility](/commands/serve#legacy-only-inbound-http-compatibility) for the state-continuity limitation, client-side pinning, and modern-feature tradeoff.

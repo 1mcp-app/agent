@@ -449,6 +449,13 @@ async function createLocalTemplateContextProof<TOptions extends ResolvableServeT
   target: ResolvedAttachmentTarget<TOptions>,
   context: ContextData,
 ): Promise<TemplateContextProof | undefined> {
+  const capability = await readLiveLocalCapability(target);
+  return capability ? createTemplateContextProof(context, capability) : undefined;
+}
+
+export async function readLiveLocalCapability<TOptions extends ResolvableServeTargetOptions>(
+  target: ResolvedAttachmentTarget<TOptions>,
+): Promise<TemplateContextCapability | undefined> {
   const localScope = target.localRuntimeScope;
   if (!localScope) {
     return undefined;
@@ -499,7 +506,7 @@ async function createLocalTemplateContextProof<TOptions extends ResolvableServeT
     return undefined;
   }
 
-  return capability ? createTemplateContextProof(context, capability) : undefined;
+  return capability ?? undefined;
 }
 
 function isProtectedTemplateContextProofTransport(url: URL): boolean {

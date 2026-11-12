@@ -1,6 +1,7 @@
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { SessionAdmissionCapacityError } from '@src/core/server/sessionAdmission.js';
 import logger from '@src/logger/logger.js';
 import {
   getPresetName,
@@ -132,32 +133,49 @@ function buildConfigFromRequest(res: Response, req: Request, customTemplate?: st
   };
 }
 
-/**
- * Sets up client disconnect detection for a request/response pair.
- * Cleans up the transport when the client disconnects, but preserves the session.
- */
-function setupDisconnectDetection(
-  req: Request,
-  res: Response,
-  sessionId: string,
+/** Keep in-flight SDK work and open responses alive independently of ordinary socket closure. */
+async function withSessionActivity(
   lifecycle: StreamableSessionLifecycle,
-): void {
-  let responseClosed = false;
-
-  // Mark response as closed when it ends normally
-  res.on('finish', () => {
-    responseClosed = true;
-  });
-
-  const cleanupTransport = () => {
-    if (!responseClosed && !res.writableEnded) {
-      logger.debug('streamableHttpRoutes.client.disconnected.for.session.cleaning.up.transport.eca47590');
-      void lifecycle.handleAbnormalDisconnect(sessionId);
-    }
+  sessionId: string,
+  res: Response,
+  handle: () => Promise<void>,
+): Promise<void> {
+  const release = lifecycle.protectSession(sessionId);
+  let workFinished = false;
+  let responseFinished = res.writableEnded;
+  const releaseWhenFinished = () => {
+    if (workFinished && responseFinished) release(res.statusCode < 400);
   };
+  const finishResponse = () => {
+    responseFinished = true;
+    releaseWhenFinished();
+  };
+  res.on('finish', finishResponse);
+  res.on('close', finishResponse);
+  try {
+    await handle();
+  } finally {
+    workFinished = true;
+    responseFinished ||= res.writableEnded;
+    releaseWhenFinished();
+  }
+}
 
-  res.on('close', cleanupTransport);
-  req.socket?.on('close', cleanupTransport);
+function sendSessionError(req: Request, res: Response, error: unknown): void {
+  if (error instanceof SessionAdmissionCapacityError) {
+    res.status(503).json({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Session capacity exhausted. Retry after a session is released.' },
+      id: null,
+    });
+    return;
+  }
+  sendInternalError(res, error, {
+    method: req.method,
+    path: req.path,
+    sessionId: req.headers['mcp-session-id'] as string | undefined,
+    phase: 'handleRequest',
+  });
 }
 
 export function setupStreamableHttpRoutes(
@@ -191,6 +209,7 @@ export function setupStreamableHttpRoutes(
         : undefined;
       const result = await lifecycle.resolvePostSession({
         sessionId,
+        deferActivity: true,
         authorizationBinding: getRequestSessionBinding(req),
         isInitializeRequest: isInitialize,
         createSessionData: () => ({
@@ -232,7 +251,9 @@ export function setupStreamableHttpRoutes(
         });
       }
 
-      await transport.handleRequest(req, wrappedRes, req.body);
+      await withSessionActivity(lifecycle, actualSessionId, res, () =>
+        transport.handleRequest(req, wrappedRes, req.body),
+      );
 
       if (isInitialize && protocolVersion) {
         try {
@@ -247,12 +268,7 @@ export function setupStreamableHttpRoutes(
         }
       }
     } catch (error) {
-      sendInternalError(res, error, {
-        method: req.method,
-        path: req.path,
-        sessionId: req.headers['mcp-session-id'] as string | undefined,
-        phase: 'handleRequest',
-      });
+      sendSessionError(req, res, error);
     }
   };
   const handleProjectPost: RequestHandler = async (req, res, next) => {
@@ -294,24 +310,19 @@ export function setupStreamableHttpRoutes(
         return;
       }
 
-      const result = await lifecycle.resolveExistingSession(sessionId, getRequestSessionBinding(req));
+      const result = await lifecycle.resolveExistingSession(sessionId, getRequestSessionBinding(req), false);
 
       if (result.status === StreamableSessionStatus.Missing) {
         sendNotFound(res, 'No active streamable HTTP session found for the provided sessionId', { sessionId });
         return;
       }
 
-      setupDisconnectDetection(req, res, sessionId, lifecycle);
-
       const wrappedRes = wrapResponseForLogging(req, res, sessionId);
-      await result.transport.handleRequest(req, wrappedRes, req.body);
+      await withSessionActivity(lifecycle, sessionId, res, () =>
+        result.transport.handleRequest(req, wrappedRes, req.body),
+      );
     } catch (error) {
-      sendInternalError(res, error, {
-        method: req.method,
-        path: req.path,
-        sessionId: req.headers['mcp-session-id'] as string | undefined,
-        phase: 'handleRequest',
-      });
+      sendSessionError(req, res, error);
     }
   });
 
@@ -323,7 +334,7 @@ export function setupStreamableHttpRoutes(
         return;
       }
 
-      const result = await lifecycle.resolveExistingSession(sessionId, getRequestSessionBinding(req));
+      const result = await lifecycle.resolveExistingSession(sessionId, getRequestSessionBinding(req), false);
 
       if (result.status === StreamableSessionStatus.Missing) {
         sendNotFound(res, 'No active streamable HTTP session found for the provided sessionId', { sessionId });
@@ -331,15 +342,10 @@ export function setupStreamableHttpRoutes(
       }
 
       const wrappedRes = wrapResponseForLogging(req, res, sessionId);
-      await result.transport.handleRequest(req, wrappedRes);
+      await withSessionActivity(lifecycle, sessionId, res, () => result.transport.handleRequest(req, wrappedRes));
       await lifecycle.completeExplicitDelete(sessionId);
     } catch (error) {
-      sendInternalError(res, error, {
-        method: req.method,
-        path: req.path,
-        sessionId: req.headers['mcp-session-id'] as string | undefined,
-        phase: 'handleRequest',
-      });
+      sendSessionError(req, res, error);
     }
   });
 }
