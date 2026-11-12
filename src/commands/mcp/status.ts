@@ -198,7 +198,7 @@ async function showAllServersStatus(
     displayServerStatusSummary(serverName, effectiveConfig);
     const target = resolveServerTarget(serverName);
     let runtimeStatus = runtimeStatusForTarget(aggregateRuntimeStatus, serverName, target?.source);
-    if (!runtimeStatus && target?.source === 'mcpServers' && aggregateRuntimeStatus) {
+    if (!isRuntimeSupervisionStatus(runtimeStatus) && target?.source === 'mcpServers' && aggregateRuntimeStatus) {
       runtimeStatus = await fetchRuntimeStatus(argv, dependencies, serverName);
     }
     displayRuntimeSupervision(runtimeStatus, verbose);

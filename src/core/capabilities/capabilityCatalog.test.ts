@@ -171,6 +171,43 @@ describe('CapabilityCatalog', () => {
     }
   });
 
+  it('skips disconnected sleep backends while forcing discovery of a healthy backend', async () => {
+    const disconnected = outboundConnections.get('filesystem')!;
+    const lifecycle = new BackendSleep({
+      idleTimeoutMs: 30_000,
+      release: async () => {},
+      wake: async () => {},
+      isCurrent: () => true,
+    });
+    const ensureAwake = vi.spyOn(lifecycle, 'ensureAwake').mockRejectedValue(new Error('Backend unavailable'));
+    Object.assign(disconnected, {
+      adapter: new BackendSleepAdapter(disconnected.adapter, lifecycle),
+      status: ClientStatus.Disconnected,
+    });
+    const healthy = outboundConnections.get('template-server:rendered123')!;
+    const healthyLifecycle = new BackendSleep({
+      idleTimeoutMs: 30_000,
+      release: async () => {},
+      wake: async () => {},
+      isCurrent: () => true,
+    });
+    const healthyAdapter = new BackendSleepAdapter(healthy.adapter, healthyLifecycle);
+    Object.assign(healthy, { adapter: healthyAdapter });
+    const refresh = vi.spyOn(healthyAdapter, 'refresh').mockResolvedValue([]);
+    healthyLifecycle.ready();
+    registry = registry
+      .filterByConnectionKeys(new Set(['template-server:rendered123']))
+      .withConnections(outboundConnections);
+    try {
+      await expect(createCatalog().listVisibleTools({}, undefined, { refreshIntent: 'force' })).resolves.toBeDefined();
+      expect(ensureAwake).not.toHaveBeenCalled();
+      expect(refresh).toHaveBeenCalledTimes(1);
+    } finally {
+      lifecycle.stop();
+      healthyLifecycle.stop();
+    }
+  });
+
   it('invokes an unchanged tool when wake adds another tool', async () => {
     vi.useFakeTimers();
     const connection = outboundConnections.get('filesystem')!;

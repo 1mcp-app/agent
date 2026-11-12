@@ -796,7 +796,6 @@ export class CapabilityCatalog {
 
     const { route } = access;
     const connection = access.connection ?? this.deps.outboundConnections.get(route.connectionKey);
-    let admittedGeneration = getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools');
     const diagnosticRoute = {
       ...requested,
       server: route.server,
@@ -835,7 +834,7 @@ export class CapabilityCatalog {
     let releaseDispatch: (() => void) | undefined;
     try {
       releaseBackend = await prepareBackendOperation(connection.adapter, queryOptions.signal);
-      admittedGeneration = getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools');
+      const admittedGeneration = getCapabilityPaginationGeneration(this.deps.outboundConnections, 'tools');
       releaseDispatch = await acquireBackendDispatch(connection.adapter, queryOptions.signal);
       const targetArgs = projectToolArguments(
         this.deps.getServerConfigs()[route.server],
@@ -1002,6 +1001,7 @@ export class CapabilityCatalog {
       for (const [key, connection] of this.deps.outboundConnections) {
         signal?.throwIfAborted();
         if (effective && !effective.serverCandidates.has(key)) continue;
+        if (!isBackendDiscoverable(connection)) continue;
         if (this.deps.getServerConfigs()[connection.name]?.disabled) continue;
         await refreshBackendDiscovery(connection.adapter, connection.capabilities ?? {}, signal);
       }

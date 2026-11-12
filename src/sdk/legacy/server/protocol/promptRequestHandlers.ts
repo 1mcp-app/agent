@@ -30,11 +30,12 @@ import { bindOwnedCatalogConnections, bindOwnedNotificationAuthorization } from 
 export function registerPromptHandlers(outboundConns: LegacyOutboundConnections, inboundConn: InboundConnection): void {
   const handle = <T, Args extends readonly unknown[]>(work: (...args: Args) => Promise<T>, message: string) =>
     withErrorHandling(withInboundProjectAdmission(inboundConn, work), message);
-  const acquire = (cursor?: string) =>
+  const acquire = (cursor?: string, signal?: AbortSignal) =>
     acquireRuntimeCapabilityCatalog(
       outboundConns,
       resolveCapabilityVisibility(outboundConns, inboundConn, getRequestSession(inboundConn), 'prompts'),
       {
+        signal,
         continuation: cursor
           ? { kind: 'prompts', cursor, enablePagination: inboundConn.enablePagination ?? false }
           : undefined,
@@ -80,7 +81,7 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
           registerCapabilityPaginationNotifications(observed, route.connection!);
           const generation = getCapabilityPaginationGeneration(observed, 'prompts');
           try {
-            const refreshed = await acquire();
+            const refreshed = await acquire(undefined, extra.signal);
             const current = refreshed.resolve('prompts', request.params.name);
             if (!current?.connection) throw new McpError(-32602, `Unknown prompt: ${request.params.name}`);
             if (

@@ -155,6 +155,39 @@ describe('statusCommand runtime supervision', () => {
     },
   );
 
+  it('fetches per-server status when its name collides with a minimal health count', async () => {
+    const config = { type: 'stdio' as const, command: 'node' };
+    vi.mocked(configUtils.getAllServerTargets).mockReturnValue({ connected: config });
+    vi.mocked(configUtils.getEffectiveServerTargetConfig).mockReturnValue(config);
+    vi.mocked(configUtils.resolveServerTarget).mockReturnValue({
+      serverName: 'connected',
+      source: 'mcpServers',
+      serverConfig: config,
+    });
+    const dependencies = runtimeDependencies({
+      ok: true,
+      status: 200,
+      data: {
+        backendSleep: {},
+        backendSupervision: { total: 1, connected: 1, restarting: 0, crashLoop: 0, stopped: 0 },
+      },
+    });
+    dependencies.apiGet
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        data: {
+          backendSleep: {},
+          backendSupervision: { total: 1, connected: 1, restarting: 0, crashLoop: 0, stopped: 0 },
+        },
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, data: { name: 'connected', state: 'connected' } });
+    await statusCommand({}, dependencies);
+    expect(dependencies.apiGet).toHaveBeenCalledWith('/health/mcp/connected');
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Runtime Status': 'connected' });
+    expect(printerMock.keyValue).not.toHaveBeenCalledWith({ 'Runtime Status': undefined });
+  });
+
   it('queries aggregate health once and adds runtime facts to configured server summaries', async () => {
     const config = { type: 'stdio' as const, command: 'node' };
     vi.mocked(configUtils.getAllServerTargets).mockReturnValue({ worker: config });
