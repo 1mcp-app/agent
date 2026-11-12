@@ -1,8 +1,13 @@
+import { createLoopbackListeners } from '@test/unit-utils/loopbackListeners.js';
+
 import express from 'express';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { createRuntimeIdentityRoutes } from './runtimeIdentityRoutes.js';
+
+const listeners = createLoopbackListeners();
+afterEach(() => listeners.close());
 
 describe('runtime identity routes', () => {
   it('returns only low-disclosure runtime identity fields', async () => {
@@ -20,7 +25,7 @@ describe('runtime identity routes', () => {
       }),
     );
 
-    const response = await request(app).get('/.well-known/1mcp/runtime-identity');
+    const response = await request(await listeners.listen(app)).get('/.well-known/1mcp/runtime-identity');
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({

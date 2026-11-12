@@ -188,6 +188,30 @@ describe('Backend Sleep lifecycle', () => {
     backend.stop();
   });
 
+  it('defers release to the next quiescent sweep when discovery overlaps idle expiry', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const release = vi.fn(async () => {});
+    const backend = new BackendSleep({ idleTimeoutMs: 30_000, release, wake: async () => {}, isCurrent: () => true });
+    await vi.advanceTimersByTimeAsync(100);
+    backend.ready();
+    await vi.advanceTimersByTimeAsync(59_899);
+    backend.sent({ id: 1, method: 'resources/list' });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(release).not.toHaveBeenCalled();
+    expect(backend.snapshot()).toMatchObject({ state: 'awake', blockers: ['requests:1'], lastActivityAt: 100 });
+
+    await vi.advanceTimersByTimeAsync(5);
+    backend.received({ id: 1, result: { resources: [] } });
+    expect(backend.snapshot()).toMatchObject({ state: 'awake', blockers: [], lastActivityAt: 100 });
+    await vi.advanceTimersByTimeAsync(29_994);
+    expect(release).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(release).toHaveBeenCalledOnce();
+    expect(backend.snapshot().state).toBe('sleeping');
+    backend.stop();
+  });
+
   it('does not wake after uncertain release and does not publish a stopped wake', async () => {
     vi.useFakeTimers();
     const wake = vi.fn(async () => {});

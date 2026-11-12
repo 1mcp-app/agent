@@ -93,13 +93,9 @@ it('preserves modern outbound negotiation when waking an owned backend', async (
     const initialPid = initialStarts[1].pid;
     expect(isAlive(initialPid)).toBe(true);
     expect((await call('before')).content).toEqual([{ type: 'text', text: `before from ${initialPid}` }]);
-    await vi.waitFor(
-      async () => {
-        expect(await client.getClient().listTools({}, { timeout: 5_000 })).toEqual(tools);
-        expect(isAlive(initialPid)).toBe(false);
-      },
-      { timeout: 75_000, interval: 500 },
-    );
+    await vi.waitFor(() => expect(isAlive(initialPid)).toBe(false), { timeout: 75_000, interval: 500 });
+    expect(await client.getClient().listTools({}, { timeout: 5_000 })).toEqual(tools);
+    expect(isAlive(initialPid)).toBe(false);
     expect((await events()).filter((event) => event.event === 'start')).toHaveLength(2);
     const result = await call('after');
     const recorded = await events();

@@ -127,14 +127,10 @@ describe('Backend Sleep through the built runtime', () => {
       await sdk.unsubscribeResource({ uri: resource('watcher') });
       updates.length = 0;
       const initialPids = await Promise.all(names.map(async (name) => (await readEvents(eventsPath(name)))[0].pid));
-      await vi.waitFor(
-        async () => {
-          expect(await sdk.listResources()).toEqual(resources);
-          expect(await sdk.listPrompts()).toEqual(prompts);
-          expect(initialPids.filter(isAlive)).toEqual([]);
-        },
-        { timeout: 75_000, interval: 500 },
-      );
+      await vi.waitFor(() => expect(initialPids.filter(isAlive)).toEqual([]), { timeout: 75_000, interval: 500 });
+      expect(await sdk.listResources()).toEqual(resources);
+      expect(await sdk.listPrompts()).toEqual(prompts);
+      expect(initialPids.filter(isAlive)).toEqual([]);
       // The daemon belongs to this test, not to a wrapper. Releasing the runtime's
       // wrappers must leave that independent service alive and responsive.
       expect(isAlive(daemonPid)).toBe(true);
@@ -292,15 +288,8 @@ describe('Backend Sleep through the built runtime', () => {
         expect(isAlive(residentPid)).toBe(true);
         changes.length = 0;
 
-        // The production 30-second sweep and timeout are unchanged. Discovery throughout
-        // expiry must neither reset the idle baseline nor wake the process after exit.
-        await vi.waitFor(
-          async () => {
-            expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(names);
-            expect(isAlive(initialPid)).toBe(false);
-          },
-          { timeout: 75_000, interval: 500 },
-        );
+        // Observe exit without creating upstream discovery work during an eligible sweep.
+        await vi.waitFor(() => expect(isAlive(initialPid)).toBe(false), { timeout: 75_000, interval: 500 });
         expect(isAlive(residentPid)).toBe(true);
         expect(changes).toEqual([]);
         expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(names);
@@ -329,6 +318,7 @@ describe('Backend Sleep through the built runtime', () => {
             (error: unknown) => error,
           );
         expect(forbidden).toBeTruthy();
+        expect(isAlive(initialPid)).toBe(false);
         expect((await readEvents(sleeperEvents)).filter((event) => event.event === 'start')).toHaveLength(1);
 
         const canceled = new AbortController();

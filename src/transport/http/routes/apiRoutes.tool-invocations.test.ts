@@ -1,3 +1,4 @@
+import { createLoopbackListeners } from '@test/unit-utils/loopbackListeners.js';
 import { createMockLegacySdkAdapter, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import { once } from 'node:events';
@@ -15,7 +16,7 @@ import { type JsonValue, OneMcpProtocolError, toJsonValue, toProtocolTool } from
 import type { Request, RequestHandler, Response } from 'express';
 import express from 'express';
 import request from 'supertest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApiRoutes, createToolInvocationsHandler } from './apiRoutes.js';
 
@@ -74,6 +75,12 @@ vi.mock('@src/transport/http/middlewares/tagsExtractor.js', () => ({
   default: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
+const listeners = createLoopbackListeners();
+
+afterEach(async () => {
+  await listeners.close();
+});
+
 type MockResponse = Response & { body?: unknown };
 
 function createMockResponse(): MockResponse {
@@ -130,7 +137,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     app.use(express.json());
     app.use('/api/v1', createApiRoutes(serverManager as never, scopeAuthMiddleware));
 
-    const response = await request(app)
+    const response = await request(await listeners.listen(app))
       .post('/api/v1/tool-invocations')
       .set('Origin', 'http://evil.example.com')
       .send({ tool: 'server/tool' });
@@ -152,8 +159,12 @@ describe('apiRoutes /api/tool-invocations', () => {
     app.use(express.json());
     app.use('/api/v1', createApiRoutes(serverManager as never, authorizationAttempts, { windowMs: 60_000, max: 1 }));
 
-    const firstResponse = await request(app).post('/api/v1/tool-invocations').send({ tool: 'server/tool' });
-    const secondResponse = await request(app).post('/api/v1/tool-invocations').send({ tool: 'server/tool' });
+    const firstResponse = await request(await listeners.listen(app))
+      .post('/api/v1/tool-invocations')
+      .send({ tool: 'server/tool' });
+    const secondResponse = await request(await listeners.listen(app))
+      .post('/api/v1/tool-invocations')
+      .send({ tool: 'server/tool' });
 
     expect(firstResponse.status).toBe(503);
     expect(secondResponse.status).toBe(429);
@@ -943,7 +954,9 @@ it('returns a retryable 503 before REST invocation starts while draining', async
   );
   runtimeAdmission.close();
   try {
-    const response = await request(app).post('/api/v1/tool-invocations').send({ tool: 'server/tool' });
+    const response = await request(await listeners.listen(app))
+      .post('/api/v1/tool-invocations')
+      .send({ tool: 'server/tool' });
     expect(response.status).toBe(503);
     expect(response.headers['retry-after']).toBe('1');
     expect(response.body.retryable).toBe(true);
