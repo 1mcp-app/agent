@@ -1273,15 +1273,17 @@ describe('runtime preparation controls', () => {
       }),
       reconcile: vi.fn(async () => required),
     };
-    const { coordinator, resolve, directory } = await fixture(native);
+    const { coordinator, resolve, directory } = await fixture(native, {}, { executionDeadlineMs: 5_000 });
     const grant = await resolve();
     const started = await job(coordinator, grant);
-    await coordinator.control(grant, { action: 'wait', id: started.id, waitMs: 100 });
+    await vi.waitFor(async () => {
+      expect(await coordinator.control(grant, { action: 'status', id: started.id })).toMatchObject({ state: 'failed' });
+    });
     await coordinator.shutdown();
     const restarted = new BackendPreparationCoordinator({
       adapterFactory: () => native,
       storagePath: path.join(directory, 'runtime'),
-      options: { requestWaitMs: 50, executionDeadlineMs: 200 },
+      options: { requestWaitMs: 50, executionDeadlineMs: 5_000 },
     });
     coordinators.push(restarted);
     const refreshed = await restarted.resolveGrant({
@@ -1298,7 +1300,7 @@ describe('runtime preparation controls', () => {
     expect(prepare).toHaveBeenCalledTimes(1);
     expect(native.reconcile).toHaveBeenCalledTimes(1);
     await restarted.control(refreshed, { action: 'retry' });
-    expect(prepare).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(prepare).toHaveBeenCalledTimes(2));
   });
 
   it.each(['backend_failed', 'not_ready'] as const)(
