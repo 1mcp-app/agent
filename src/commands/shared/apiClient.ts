@@ -24,6 +24,7 @@ export interface ApiResponse<T> {
 }
 
 export interface ApiRequestOptions {
+  redirect?: 'error' | 'follow';
   headers?: Record<string, string>;
   timeout?: number;
 }
@@ -101,7 +102,7 @@ export class ApiClient {
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        redirect: this.contextProof ? 'error' : 'follow',
+        redirect: this.contextProof ? 'error' : (options.redirect ?? 'follow'),
         signal: controller.signal,
       });
 

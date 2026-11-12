@@ -219,6 +219,11 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     availableTags: string[],
     res: Response,
   ): Promise<void> {
+    const csrfToken: unknown = res.locals?.oauthConsentCsrfToken;
+    if (typeof csrfToken !== 'string' || !csrfToken) {
+      res.status(403).json({ error: 'admin_session_required' });
+      return;
+    }
     // Create temporary authorization request to store the code challenge securely
     const authRequestId = this.oauthStorage.createAuthorizationRequest(
       client.client_id,
@@ -230,7 +235,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     );
 
     const scopeTags = scopesToTags(requestedScopes);
-    const consentPageHtml = this.generateConsentPageHtml(client, authRequestId, scopeTags, availableTags);
+    const consentPageHtml = this.generateConsentPageHtml(client, authRequestId, scopeTags, availableTags, csrfToken);
 
     res.set('Content-Security-Policy', createConsentPageCsp(client, params.redirectUri));
     res.set('Content-Type', 'text/html');
@@ -287,6 +292,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     authRequestId: string,
     requestedTags: string[],
     availableTags: string[],
+    csrfToken = '',
   ): string {
     const clientName = escapeHtml(client.client_name || client.client_id);
     const escapedAuthRequestId = escapeHtml(authRequestId);
@@ -332,8 +338,9 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
             ${renewableAccessNotice}
         </div>
 
-        <form method="POST" action="/oauth/consent">
+        <form method="POST" action="/admin/oauth/consent">
             <input type="hidden" name="auth_request_id" value="${escapedAuthRequestId}">
+            <input type="hidden" name="csrf_token" value="${escapeHtml(csrfToken)}">
 
             <div class="scopes-section">
                 <h3>Server Access Permissions</h3>

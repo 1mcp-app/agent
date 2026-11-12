@@ -3,5 +3,8 @@ packages:
 
 allowBuilds:
   esbuild: true
+overrides:
+  # Parser stream 8.1.0 uses tokenizer.flushCharacters, introduced in parse5 8.1.0.
+  'parse5-parser-stream@8.1.0>parse5': 8.1.0
 patchedDependencies:
   '@modelcontextprotocol/sdk@1.30.0': patches/@modelcontextprotocol__sdk@1.30.0.patch

@@ -162,6 +162,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  parse5-parser-stream@8.1.0>parse5: 8.1.0
+
 patchedDependencies:
   '@modelcontextprotocol/sdk@1.30.0': 75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937
 
@@ -7946,7 +7949,7 @@ snapshots:
 
   parse5-parser-stream@8.1.0:
     dependencies:
-      parse5: 8.0.1
+      parse5: 8.1.0
 
   parse5@8.0.1:
     dependencies:

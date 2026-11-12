@@ -541,7 +541,7 @@ async function attachProjectOwner<TOptions extends ResolvableServeTargetOptions>
   return acquireProjectOwnerLease(file);
 }
 
-async function readLiveLocalCapability<TOptions extends ResolvableServeTargetOptions>(
+export async function readLiveLocalCapability<TOptions extends ResolvableServeTargetOptions>(
   target: ResolvedAttachmentTarget<TOptions>,
 ): Promise<TemplateContextCapability | undefined> {
   const localScope = target.localRuntimeScope;

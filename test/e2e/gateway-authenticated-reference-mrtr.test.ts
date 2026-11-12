@@ -11,6 +11,7 @@ import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ClientStatus } from '@src/core/types/index.js';
+import { ADMIN_SESSION_COOKIE_NAME, AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
 import { createLegacyOutboundConnection } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
 import type { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
 import { ServerManager } from '@src/sdk/legacy/server/runtime/serverManager.js';
@@ -18,6 +19,10 @@ import { createModernInboundLegacyBridge } from '@src/sdk/legacy/transport/http/
 import { createScopeAuthMiddleware } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import { setupModernHttpRoutes } from '@src/transport/http/routes/modernHttpRoutes.js';
 import { createOAuthRoutes } from '@src/transport/http/routes/oauthRoutes.js';
+import {
+  createOperatorConsentGuard,
+  createOperatorConsentRoutes,
+} from '@src/transport/http/routes/operatorConsentRoutes.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 
 import express from 'express';
@@ -87,17 +92,23 @@ it(
       const provider = new SDKOAuthServerProvider(join(directory, 'inbound'), 'owned-mrtr-runtime');
       cleanup.push(() => provider.shutdown());
       const issuerUrl = new URL(`${base}/`);
-      app.use(
-        mcpAuthRouter({
-          provider,
-          issuerUrl,
-          baseUrl: issuerUrl,
-          authorizationOptions: { rateLimit: false },
-          tokenOptions: { rateLimit: false },
-          clientRegistrationOptions: { rateLimit: false },
-        }),
-      );
-      app.use('/oauth', createOAuthRoutes(provider));
+      const authRouter = mcpAuthRouter({
+        provider,
+        issuerUrl,
+        baseUrl: issuerUrl,
+        authorizationOptions: { rateLimit: false },
+        tokenOptions: { rateLimit: false },
+        clientRegistrationOptions: { rateLimit: false },
+      });
+      const admin = new AdminIdentityService({ storageDir: directory, runtimeScopeId: 'owned-mrtr-runtime' });
+      await admin.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+      const operator = await admin.login({ username: 'operator', password: 'correct horse battery staple' });
+      const cookie = `${ADMIN_SESSION_COOKIE_NAME}=${operator.sessionToken}`;
+      const guard = createOperatorConsentGuard(admin, true);
+      const oauthRouter = createOAuthRoutes(provider, undefined, undefined, guard);
+      app.use(createOperatorConsentRoutes(authRouter, oauthRouter, guard));
+      app.use(authRouter);
+      app.use('/oauth', oauthRouter);
       const registration = await fetch(`${base}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -114,7 +125,7 @@ it(
       const grant = async () => {
         const verifier = randomBytes(48).toString('base64url');
         const state = randomBytes(24).toString('base64url');
-        const authorization = new URL(`${base}/authorize`);
+        const authorization = new URL(`${base}/admin/oauth/authorize`);
         authorization.search = new URLSearchParams({
           response_type: 'code',
           client_id: clientId,
@@ -124,16 +135,16 @@ it(
           code_challenge_method: 'S256',
           resource: new URL(base).href,
         }).toString();
-        const consent = await fetch(authorization, { redirect: 'manual' });
+        const consent = await fetch(authorization, { redirect: 'manual', headers: { Cookie: cookie } });
         expect(consent.status).toBe(200);
         const page = await consent.text();
         const requestId = /name="auth_request_id" value="([^" ]+)"/u.exec(page)?.[1];
         expect(requestId).toBeDefined();
-        const approval = await fetch(`${base}/oauth/consent`, {
+        const approval = await fetch(`${base}/admin/oauth/consent`, {
           method: 'POST',
           redirect: 'manual',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ auth_request_id: requestId!, action: 'approve' }),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: cookie },
+          body: new URLSearchParams({ auth_request_id: requestId!, action: 'approve', csrf_token: operator.csrfToken }),
         });
         expect(approval.status, await approval.clone().text()).toBe(302);
         const callback = new URL(approval.headers.get('location')!);

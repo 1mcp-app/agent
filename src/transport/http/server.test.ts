@@ -435,7 +435,12 @@ describe('ExpressServer', () => {
       const oauthFlow = createFlow.mock.results[0]?.value;
 
       expect(createFlow).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(oauthRoutesModule.default)).toHaveBeenCalledWith(expect.any(Object), undefined, oauthFlow);
+      expect(vi.mocked(oauthRoutesModule.default)).toHaveBeenCalledWith(
+        expect.any(Object),
+        undefined,
+        oauthFlow,
+        expect.any(Function),
+      );
       expect(vi.mocked(oauthRoutesModule.createBackendOAuthDashboardProvider)).toHaveBeenCalledWith(
         expect.any(Object),
         undefined,

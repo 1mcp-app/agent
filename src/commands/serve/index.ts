@@ -124,6 +124,11 @@ export const serverOptions = {
     describe: 'Enable authentication (OAuth 2.1)',
     type: 'boolean' as const,
   },
+  'allow-unauthenticated-network': {
+    describe: 'Acknowledge unauthenticated HTTP access on a non-loopback host',
+    type: 'boolean' as const,
+    default: false,
+  },
   'enable-scope-validation': {
     describe: 'Enable tag-based scope validation',
     type: 'boolean' as const,
@@ -358,6 +363,7 @@ export function setupServeCommand(yargs: Argv): Argv {
           [
             'credential-store',
             'enable-auth',
+            'allow-unauthenticated-network',
             'enable-scope-validation',
             'enable-enhanced-security',
             'rate-limit-window',

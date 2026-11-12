@@ -37,6 +37,9 @@ export function createOAuthRoutes(
   oauthProvider: SDKOAuthServerProvider,
   loadingManager?: McpLoadingManager,
   oauthFlow: OAuthAuthorizationFlow = createBackendOAuthAuthorizationFlow(oauthProvider, loadingManager),
+  consentGuard: RequestHandler = (_req, res) => {
+    res.status(403).json({ error: 'admin_session_required' });
+  },
 ): Router {
   const router: Router = Router();
 
@@ -207,7 +210,7 @@ export function createOAuthRoutes(
     }
   };
 
-  router.post('/consent', sensitiveOperationLimiter, consentHandler);
+  router.post('/consent', sensitiveOperationLimiter, consentGuard, consentHandler);
 
   return router;
 }

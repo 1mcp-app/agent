@@ -16,6 +16,8 @@ const PUBLIC_FAILURES = {
     'Runtime restart aborted at the drain deadline. The old runtime was asked to resume admission. Inspect serve --status with the selected --config-dir. Allow more time with --drain-timeout, or interrupt unfinished calls using serve --restart --on-drain-timeout restart. Calls will not be replayed.',
   transport: 'Background runtime requires HTTP transport.',
   configuration: 'Runtime backend configuration is invalid; correct the selected Runtime Scope before restarting.',
+  'network-security':
+    'Unauthenticated HTTP on a non-loopback host requires --allow-unauthenticated-network or --enable-auth. Use a loopback host for local-only access.',
 } as const;
 Object.freeze(PUBLIC_FAILURES);
 type LifecycleFailureCode = keyof typeof PUBLIC_FAILURES;

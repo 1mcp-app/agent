@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { configureProductTelemetryBootstrap } from '@src/config/productTelemetryBootstrap.js';
 import { loadRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
-import { MCP_SERVER_VERSION } from '@src/constants.js';
+import { HOST, MCP_SERVER_VERSION } from '@src/constants.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import {
   runBackgroundRuntimeSupervisor,
@@ -70,7 +70,7 @@ import type { ServeOptions } from './serve.js';
 import { defaultBackgroundLogFile, resolveSelfInvocation } from './serveBackground.js';
 import { markServeLifecycleFailure } from './serveLifecycleError.js';
 import { parseInternalToolsList } from './serveOptions.js';
-import { resolveTemplateContextTrust } from './templateContextTrust.js';
+import { resolveTemplateContextTrust, validateUnauthenticatedNetwork } from './templateContextTrust.js';
 
 const activationSchema = z.object({
   type: z.literal('runtime-activated'),
@@ -175,12 +175,25 @@ function prepare(
   });
   const effective = { ...options, ...prepared.effectiveOptions };
   const app = prepared.snapshot.appConfig;
-  if ((effective.transport ?? app.transport) === 'stdio')
+  const transport = effective.transport ?? app.transport ?? 'http';
+  if (transport === 'stdio')
     throw markServeLifecycleFailure('transport', new Error('Background runtime requires HTTP transport'));
+  const host = effective.host ?? app.host ?? HOST;
+  const authEnabled = effective['enable-auth'] ?? effective.auth ?? app.auth?.enabled ?? false;
+  try {
+    validateUnauthenticatedNetwork({
+      authEnabled,
+      host,
+      transport,
+      allowUnauthenticatedNetwork: effective['allow-unauthenticated-network'] ?? false,
+    });
+  } catch (error) {
+    throw markServeLifecycleFailure('network-security', error);
+  }
   resolveTemplateContextTrust({
     cliTrust: effective['template-context-trust'],
     configTrust: app.templateContext?.trust,
-    host: effective.host ?? app.host ?? '127.0.0.1',
+    host,
     confirmUntrusted: effective['confirm-untrusted-template-context'] ?? false,
     transport: 'http',
   });

@@ -33,6 +33,7 @@ describe('setupServeCommand', () => {
     );
     expect(serveCommandMock).toHaveBeenCalledTimes(1);
     expect(serveCommandMock.mock.calls[0]?.[0]).not.toHaveProperty('transport');
+    expect(serveCommandMock.mock.calls[0]?.[0]).toHaveProperty('allow-unauthenticated-network', false);
   });
 
   it.each([
@@ -91,6 +92,21 @@ describe('setupServeCommand', () => {
 
     expect(configureGlobalLoggerMock).toHaveBeenCalledWith(expect.any(Object), 'stdio');
     expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ transport: 'stdio' }));
+  });
+
+  it('passes the unauthenticated network acknowledgement from CLI and environment', async () => {
+    await setupServeCommand(yargs([]).exitProcess(false).help(false).version(false)).parseAsync([
+      'serve',
+      '--allow-unauthenticated-network',
+    ]);
+    expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ 'allow-unauthenticated-network': true }));
+
+    vi.clearAllMocks();
+    vi.stubEnv('ONE_MCP_ALLOW_UNAUTHENTICATED_NETWORK', 'true');
+    await setupServeCommand(yargs([]).env('ONE_MCP').exitProcess(false).help(false).version(false)).parseAsync([
+      'serve',
+    ]);
+    expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ 'allow-unauthenticated-network': true }));
   });
 
   it('passes preset as a yargs option for ONE_MCP_PRESET env parsing', async () => {

@@ -61,12 +61,15 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 ### 安全
 
 - **`--enable-auth`**：为运行时启用基于 OAuth 的认证。
+- **`--allow-unauthenticated-network`**：当绑定到非回环地址时，显式确认 HTTP 服务未启用认证。仅在未启用认证时必需；启用 `--enable-auth` 或绑定到回环地址可免于确认。也可设置环境变量 `ONE_MCP_ALLOW_UNAUTHENTICATED_NETWORK=true`。
 - **`--enable-enhanced-security`**：启用额外的安全中间件。
 - **`--trust-proxy <config>`**：配置受信任反向代理行为。
 - **`--template-context-trust <verified|disabled|legacy>`**：控制请求上下文能否渲染模板服务器，默认值为 `verified`。
 - **`--confirm-untrusted-template-context`**：HTTP 绑定到非回环地址并使用 `legacy` 时必须显式提供。
 
 `verified` 会继续为第一方本地 `run`、`inspect`、`wait` 和 `proxy` 客户端提供零配置模板渲染。未签名的远程或第三方客户端仍可连接并使用静态服务器，但其上下文不能影响模板的 `command`、`args`、`cwd` 或 `env`。`legacy` 会恢复历史上的未验证行为，只应作为临时兼容模式使用。
+
+默认情况下，未启用认证的 HTTP 服务只能绑定到回环地址。若有意进行未认证的网络部署（包括由反向代理保护的部署），请传入 `--allow-unauthenticated-network`，或设置 `ONE_MCP_ALLOW_UNAUTHENTICATED_NETWORK=true`。官方 Compose 文件会将发布端口绑定到宿主机回环地址。
 
 ### 运行时行为
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isLoopbackHost, resolveTemplateContextTrust } from './templateContextTrust.js';
+import { isLoopbackHost, resolveTemplateContextTrust, validateUnauthenticatedNetwork } from './templateContextTrust.js';
 
 describe('serve template context trust', () => {
   it('uses CLI over TOML and defaults to verified', () => {
@@ -47,5 +47,20 @@ describe('serve template context trust', () => {
     expect(isLoopbackHost('127.1.2.3')).toBe(true);
     expect(isLoopbackHost('[::1]')).toBe(true);
     expect(isLoopbackHost('192.168.1.10')).toBe(false);
+  });
+
+  it('requires acknowledgement for unauthenticated non-loopback HTTP only', () => {
+    const base = {
+      authEnabled: false,
+      host: '0.0.0.0',
+      transport: 'http',
+      allowUnauthenticatedNetwork: false,
+    };
+
+    expect(() => validateUnauthenticatedNetwork(base)).toThrow(/--allow-unauthenticated-network/);
+    expect(() => validateUnauthenticatedNetwork({ ...base, allowUnauthenticatedNetwork: true })).not.toThrow();
+    expect(() => validateUnauthenticatedNetwork({ ...base, host: 'localhost' })).not.toThrow();
+    expect(() => validateUnauthenticatedNetwork({ ...base, authEnabled: true })).not.toThrow();
+    expect(() => validateUnauthenticatedNetwork({ ...base, transport: 'stdio' })).not.toThrow();
   });
 });
