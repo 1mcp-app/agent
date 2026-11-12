@@ -12,6 +12,7 @@ import {
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { releaseSubscriptionOwner, reserveSubscriptionOwner } from '@src/core/server/sessionAdmission.js';
 import { ClientStatus, type InboundConnection, ServerStatus } from '@src/core/types/index.js';
 import {
   PreparationConfigurationError,
@@ -43,7 +44,6 @@ const MAX_URI_BYTES = 8192;
 const MAX_PENDING_UPDATES = 64;
 const MAX_PENDING_BYTES = 1024 * 1024;
 let watchCount = 0;
-let ownerCount = 0;
 let setupCount = 0;
 let pendingUpdates = 0;
 let pendingBytes = 0;
@@ -259,7 +259,7 @@ export async function cleanupOwnedResources(inbound: InboundConnection): Promise
 async function cleanupOwner(owner: Owner): Promise<void> {
   if (!owner || owner.closed) return;
   owner.closed = true;
-  ownerCount--;
+  releaseSubscriptionOwner();
   owner.abort.abort();
   clearInterval(owner.monitor);
   owner.monitor = undefined;
@@ -298,8 +298,7 @@ function getOwner(connections: LegacyOutboundConnections, inbound: InboundConnec
   let owner = byBinding.get(bindingId ?? '');
   if (!owner) {
     const existingOwner = byBinding.values().next().value as Owner | undefined;
-    if (ownerCount >= MAX_PROCESS_WATCHES) throw new Error('Subscription owner admission limit exceeded');
-    ownerCount++;
+    reserveSubscriptionOwner();
     owner = {
       inbound,
       bindingId,

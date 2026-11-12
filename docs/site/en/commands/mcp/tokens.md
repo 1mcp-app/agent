@@ -14,12 +14,12 @@ head:
 
 Estimate MCP token usage for server capabilities by connecting to servers and analyzing their tools, resources, and prompts.
 
-For a complete overview of server management, see the **[Server Management Guide](../../guide/essentials/server-management)**.
+For a complete overview of server management, see the **[Server Management Guide](/guide/essentials/server-management)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent mcp tokens [options]
+1mcp mcp tokens [options]
 ```
 
 ## Options
@@ -62,28 +62,28 @@ The command uses tiktoken for accurate tokenization based on the specified model
 
 ```bash
 # Estimate tokens for all MCP servers using default model (gpt-4o)
-npx -y @1mcp/agent mcp tokens
+1mcp mcp tokens
 
 # Use a different model for token estimation
-npx -y @1mcp/agent mcp tokens --model gpt-3.5-turbo
+1mcp mcp tokens --model gpt-3.5-turbo
 
 # Use a preset for server filtering
-npx -y @1mcp/agent mcp tokens --preset development
+1mcp mcp tokens --preset development
 
 # Filter servers by tags and show summary format
-npx -y @1mcp/agent mcp tokens --tag-filter="network or filesystem" --format=summary
+1mcp mcp tokens --tag-filter="network or filesystem" --format=summary
 
 # Export detailed analysis as JSON for programmatic use
-npx -y @1mcp/agent mcp tokens --format=json > token-analysis.json
+1mcp mcp tokens --format=json > token-analysis.json
 
 # Complex tag filtering with specific model
-npx -y @1mcp/agent mcp tokens --model=o1 --tag-filter="(web+api)-test" --format=table
+1mcp mcp tokens --model=o1 --tag-filter="(web+api)-test" --format=table
 
 # Show server logs and connection details for debugging
-npx -y @1mcp/agent mcp tokens --verbose
+1mcp mcp tokens --verbose
 
 # Use custom config file
-npx -y @1mcp/agent mcp tokens --config ~/my-mcp-config.json
+1mcp mcp tokens --config ~/my-mcp-config.json
 ```
 
 ## Output Formats
@@ -150,6 +150,6 @@ If an invalid model is specified, the command automatically falls back to `gpt-4
 
 ## See Also
 
-- **[Server Management Guide](../../guide/essentials/server-management)**
-- **[mcp status](./status)** - Check server connectivity
-- **[mcp list](./list)** - List configured servers
+- **[Server Management Guide](/guide/essentials/server-management)**
+- **[mcp status](/commands/mcp/status)** - Check server connectivity
+- **[mcp list](/commands/mcp/list)** - List configured servers

@@ -246,6 +246,7 @@ describe('ExpressServer', () => {
         return undefined;
       }),
       getSessionStoragePath: vi.fn(() => '/tmp/sessions'),
+      getSessionTtlMinutes: vi.fn(() => 1440),
       isEnhancedSecurityEnabled: vi.fn(() => false),
       getTrustProxy: vi.fn(() => 'loopback'),
       getConfig: vi.fn(() => ({ host: 'localhost', port: 3050 })),

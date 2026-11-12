@@ -106,6 +106,7 @@ export interface GlobalTransportConfig {
 export interface ApplicationConfig {
   readonly preparation?: Partial<z.infer<typeof PreparationOptionsSchema>>;
   readonly transport?: 'http' | 'sse' | 'stdio';
+  readonly inboundHttpEra?: 'dual' | 'legacy-only';
   readonly port?: number;
   readonly host?: string;
   /** @deprecated Use `logging.level`. Kept as an alias for backward compatibility. */
@@ -410,6 +411,10 @@ export const transportConfigSchema = z.object({
 export const applicationConfigSchema = z.object({
   preparation: PreparationOptionsSchema.partial().optional(),
   transport: z.enum(['http', 'sse', 'stdio']).optional().describe('Transport type for the 1MCP server'),
+  inboundHttpEra: z
+    .enum(['dual', 'legacy-only'])
+    .optional()
+    .describe('Inbound HTTP protocol eras; defaults to dual and does not change upstream protocolVersion'),
   port: z.number().int().min(1).max(65535).optional().describe('HTTP port to listen on'),
   host: z.string().optional().describe('HTTP host to listen on'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional().describe('Deprecated: use logging.level'),

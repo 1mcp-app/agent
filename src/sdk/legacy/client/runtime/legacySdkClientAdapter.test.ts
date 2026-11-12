@@ -279,7 +279,7 @@ describe('LegacySdkClientAdapter', () => {
       expect.objectContaining({ code: 401, message: expect.stringContaining('Server returned 401') }),
     );
 
-    expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+    expect(invalidateCredentials).not.toHaveBeenCalled();
     expect(staleClient.close).toHaveBeenCalledOnce();
     expect(recreateHttpTransport).toHaveBeenCalledWith(staleTransport, 'oauth-server');
     expect(getLegacySdkTransport(adapter)).toBe(freshTransport);
@@ -317,7 +317,7 @@ describe('LegacySdkClientAdapter', () => {
       adapter.request({ id: 'request-6b' as never, method: 'tools/list' }),
     ]);
 
-    expect(invalidateCredentials).toHaveBeenCalledOnce();
+    expect(invalidateCredentials).not.toHaveBeenCalled();
     expect(client.close).toHaveBeenCalledOnce();
     expect(recreateHttpTransport).toHaveBeenCalledOnce();
   });

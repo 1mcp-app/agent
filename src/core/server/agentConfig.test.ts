@@ -60,6 +60,7 @@ describe('AgentConfigManager', () => {
       expect(config).toEqual({
         host: 'localhost',
         port: 3050,
+        inboundHttpEra: 'dual',
         trustProxy: 'loopback',
         admin: {
           enabled: true,

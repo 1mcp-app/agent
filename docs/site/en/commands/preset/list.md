@@ -14,12 +14,12 @@ head:
 
 Display all available presets in a formatted table.
 
-For a complete overview of preset management, see the **[Preset Commands Overview](./index)**.
+For a complete overview of preset management, see the **[Preset Commands Overview](/commands/preset/)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent preset list
+1mcp preset list
 ```
 
 ## Global Options
@@ -53,7 +53,7 @@ The command shows:
 
 ```bash
 # List all presets
-npx -y @1mcp/agent preset list
+1mcp preset list
 ```
 
 ### Example Output
@@ -115,16 +115,16 @@ The list command works well with other preset commands:
 
 ```bash
 # 1. List all presets to see what's available
-npx -y @1mcp/agent preset list
+1mcp preset list
 
 # 2. Show details for a specific preset
-npx -y @1mcp/agent preset show production
+1mcp preset show production
 
 # 3. Test a preset to see matching servers
-npx -y @1mcp/agent preset test production
+1mcp preset test production
 
 # 4. Generate URL for client configuration
-npx -y @1mcp/agent preset url production
+1mcp preset url production
 ```
 
 ## Usage Tips
@@ -135,7 +135,7 @@ npx -y @1mcp/agent preset url production
 
 ## See Also
 
-- **[preset show](./show)** - Show detailed preset information (full queries, matching servers)
-- **[preset create](./create)** - Create new presets from command line
-- **[Smart Interactive Mode](./)** - Create presets with interactive TUI
-- **[preset delete](./delete)** - Remove unused presets
+- **[preset show](/commands/preset/show)** - Show detailed preset information (full queries, matching servers)
+- **[preset create](/commands/preset/create)** - Create new presets from command line
+- **[Smart Interactive Mode](/commands/preset/)** - Create presets with interactive TUI
+- **[preset delete](/commands/preset/delete)** - Remove unused presets

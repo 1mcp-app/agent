@@ -22,7 +22,7 @@ The 1MCP Agent uses a dynamic, SDK-based approach to OAuth 2.1 authentication. I
 To enable authentication, start the agent with the `--enable-auth` flag:
 
 ```bash
-npx -y @1mcp/agent --config mcp.json --enable-auth
+1mcp --config mcp.json --enable-auth
 ```
 
 This enables OAuth 2.1 bearer protection for MCP transport and API requests. It does not make every HTTP route require a bearer token: health routes and OAuth discovery/authorization endpoints remain intentionally reachable so clients and operators can discover the service and complete OAuth.
@@ -69,7 +69,7 @@ The agent supports tag-based scope validation, which allows you to control acces
 To enable tag-based scope validation, use the `--enable-scope-validation` flag:
 
 ```bash
-npx -y @1mcp/agent --config mcp.json --enable-auth --enable-scope-validation
+1mcp --config mcp.json --enable-auth --enable-scope-validation
 ```
 
 ## Configuration

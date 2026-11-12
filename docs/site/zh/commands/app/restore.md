@@ -7,12 +7,12 @@ description: 从整合前的备份恢复桌面应用 MCP 配置。
 
 使用备份文件将应用程序恢复到整合前的状态。
 
-有关整合和恢复工作流程的完整概述，请参阅 **[应用程序整合指南](../../guide/integrations/app-consolidation)**。
+有关整合和恢复工作流程的完整概述，请参阅 **[应用程序整合指南](/zh/guide/integrations/app-consolidation)**。
 
 ## 摘要
 
 ```bash
-npx -y @1mcp/agent app restore [app-name] [options]
+1mcp app restore [app-name] [options]
 ```
 
 ## 参数
@@ -38,15 +38,15 @@ npx -y @1mcp/agent app restore [app-name] [options]
 
 ```bash
 # 恢复 Claude Desktop 的最新备份
-npx -y @1mcp/agent app restore claude-desktop
+1mcp app restore claude-desktop
 
 # 恢复所有已整合的应用程序
-npx -y @1mcp/agent app restore --all
+1mcp app restore --all
 
 # 列出 Cursor 的可用备份
-npx -y @1mcp/agent app restore cursor --list
+1mcp app restore cursor --list
 ```
 
 ## 另请参阅
 
-- **[应用程序整合指南](../../guide/integrations/app-consolidation#backup-and-restore-system)**
+- **[应用程序整合指南](/zh/guide/integrations/app-consolidation#备份和恢复)**

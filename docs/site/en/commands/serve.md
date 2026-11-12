@@ -369,3 +369,23 @@ Direct `serve --transport stdio` remains deprecated. For stdio-compatible client
 When a backend exits, ordinary client connections remain responsive: ping and healthy backends continue working, while unavailable tools, resources, and prompts leave the catalog. In-flight requests use the existing bounded failure policy and are not replayed. If configured supervision successfully initializes a replacement backend, its capabilities and catalog change notifications become available on the existing client connection. List-change delivery follows the existing notification settings and visibility policy.
 
 Resource subscriptions for the failed backend are lost; healthy backend watches remain active. After recovery, clients must explicitly subscribe again. There is no automatic resubscription or replay of missed events. Explicit modern subscription filters still fail closed when their acknowledged coverage is lost.
+
+## Legacy-only inbound HTTP compatibility
+
+`--inbound-http-era <dual|legacy-only>` controls the protocol eras offered by this runtime's HTTP MCP endpoint. The default is `dual`. Use `legacy-only` for stateful legacy backends that return process-local handles:
+
+```bash
+1mcp serve --inbound-http-era legacy-only
+```
+
+The equivalent environment variable is `ONE_MCP_INBOUND_HTTP_ERA=legacy-only`. In `config.toml`, set the top-level key `inboundHttpEra = "legacy-only"`. Explicit CLI flags override environment variables, which override persisted configuration. Restart the runtime to apply a change. An invalid persisted `inboundHttpEra` prevents startup, even when a CLI or environment override is supplied, so valid authentication settings cannot be discarded.
+
+This is endpoint-wide: automatic SDK negotiation falls back to retained legacy sessions, and modern-pinned clients receive an unsupported-protocol-version error. Modern inbound features are unavailable to every client of that endpoint. Authentication and unrelated failures retain their normal errors. Each upstream's outbound `protocolVersion` remains independent, including modern outbound support.
+
+To limit the tradeoff to one client, pin that client's inbound connection to legacy instead. With `@modelcontextprotocol/client`, use:
+
+```ts
+const client = new Client({ name: 'my-client', version: '1.0.0' }, { versionNegotiation: { mode: 'legacy' } });
+```
+
+Modern-to-legacy backend state continuity remains unresolved. Modern calls may use a new private legacy peer per operation to preserve interaction isolation, so a handle returned by one call may be unavailable to the next. Legacy-only mode uses the existing retained legacy path; it does not add persistent modern affinity or share private interaction state between callers.

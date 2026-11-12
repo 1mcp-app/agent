@@ -14,7 +14,7 @@ head:
 ## 摘要
 
 ```bash
-npx -y @1mcp/agent mcp restart <name> [options]
+1mcp mcp restart <name> [options]
 ```
 
 ## 参数
@@ -46,16 +46,16 @@ npx -y @1mcp/agent mcp restart <name> [options]
 
 ```bash
 # 在当前运行时目标上下文中重启静态后端
-npx -y @1mcp/agent mcp restart filesystem
+1mcp mcp restart filesystem
 
 # 使用无歧义的 ID 前缀重启一个模板实例
-npx -y @1mcp/agent mcp restart github --instance 6f44b6a1c2d3
+1mcp mcp restart github --instance 6f44b6a1c2d3
 
 # 重启模板的全部活动实例
-npx -y @1mcp/agent mcp restart github --all-instances
+1mcp mcp restart github --all-instances
 
 # 选择另一个运行时目标上下文并输出 JSON
-npx -y @1mcp/agent mcp restart filesystem --context staging --json
+1mcp mcp restart filesystem --context staging --json
 ```
 
 ## 另请参阅

@@ -14,12 +14,12 @@ head:
 
 Edit existing preset interactively with visual server selection.
 
-For a complete overview of preset management, see the **[Preset Commands Overview](./index)**.
+For a complete overview of preset management, see the **[Preset Commands Overview](/commands/preset/)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent preset edit <name> [options]
+1mcp preset edit <name> [options]
 ```
 
 ## Arguments
@@ -68,23 +68,23 @@ The `preset edit` command provides an interactive Terminal User Interface (TUI) 
 
 ```bash
 # Edit development preset
-npx -y @1mcp/agent preset edit development
+1mcp preset edit development
 
 # Edit production preset
-npx -y @1mcp/agent preset edit production
+1mcp preset edit production
 ```
 
 ### Edit with Description Update
 
 ```bash
 # Edit preset and update description
-npx -y @1mcp/agent preset edit staging --description "Updated staging environment with monitoring"
+1mcp preset edit staging --description "Updated staging environment with monitoring"
 ```
 
 ### Example Output
 
 ```bash
-npx -y @1mcp/agent preset edit development
+1mcp preset edit development
 
 📁 Config directory: /Users/user/.config/1mcp
 
@@ -130,7 +130,7 @@ The interactive mode provides:
 ### Preset Not Found
 
 ```bash
-npx -y @1mcp/agent preset edit nonexistent
+1mcp preset edit nonexistent
 # Error: Preset 'nonexistent' not found
 ```
 
@@ -139,7 +139,7 @@ npx -y @1mcp/agent preset edit nonexistent
 If the preset configuration is corrupted or inaccessible:
 
 ```bash
-npx -y @1mcp/agent preset edit broken-preset
+1mcp preset edit broken-preset
 # Error: Failed to load preset 'broken-preset'
 ```
 
@@ -149,25 +149,25 @@ npx -y @1mcp/agent preset edit broken-preset
 
 ```bash
 # 1. Review current preset
-npx -y @1mcp/agent preset show development
+1mcp preset show development
 
 # 2. Edit preset to add new servers
-npx -y @1mcp/agent preset edit development
+1mcp preset edit development
 
 # 3. Test updated preset
-npx -y @1mcp/agent preset test development
+1mcp preset test development
 
 # 4. Get updated URL for clients
-npx -y @1mcp/agent preset url development
+1mcp preset url development
 ```
 
 ### Team Environment Management
 
 ```bash
 # Update team presets when server configurations change
-npx -y @1mcp/agent preset edit team-dev
-npx -y @1mcp/agent preset edit team-prod
-npx -y @1mcp/agent preset edit team-staging
+1mcp preset edit team-dev
+1mcp preset edit team-prod
+1mcp preset edit team-staging
 ```
 
 ## Comparison with Other Commands
@@ -188,11 +188,11 @@ npx -y @1mcp/agent preset edit team-staging
 
 ```bash
 # Edit preset to use AND logic instead of OR
-npx -y @1mcp/agent preset edit production
+1mcp preset edit production
 # In interactive mode: switch strategy from OR to AND logic
 
 # Edit preset to exclude experimental servers
-npx -y @1mcp/agent preset edit development
+1mcp preset edit development
 # In interactive mode: select Advanced strategy and add NOT conditions
 ```
 
@@ -202,7 +202,7 @@ npx -y @1mcp/agent preset edit development
 # Update multiple presets with similar changes
 for preset in dev staging prod; do
   echo "Editing $preset..."
-  npx -y @1mcp/agent preset edit $preset
+  1mcp preset edit $preset
 done
 ```
 
@@ -231,8 +231,8 @@ done
 
 ## See Also
 
-- **[Smart Interactive Mode](./)** - Auto-detects existing presets and offers editing options
-- **[preset show](./show)** - Show detailed preset information before editing
-- **[preset test](./test)** - Test preset after making changes
-- **[preset create](./create)** - Create new presets
-- **[preset list](./list)** - List all available presets
+- **[Smart Interactive Mode](/commands/preset/)** - Auto-detects existing presets and offers editing options
+- **[preset show](/commands/preset/show)** - Show detailed preset information before editing
+- **[preset test](/commands/preset/test)** - Test preset after making changes
+- **[preset create](/commands/preset/create)** - Create new presets
+- **[preset list](/commands/preset/list)** - List all available presets

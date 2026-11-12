@@ -159,6 +159,22 @@ describe('ConfigManager (Integration)', () => {
   });
 
   describe('error handling integration', () => {
+    it('rejects an invalid inbound era on reload before replacing active configuration', async () => {
+      const active = configManager.getTransportConfig();
+      await fsPromises.writeFile(
+        join(tempConfigDir, 'config.toml'),
+        'inboundHttpEra = "legacy-only"\n[auth]\nenabled = true',
+      );
+      expect(configManager.getAppConfig().auth?.enabled).toBe(true);
+      await fsPromises.writeFile(
+        join(tempConfigDir, 'config.toml'),
+        'inboundHttpEra = "legacy"\n[auth]\nenabled = true',
+      );
+      await fsPromises.writeFile(configFilePath, '{"mcpServers":{"replacement":{"command":"node"}}}');
+      await expect(configManager.reloadConfig()).rejects.toThrow();
+      expect(configManager.getTransportConfig()).toEqual(active);
+    });
+
     it('should throw on invalid JSON', async () => {
       await fsPromises.writeFile(configFilePath, 'invalid json content');
 

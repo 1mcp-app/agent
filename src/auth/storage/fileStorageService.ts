@@ -574,13 +574,11 @@ export class FileStorageService {
 
     try {
       const filePath = this.getFilePath(filePrefix, id);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        logger.debug('fileStorageService.deleted.data.file.8587c119');
-        return true;
-      }
-      return false;
+      fs.unlinkSync(filePath);
+      logger.debug('fileStorageService.deleted.data.file.8587c119');
+      return true;
     } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
       logger.error('fileStorageService.failed.to.delete.data.for.391c9b0b', { error: error });
       throw error;
     }

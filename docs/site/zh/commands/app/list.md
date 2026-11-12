@@ -7,12 +7,12 @@ description: 列出支持 MCP 整合的桌面应用及其配置能力。
 
 列出应用程序整合功能支持的所有桌面应用程序。
 
-有关应用程序及其状态的完整列表，请参阅 **[应用程序整合指南](../../guide/integrations/app-consolidation#supported-applications)**。
+有关应用程序及其状态的完整列表，请参阅 **[应用程序整合指南](/zh/guide/integrations/app-consolidation#受支持的应用)**。
 
 ## 摘要
 
 ```bash
-npx -y @1mcp/agent app list [options]
+1mcp app list [options]
 ```
 
 ## 全局选项
@@ -34,12 +34,12 @@ npx -y @1mcp/agent app list [options]
 
 ```bash
 # 列出所有支持的应用程序
-npx -y @1mcp/agent app list
+1mcp app list
 
 # 仅列出可以自动配置的应用程序
-npx -y @1mcp/agent app list --configurable-only
+1mcp app list --configurable-only
 ```
 
 ## 另请参阅
 
-- **[应用程序整合指南](../../guide/integrations/app-consolidation)**
+- **[应用程序整合指南](/zh/guide/integrations/app-consolidation)**

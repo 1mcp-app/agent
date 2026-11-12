@@ -7,12 +7,12 @@ description: 为命名预设生成带筛选参数的 MCP 客户端 URL。
 
 为预设生成客户端 URL。
 
-有关预设管理的完整概述，请参阅 **[预设命令概述](./index)**。
+有关预设管理的完整概述，请参阅 **[预设命令概述](/zh/commands/preset/)**。
 
 ## 概要
 
 ```bash
-npx -y @1mcp/agent preset url <name>
+1mcp preset url <name>
 ```
 
 ## 参数
@@ -40,11 +40,11 @@ http://host:port/mcp?preset=name
 
 ```bash
 # 为开发预设生成 URL
-npx -y @1mcp/agent preset url development
+1mcp preset url development
 # Output: http://127.0.0.1:3050/mcp?preset=development
 
 # 为生产预设生成 URL
-npx -y @1mcp/agent preset url production
+1mcp preset url production
 # Output: http://127.0.0.1:3050/mcp?preset=production
 ```
 
@@ -58,8 +58,8 @@ npx -y @1mcp/agent preset url production
 {
   "mcpServers": {
     "1mcp-development": {
-      "command": "npx",
-      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "development"]
+      "command": "1mcp",
+      "args": ["proxy", "--preset", "development"]
     }
   }
 }
@@ -83,7 +83,7 @@ npx -y @1mcp/agent preset url production
 
 ```bash
 # 获取开发预设 URL
-DEV_URL=$(npx -y @1mcp/agent preset url development)
+DEV_URL=$(1mcp preset url development)
 echo "Configure your development client with: $DEV_URL"
 ```
 
@@ -91,9 +91,9 @@ echo "Configure your development client with: $DEV_URL"
 
 ```bash
 # 与团队成员共享预设 URL
-echo "Development: $(npx -y @1mcp/agent preset url team-dev)"
-echo "Staging: $(npx -y @1mcp/agent preset url team-staging)"
-echo "Production: $(npx -y @1mcp/agent preset url team-prod)"
+echo "Development: $(1mcp preset url team-dev)"
+echo "Staging: $(1mcp preset url team-staging)"
+echo "Production: $(1mcp preset url team-prod)"
 ```
 
 ### 自动化脚本
@@ -102,8 +102,8 @@ echo "Production: $(npx -y @1mcp/agent preset url team-prod)"
 #!/bin/bash
 # 使用当前预设 URL 更新客户端配置
 
-DEV_URL=$(npx -y @1mcp/agent preset url development)
-PROD_URL=$(npx -y @1mcp/agent preset url production)
+DEV_URL=$(1mcp preset url development)
+PROD_URL=$(1mcp preset url production)
 
 # 更新配置文件
 sed -i "s|preset=development|${DEV_URL}|g" config/dev.json
@@ -140,7 +140,7 @@ http://127.0.0.1:3050/mcp
 ### 预设未找到
 
 ```bash
-npx -y @1mcp/agent preset url nonexistent
+1mcp preset url nonexistent
 # Error: Preset 'nonexistent' not found
 ```
 
@@ -162,13 +162,13 @@ npx -y @1mcp/agent preset url nonexistent
 
 ```bash
 # 1. 创建或验证预设存在
-npx -y @1mcp/agent preset list
+1mcp preset list
 
 # 2. 为客户端配置生成 URL
-npx -y @1mcp/agent preset url development
+1mcp preset url development
 
 # 3. 测试预设以验证服务器匹配
-npx -y @1mcp/agent preset test development
+1mcp preset test development
 
 # 4. 使用生成的 URL 配置您的 MCP 客户端
 ```
@@ -182,7 +182,7 @@ npx -y @1mcp/agent preset test development
 ```bash
 # URL 将反映您服务器的实际配置
 # 例如，如果在端口 3052 上运行：
-npx -y @1mcp/agent preset url development
+1mcp preset url development
 # Output: http://127.0.0.1:3052/mcp?preset=development
 ```
 
@@ -191,13 +191,13 @@ npx -y @1mcp/agent preset url development
 ```bash
 # 为不同环境生成 URL
 for env in development staging production; do
-  echo "$env: $(npx -y @1mcp/agent preset url $env)"
+  echo "$env: $(1mcp preset url $env)"
 done
 ```
 
 ## 另请参阅
 
-- **[preset show](./show)** - 显示完整的预设详细信息，包括 URL
-- **[preset test](./test)** - 测试预设服务器匹配
-- **[preset create](./create)** - 创建新预设以生成 URL
-- **[preset list](./list)** - 列出所有可用的预设
+- **[preset show](/zh/commands/preset/show)** - 显示完整的预设详细信息，包括 URL
+- **[preset test](/zh/commands/preset/test)** - 测试预设服务器匹配
+- **[preset create](/zh/commands/preset/create)** - 创建新预设以生成 URL
+- **[preset list](/zh/commands/preset/list)** - 列出所有可用的预设

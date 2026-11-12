@@ -81,8 +81,8 @@ Use the proxy when `.1mcprc` selection is required. From the project root, creat
 ```toml
 # trusted project's .codex/config.toml
 [mcp_servers.1mcp]
-command = "npx"
-args = ["-y", "@1mcp/agent", "proxy", "--url", "http://localhost:3050/mcp"]
+command = "1mcp"
+args = ["proxy", "--url", "http://localhost:3050/mcp"]
 ```
 
 Start Codex from that project root so the proxy reads the matching `.1mcprc`. Do not add the direct HTTP entry as well.

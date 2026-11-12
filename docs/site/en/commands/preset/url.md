@@ -11,12 +11,12 @@ head:
 
 Generate the client URL for a preset.
 
-For a complete overview of preset management, see the **[Preset Commands Overview](./index)**.
+For a complete overview of preset management, see the **[Preset Commands Overview](/commands/preset/)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent preset url <name>
+1mcp preset url <name>
 ```
 
 ## Arguments
@@ -44,11 +44,11 @@ http://host:port/mcp?preset=name
 
 ```bash
 # Generate URL for development preset
-npx -y @1mcp/agent preset url development
+1mcp preset url development
 # Output: http://127.0.0.1:3050/mcp?preset=development
 
 # Generate URL for production preset
-npx -y @1mcp/agent preset url production
+1mcp preset url production
 # Output: http://127.0.0.1:3050/mcp?preset=production
 ```
 
@@ -62,8 +62,8 @@ Use the stdio proxy to connect Claude Desktop to a running 1MCP HTTP server and 
 {
   "mcpServers": {
     "1mcp-development": {
-      "command": "npx",
-      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "development"]
+      "command": "1mcp",
+      "args": ["proxy", "--preset", "development"]
     }
   }
 }
@@ -87,7 +87,7 @@ Use the stdio proxy to connect Claude Desktop to a running 1MCP HTTP server and 
 
 ```bash
 # Get development preset URL
-DEV_URL=$(npx -y @1mcp/agent preset url development)
+DEV_URL=$(1mcp preset url development)
 echo "Configure your development client with: $DEV_URL"
 ```
 
@@ -95,9 +95,9 @@ echo "Configure your development client with: $DEV_URL"
 
 ```bash
 # Share preset URLs with team members
-echo "Development: $(npx -y @1mcp/agent preset url team-dev)"
-echo "Staging: $(npx -y @1mcp/agent preset url team-staging)"
-echo "Production: $(npx -y @1mcp/agent preset url team-prod)"
+echo "Development: $(1mcp preset url team-dev)"
+echo "Staging: $(1mcp preset url team-staging)"
+echo "Production: $(1mcp preset url team-prod)"
 ```
 
 ### Automation Scripts
@@ -106,8 +106,8 @@ echo "Production: $(npx -y @1mcp/agent preset url team-prod)"
 #!/bin/bash
 # Update client configurations with current preset URLs
 
-DEV_URL=$(npx -y @1mcp/agent preset url development)
-PROD_URL=$(npx -y @1mcp/agent preset url production)
+DEV_URL=$(1mcp preset url development)
+PROD_URL=$(1mcp preset url production)
 
 # Update configuration files
 sed -i "s|preset=development|${DEV_URL}|g" config/dev.json
@@ -144,7 +144,7 @@ http://127.0.0.1:3050/mcp
 ### Preset Not Found
 
 ```bash
-npx -y @1mcp/agent preset url nonexistent
+1mcp preset url nonexistent
 # Error: Preset 'nonexistent' not found
 ```
 
@@ -166,13 +166,13 @@ Common usage patterns:
 
 ```bash
 # 1. Create or verify preset exists
-npx -y @1mcp/agent preset list
+1mcp preset list
 
 # 2. Generate URL for client configuration
-npx -y @1mcp/agent preset url development
+1mcp preset url development
 
 # 3. Test preset to verify server matching
-npx -y @1mcp/agent preset test development
+1mcp preset test development
 
 # 4. Configure your MCP client with the generated URL
 ```
@@ -186,7 +186,7 @@ If your 1MCP server runs on a different host/port:
 ```bash
 # The URL will reflect your server's actual configuration
 # For example, if running on port 3052:
-npx -y @1mcp/agent preset url development
+1mcp preset url development
 # Output: http://127.0.0.1:3052/mcp?preset=development
 ```
 
@@ -195,13 +195,13 @@ npx -y @1mcp/agent preset url development
 ```bash
 # Generate URLs for different environments
 for env in development staging production; do
-  echo "$env: $(npx -y @1mcp/agent preset url $env)"
+  echo "$env: $(1mcp preset url $env)"
 done
 ```
 
 ## See Also
 
-- **[preset show](./show)** - Show complete preset details including URL
-- **[preset test](./test)** - Test preset server matching
-- **[preset create](./create)** - Create new presets for URL generation
-- **[preset list](./list)** - List all available presets
+- **[preset show](/commands/preset/show)** - Show complete preset details including URL
+- **[preset test](/commands/preset/test)** - Test preset server matching
+- **[preset create](/commands/preset/create)** - Create new presets for URL generation
+- **[preset list](/commands/preset/list)** - List all available presets

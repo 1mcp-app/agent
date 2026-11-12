@@ -26,7 +26,7 @@ Reuse known tool schemas within the session, including across projects, when the
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent cli-setup (--codex | --claude) [options]
+1mcp cli-setup (--codex | --claude) [options]
 ```
 
 ## Description
@@ -106,19 +106,19 @@ An installation lock prevents concurrent writers. Interrupted upgrades retain a 
 ### Install Global Codex Setup
 
 ```bash
-npx -y @1mcp/agent cli-setup --codex
+1mcp cli-setup --codex
 ```
 
 ### Install Repo-Local Claude Setup
 
 ```bash
-npx -y @1mcp/agent cli-setup --claude --scope repo --repo-root .
+1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
 ### Install Both Global and Repo-Local Codex Setup
 
 ```bash
-npx -y @1mcp/agent cli-setup --codex --scope all
+1mcp cli-setup --codex --scope all
 ```
 
 ## Codex Follow-Up

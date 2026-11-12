@@ -14,7 +14,7 @@ Restarts a backend owned by a running 1MCP aggregated runtime.
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent mcp restart <name> [options]
+1mcp mcp restart <name> [options]
 ```
 
 ## Arguments
@@ -46,16 +46,16 @@ Manual restart clears the backend's automatic-restart attempt counter and starts
 
 ```bash
 # Restart a static backend in the current Runtime Target Context
-npx -y @1mcp/agent mcp restart filesystem
+1mcp mcp restart filesystem
 
 # Restart one template instance by an unambiguous ID prefix
-npx -y @1mcp/agent mcp restart github --instance 6f44b6a1c2d3
+1mcp mcp restart github --instance 6f44b6a1c2d3
 
 # Restart every active instance of a template
-npx -y @1mcp/agent mcp restart github --all-instances
+1mcp mcp restart github --all-instances
 
 # Select another Runtime Target Context and request JSON output
-npx -y @1mcp/agent mcp restart filesystem --context staging --json
+1mcp mcp restart filesystem --context staging --json
 ```
 
 ## See Also

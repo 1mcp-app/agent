@@ -1,9 +1,33 @@
+# 1MCP Application Configuration
 # Copy to config.toml in the selected 1MCP configuration directory.
-# Backend MCP servers belong in mcp.json, not this file.
-# CLI flags and ONE_MCP_* environment variables override these runtime settings.
+# Backend MCP servers and preparation integrations belong in mcp.json, not this file.
+# Active values are example choices, not a complete list of runtime defaults.
+# CLI arguments and ONE_MCP_* environment variables always take precedence over these values.
+# Changes to this file require a process restart to take effect.
+
+# Transport type: "http" | "sse" | "stdio"
+transport = "http"
+
+# HTTP port to listen on
+port = 3050
+
+# HTTP host to listen on
+host = "127.0.0.1"
+
+# Deprecated top-level aliases; prefer [logging] below.
+# logLevel = "info"
+# logFile = "/var/log/1mcp.log"
+
+[logging]
+# Log level: "debug" | "info" | "warn" | "error"
+level = "info"
+# Optional file logging and size-based rotation (bytes or a size such as "10m").
+# file = "/var/log/1mcp.log"
+# maxSize = "10m"
+# maxFiles = 5
 
 [auth]
-# Upstream OAuth credential storage: "file" (default) or "native".
+# Inbound and upstream OAuth credential storage: "file" (default) or "native".
 credentialStore = "file"
 # Native storage requires restart and the platform helper on PATH:
 # macOS: docker-credential-osxkeychain (unlocked Keychain)
@@ -11,12 +35,134 @@ credentialStore = "file"
 # Linux: docker-credential-secretservice (user D-Bus and unlocked Secret Service)
 # Docker Engine is not required. Native storage fails closed; no plaintext fallback.
 # Native startup migrates existing upstream credentials after verifying persistence.
-# This setting does not change inbound OAuth credentials or Admin sessions.
+# Admin sessions use separate storage.
 # Returning to file storage requires restart and fresh upstream authorization, or
 # a stopped-runtime `1mcp auth export-upstream-credentials` with explicit confirmation.
 # See https://docs.1mcp.app/guide/essentials/configuration
 
+# Enable OAuth 2.1 authentication
+enabled = false
+
+# Session TTL in minutes
+sessionTtl = 1440
+
+# Rate limit window in minutes
+rateLimitWindow = 15
+
+# Maximum requests per rate limit window
+rateLimitMax = 100
+
+# Trust proxy configuration for Express.js
+trustProxy = "loopback"
+
+# Enable tag-based scope validation
+# enableScopeValidation = false
+
+# Enable enhanced security middleware
+# enableEnhancedSecurity = false
+
 [asyncLoading]
+# Enable asynchronous MCP server loading
 enabled = true
+
+# Maximum concurrent backend loads
+maxConcurrentLoads = 5
+
+# Foreground retries after the initial attempt (0 = no retries)
+maxRetries = 3
+
+# Initial retry delay in milliseconds (0 = immediate finite retries)
+retryDelay = 2000
+
+# Deprecated compatibility options; accepted but do not affect readiness.
+# minServers = 1
+# timeout = 30000
+
+# Batch capability change notifications
 batchNotifications = true
+
+# Batch delay in milliseconds
 batchDelay = 250
+
+[asyncLoading.backgroundRetry]
+# Retry failed backends in the background
+enabled = true
+
+# Retry interval in milliseconds (minimum 1000)
+interval = 60000
+
+# Maximum failed backends processed per cycle
+maxServersPerCycle = 3
+
+[admin]
+# Enable Admin Console and CLI Admin Adapter HTTP surfaces.
+enabled = true
+
+[admin.rateLimit.login]
+windowSeconds = 900
+maxRequests = 30
+maxFailedAttempts = 5
+
+[admin.rateLimit.status]
+windowSeconds = 60
+maxRequests = 120
+
+[admin.rateLimit.sensitive]
+windowSeconds = 900
+maxRequests = 10
+
+[admin.audit]
+# Sanitized audit fact retention; idempotency retention remains fixed
+retentionDays = 30
+
+[health.rateLimit]
+windowSeconds = 300
+maxRequests = 200
+
+[templateSettings.pool]
+# Zero removes the per-template limit but not the mandatory global limit
+maxInstancesPerTemplate = 50
+maxTotalInstances = 100
+
+# Milliseconds; zero idle timeout makes an unused instance immediately eligible
+idleTimeout = 300000
+cleanupInterval = 30000
+
+[lazyLoading]
+# Opt in to stable meta-tool exposure for progressive discovery. When false
+# (the default), all tools are exposed directly.
+enabled = false
+
+# Deprecated compatibility option; accepted but ignored.
+# mode = "full"
+
+# Maximum tool schemas to cache
+# cacheMaxEntries = 1000
+
+# Include full tool catalog in initialize template
+# inlineCatalog = false
+
+[configReload]
+# Enable automatic mcp.json hot-reload
+enabled = true
+
+# Debounce delay in milliseconds
+debounce = 500
+
+[templateContext]
+# "verified" requires a runtime-signed context proof for template rendering.
+# "disabled" prevents contextual rendering; "legacy" allows unsigned context
+# and carries an injection risk. Prefer "verified".
+trust = "verified"
+
+[preparation]
+# Runtime job limits; these do not enable automatic backend preparation.
+# Maximum concurrent jobs and queued jobs.
+concurrency = 1
+queueCapacity = 16
+# How long a request waits for preparation, in milliseconds.
+requestWaitMs = 5000
+# Default job execution deadline, in milliseconds.
+executionDeadlineMs = 120000
+# Maximum retained preparation records.
+maxRecords = 1024

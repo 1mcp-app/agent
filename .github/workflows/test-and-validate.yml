@@ -167,7 +167,7 @@ jobs:
         if: matrix.shard == 4
         env:
           CI: true
-        run: pnpm test:e2e test/e2e/capability-catalog-eras.test.ts test/e2e/admin-spa-package.e2e.test.ts --maxWorkers=1 --retry=0 --reporter=minimal
+        run: pnpm test:e2e test/e2e/capability-catalog-eras.test.ts test/e2e/admin-spa-package.e2e.test.ts test/e2e/upstream-oauth-refresh.e2e.test.ts --maxWorkers=1 --retry=0 --reporter=minimal
 
   test-e2e-system:
     runs-on: ubuntu-latest

@@ -20,12 +20,12 @@ head:
 
 Lists all desktop applications supported by the app consolidation feature.
 
-For a complete list of applications and their status, see the **[App Consolidation Guide](../../guide/integrations/app-consolidation#supported-applications)**.
+For a complete list of applications and their status, see the **[App Consolidation Guide](/guide/integrations/app-consolidation#supported-applications)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent app list [options]
+1mcp app list [options]
 ```
 
 ## Global Options
@@ -47,12 +47,12 @@ This command supports all global options:
 
 ```bash
 # List all supported applications
-npx -y @1mcp/agent app list
+1mcp app list
 
 # List only apps that can be automatically configured
-npx -y @1mcp/agent app list --configurable-only
+1mcp app list --configurable-only
 ```
 
 ## See Also
 
-- **[App Consolidation Guide](../../guide/integrations/app-consolidation)**
+- **[App Consolidation Guide](/guide/integrations/app-consolidation)**

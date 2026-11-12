@@ -20,7 +20,7 @@ Manage authentication profiles for named Runtime Target Contexts.
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent auth <subcommand> [options]
+1mcp auth <subcommand> [options]
 ```
 
 ## Subcommands
@@ -38,13 +38,13 @@ npx -y @1mcp/agent auth <subcommand> [options]
 Save a bearer token so that `inspect`, `run`, and `instructions` can authenticate automatically.
 
 ```bash
-npx -y @1mcp/agent auth login [options]
+1mcp auth login [options]
 ```
 
 ### How token resolution works
 
 1. `--token` flag (explicit)
-2. Stdin pipe (`echo $TOKEN | npx -y @1mcp/agent auth login --context <name>`)
+2. Stdin pipe (`echo $TOKEN | 1mcp auth login --context <name>`)
 3. Auto-generated CLI token for localhost servers (when the server supports it)
 
 If the server has auth disabled, `login` exits early with a message — no token is stored.
@@ -59,14 +59,14 @@ If the server has auth disabled, `login` exits early with a message — no token
 
 ```bash
 # Save token for the local runtime context
-npx -y @1mcp/agent auth login --context local --token mytoken
+1mcp auth login --context local --token mytoken
 
 # Pipe token from a secret manager
-op read "op://vault/1mcp/token" | npx -y @1mcp/agent auth login --context prod
+op read "op://vault/1mcp/token" | 1mcp auth login --context prod
 
 # Save token for a named remote target
-npx -y @1mcp/agent target add prod https://1mcp.example.com
-npx -y @1mcp/agent auth login --context prod --token mytoken
+1mcp target add prod https://1mcp.example.com
+1mcp auth login --context prod --token mytoken
 ```
 
 ---
@@ -76,7 +76,7 @@ npx -y @1mcp/agent auth login --context prod --token mytoken
 Show saved authentication profiles and verify connectivity.
 
 ```bash
-npx -y @1mcp/agent auth status [options]
+1mcp auth status [options]
 ```
 
 `status` requires an explicit Runtime Target Context and checks only that context's scoped token.
@@ -90,10 +90,10 @@ npx -y @1mcp/agent auth status [options]
 
 ```bash
 # Check the local runtime context
-npx -y @1mcp/agent auth status --context local
+1mcp auth status --context local
 
 # Check a named remote target
-npx -y @1mcp/agent auth status --context prod
+1mcp auth status --context prod
 ```
 
 ---
@@ -103,7 +103,7 @@ npx -y @1mcp/agent auth status --context prod
 Remove a saved authentication profile.
 
 ```bash
-npx -y @1mcp/agent auth logout [options]
+1mcp auth logout [options]
 ```
 
 `logout` requires an explicit Runtime Target Context and clears only the token for the observed runtime identity.
@@ -119,13 +119,13 @@ npx -y @1mcp/agent auth logout [options]
 
 ```bash
 # Remove the local runtime context profile
-npx -y @1mcp/agent auth logout --context local
+1mcp auth logout --context local
 
 # Remove a named remote target profile
-npx -y @1mcp/agent auth logout --context prod
+1mcp auth logout --context prod
 
 # Clear every local OAuth token reference without contacting a runtime
-npx -y @1mcp/agent auth logout --context local --all-local
+1mcp auth logout --context local --all-local
 ```
 
 ---
@@ -161,7 +161,7 @@ The same confirmation, destination verification, stopped-runtime ownership, and 
 
 ## See Also
 
-- **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Overview of the CLI workflow
-- **[Instructions Command](./instructions.md)** - Start the CLI playbook
-- **[Inspect Command](./inspect.md)** - Discover tools from a running server
-- **[Run Command](./run.md)** - Execute a tool call
+- **[CLI Mode Guide](/guide/integrations/cli-mode)** - Overview of the CLI workflow
+- **[Instructions Command](/commands/instructions)** - Start the CLI playbook
+- **[Inspect Command](/commands/inspect)** - Discover tools from a running server
+- **[Run Command](/commands/run)** - Execute a tool call

@@ -31,10 +31,10 @@ description: 了解 1MCP 分页响应、游标和客户端兼容性设置。
 
 ```bash
 # 为 HTTP 传输启用分页
-npx -y @1mcp/agent --config mcp.json --pagination
+1mcp --config mcp.json --pagination
 
 # 使用简短标志
-npx -y @1mcp/agent --config mcp.json -p
+1mcp --config mcp.json -p
 ```
 
 ### 2. 环境变量
@@ -43,7 +43,7 @@ npx -y @1mcp/agent --config mcp.json -p
 
 ```bash
 export ONE_MCP_PAGINATION=true
-npx -y @1mcp/agent --config mcp.json
+1mcp --config mcp.json
 ```
 
 ### 3. HTTP 查询参数
@@ -236,7 +236,7 @@ sequenceDiagram
 
 ```bash
 # 使用分页的快速开发
-npx -y @1mcp/agent --config dev.json --pagination --log-level debug
+1mcp --config dev.json --pagination --log-level debug
 ```
 
 ### 生产设置
@@ -244,7 +244,7 @@ npx -y @1mcp/agent --config dev.json --pagination --log-level debug
 ```bash
 # 使用环境变量的生产环境
 export ONE_MCP_PAGINATION=true
-npx -y @1mcp/agent --config production.json
+1mcp --config production.json
 ```
 
 ### Docker 环境
@@ -298,7 +298,7 @@ pnpm inspector
 
 ```bash
 # 启用调试日志查看分页流程
-npx -y @1mcp/agent --config mcp.json --pagination --log-level debug
+1mcp --config mcp.json --pagination --log-level debug
 ```
 
 查找以下日志消息：

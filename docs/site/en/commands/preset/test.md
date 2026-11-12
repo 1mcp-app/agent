@@ -20,12 +20,12 @@ head:
 
 Test a preset against your current server configuration.
 
-For a complete overview of preset management, see the **[Preset Commands Overview](./index)**.
+For a complete overview of preset management, see the **[Preset Commands Overview](/commands/preset/)**.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent preset test <name>
+1mcp preset test <name>
 ```
 
 ## Arguments
@@ -58,16 +58,16 @@ The `preset test` command validates a preset against your current server configu
 
 ```bash
 # Test development preset
-npx -y @1mcp/agent preset test development
+1mcp preset test development
 
 # Test production preset
-npx -y @1mcp/agent preset test production
+1mcp preset test production
 ```
 
 ### Example Output
 
 ```bash
-npx -y @1mcp/agent preset test development
+1mcp preset test development
 
 🔍 Testing preset 'development':
    Matching servers: webserver, apiserver, devtools
@@ -77,7 +77,7 @@ npx -y @1mcp/agent preset test development
 ### No Matching Servers
 
 ```bash
-npx -y @1mcp/agent preset test strict-production
+1mcp preset test strict-production
 
 🔍 Testing preset 'strict-production':
    Matching servers: none
@@ -113,15 +113,15 @@ npx -y @1mcp/agent preset test strict-production
 
 ```bash
 # Verify a newly created preset works correctly
-npx -y @1mcp/agent preset create team-dev --filter "web,api,development"
-npx -y @1mcp/agent preset test team-dev
+1mcp preset create team-dev --filter "web,api,development"
+1mcp preset test team-dev
 ```
 
 ### Troubleshooting
 
 ```bash
 # Debug why a preset isn't working as expected
-npx -y @1mcp/agent preset test problematic-preset
+1mcp preset test problematic-preset
 
 # Compare with available tags to identify issues
 ```
@@ -130,45 +130,50 @@ npx -y @1mcp/agent preset test problematic-preset
 
 ```bash
 # After adding or modifying servers, test existing presets
-npx -y @1mcp/agent preset test development
-npx -y @1mcp/agent preset test production
+1mcp preset test development
+1mcp preset test production
 
 # Ensure presets still match expected servers
 ```
 
 ### Pre-deployment Validation
 
+Run `1mcp preset list`, then repeat `1mcp preset test <name>` for every configured preset before deploying configuration changes. The names below are examples; replace them with your actual preset names.
+
 ```bash
-# Validate all presets before deploying configuration changes
-for preset in $(npx -y @1mcp/agent preset list --format=names); do
-  echo "Testing $preset..."
-  npx -y @1mcp/agent preset test $preset
-done
+# List configured presets
+1mcp preset list
+
+# Example tests; repeat for every configured preset
+1mcp preset test development
+1mcp preset test production
 ```
 
 ## Integration with Development Workflow
 
 ### After Server Changes
 
+Replace `/absolute/path/server.js` with the path to your server script.
+
 ```bash
 # 1. Modify server configuration (add/remove servers or tags)
-npx -y @1mcp/agent mcp add newserver --type=stdio --tags=web,api
+1mcp mcp add newserver --type=stdio --tags=web,api -- node /absolute/path/server.js
 
 # 2. Test existing presets to see impact
-npx -y @1mcp/agent preset test web-services
+1mcp preset test web-services
 
 # 3. Update presets if needed
-npx -y @1mcp/agent preset edit web-services
+1mcp preset edit web-services
 ```
 
 ### Before Client Configuration
 
 ```bash
 # 1. Test preset to ensure it matches expected servers
-npx -y @1mcp/agent preset test production
+1mcp preset test production
 
 # 2. Generate URL for client configuration
-npx -y @1mcp/agent preset url production
+1mcp preset url production
 
 # 3. Configure client with validated preset URL
 ```
@@ -178,7 +183,7 @@ npx -y @1mcp/agent preset url production
 ### Preset Not Found
 
 ```bash
-npx -y @1mcp/agent preset test nonexistent
+1mcp preset test nonexistent
 # Error: Preset 'nonexistent' not found
 ```
 
@@ -187,7 +192,7 @@ npx -y @1mcp/agent preset test nonexistent
 If a preset has syntax errors in its tag query:
 
 ```bash
-npx -y @1mcp/agent preset test broken-preset
+1mcp preset test broken-preset
 # Error: Invalid tag query syntax in preset 'broken-preset': unexpected token
 ```
 
@@ -196,7 +201,7 @@ npx -y @1mcp/agent preset test broken-preset
 If there are problems with the server configuration:
 
 ```bash
-npx -y @1mcp/agent preset test development
+1mcp preset test development
 # Warning: Some servers in configuration have validation errors
 # Matching servers: webserver (2 servers skipped due to errors)
 ```
@@ -223,7 +228,7 @@ npx -y @1mcp/agent preset test development
 
 ## See Also
 
-- **[preset show](./show)** - Show detailed preset information including server matching
-- **[preset create](./create)** - Create presets with specific tag criteria
-- **[preset edit](./edit)** - Interactively modify presets based on test results
-- **[mcp status](../mcp/status)** - Check overall server configuration health
+- **[preset show](/commands/preset/show)** - Show detailed preset information including server matching
+- **[preset create](/commands/preset/create)** - Create presets with specific tag criteria
+- **[preset edit](/commands/preset/edit)** - Interactively modify presets based on test results
+- **[mcp status](/commands/mcp/status)** - Check overall server configuration health
