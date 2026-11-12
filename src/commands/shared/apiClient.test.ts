@@ -222,4 +222,10 @@ describe('ApiClient', () => {
     expect(init.redirect).toBe('error');
     expect((init.headers as Record<string, string>)['x-1mcp-context']).toBeUndefined();
   });
+  it('disables redirects for a request carrying local authority', async () => {
+    mockFetch.mockResolvedValueOnce(makeResponse(200, {}));
+    const client = new ApiClient({ baseUrl: 'http://localhost:3050' });
+    await client.post('/api/auth/cli-token', {}, { headers: { Authorization: '1MCP-CLI test' }, redirect: 'error' });
+    expect(mockFetch.mock.calls[0][1].redirect).toBe('error');
+  });
 });

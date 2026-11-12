@@ -3,6 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { getOAuthAuthorizationFlow, OAuthAuthorizationFlowProvider } from '@src/auth/oauthAuthorizationFlow.js';
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { verifyCliTokenAuthorization } from '@src/core/context/cliTokenProof.js';
+import { TemplateContextCapabilityStore } from '@src/core/context/templateContextTrust.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger from '@src/logger/logger.js';
 
@@ -32,6 +35,31 @@ export function createCliTokenRoute(oauthProvider: SDKOAuthServerProvider): Requ
 
     if (!isLocalhost) {
       res.status(403).json({ error: 'This endpoint is only available from localhost' });
+      return;
+    }
+
+    const config = AgentConfigManager.getInstance();
+    if (!config.get('features').auth) {
+      res.json({ authRequired: false, message: 'Auth is disabled on this server' });
+      return;
+    }
+
+    // Socket location is not authority: a local reverse proxy also connects over loopback.
+    const storageDir = config.get('runtimeScopeStoragePath');
+    let authorized = false;
+    try {
+      if (storageDir) {
+        const capability = new TemplateContextCapabilityStore({
+          storageDir,
+          runtimeScopeId: new RuntimeIdentityService({ storageDir }).getRuntimeScopeId(),
+        }).read();
+        authorized = capability !== null && verifyCliTokenAuthorization(req.headers.authorization, capability);
+      }
+    } catch {
+      // Unavailable or insecure local credentials deny issuance.
+    }
+    if (!authorized) {
+      res.status(403).json({ error: 'Local runtime credentials are required to issue a CLI token' });
       return;
     }
 

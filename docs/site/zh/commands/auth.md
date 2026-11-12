@@ -39,7 +39,7 @@ head:
 
 1. `--token` 参数（显式指定）
 2. 标准输入管道（`echo $TOKEN | 1mcp auth login --context <name>`）
-3. 对 localhost 服务器自动生成 CLI Token（服务器支持时）
+3. 验证本地运行时上下文后，使用仅属主可读的凭据自动生成 CLI 令牌。远程上下文必须显式提供令牌，即使其 URL 指向 localhost。
 
 若服务器未启用认证，`login` 会提前退出并输出提示，不会保存任何 Token。
 

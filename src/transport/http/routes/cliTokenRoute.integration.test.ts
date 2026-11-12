@@ -5,6 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
+import { createCliTokenAuthorization } from '@src/core/context/cliTokenProof.js';
+import { TemplateContextCapabilityStore } from '@src/core/context/templateContextTrust.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/sdk/legacy/server/runtime/serverManager.js';
 import { createModernInboundLegacyBridge } from '@src/sdk/legacy/transport/http/modernInboundLegacyBridge.js';
@@ -67,10 +70,17 @@ it('admits fresh canonical CLI grants for REST and modern MCP while rejecting un
     });
     const browser = await fetch(`${base}/api/auth/cli-token`, { method: 'POST', headers: { Origin: base } });
     expect(browser.status).toBe(403);
+    const unauthenticated = await fetch(`${base}/api/auth/cli-token`, { method: 'POST' });
+    expect(unauthenticated.status).toBe(403);
+    const capability = new TemplateContextCapabilityStore({
+      storageDir: directory,
+      runtimeScopeId: new RuntimeIdentityService({ storageDir: directory }).getRuntimeScopeId(),
+    }).getOrCreate();
     const minted = await fetch(`${base}/api/auth/cli-token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Authorization: createCliTokenAuthorization(capability),
         Host: 'attacker.example',
         'X-Forwarded-Host': 'attacker.example',
         'X-Forwarded-For': '203.0.113.8',

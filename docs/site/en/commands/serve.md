@@ -71,12 +71,15 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 ### Security
 
 - **`--enable-auth`**: Enable OAuth-backed auth on the runtime.
+- **`--allow-unauthenticated-network`**: Explicitly acknowledge unauthenticated HTTP exposure when binding to a non-loopback host. Required only when authentication is disabled; use `--enable-auth` or bind to loopback to avoid the acknowledgement. This setting is also available as `ONE_MCP_ALLOW_UNAUTHENTICATED_NETWORK=true`.
 - **`--enable-enhanced-security`**: Enable additional security middleware.
 - **`--trust-proxy <config>`**: Configure trusted reverse-proxy behavior.
 - **`--template-context-trust <verified|disabled|legacy>`**: Control whether request context may render template servers. Default: `verified`.
 - **`--confirm-untrusted-template-context`**: Required with `legacy` when binding HTTP to a non-loopback host.
 
 `verified` preserves zero-configuration template rendering for first-party local `run`, `inspect`, `wait`, and `proxy` clients. Unsigned remote or third-party clients still connect and use static servers, but their context cannot affect template `command`, `args`, `cwd`, or `env`. `legacy` restores the historical unsigned behavior and should be a temporary compatibility mode.
+
+HTTP starts without authentication are limited to loopback hosts by default. For an intentional unauthenticated network deployment, including one protected by a reverse proxy, pass `--allow-unauthenticated-network` (or set `ONE_MCP_ALLOW_UNAUTHENTICATED_NETWORK=true`). The official Compose file binds its published port to host loopback.
 
 ### Runtime behavior
 

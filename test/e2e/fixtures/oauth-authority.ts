@@ -13,11 +13,21 @@ import { type OAuthAuthorityContext, oauthDigest } from '@src/auth/oauthAuthorit
 import { createOAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
 import { type OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
+import { createCliTokenAuthorization } from '@src/core/context/cliTokenProof.js';
+import { TemplateContextCapabilityStore } from '@src/core/context/templateContextTrust.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { ADMIN_SESSION_COOKIE_NAME, AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
 import { createCliTokenRoute } from '@src/transport/http/routes/cliTokenRoute.js';
 import { createOAuthRoutes } from '@src/transport/http/routes/oauthRoutes.js';
+import {
+  createOperatorConsentGuard,
+  createOperatorConsentRoutes,
+} from '@src/transport/http/routes/operatorConsentRoutes.js';
 
 import express from 'express';
 import type { Browser, Page } from 'playwright';
+import { vi } from 'vitest';
 
 export type OAuthEra = 'legacy' | 'modern';
 
@@ -36,6 +46,7 @@ export interface UpstreamAuthorityFixture {
 }
 
 export interface AuthoritySurfaceFixture {
+  readonly operatorSession: string;
   readonly baseUrl: string;
   readonly storageDir: string;
   readonly inboundProvider: SDKOAuthServerProvider;
@@ -128,6 +139,17 @@ export async function startUpstreamAuthorityFixture(): Promise<UpstreamAuthority
 
 export async function startAuthoritySurfaceFixture(): Promise<AuthoritySurfaceFixture> {
   const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-oauth-authority-e2e-'));
+  const config = AgentConfigManager.getInstance();
+  const getConfig = config.get.bind(config);
+  const configGetter = vi.spyOn(config, 'get').mockImplementation((key) => {
+    if (key === 'runtimeScopeStoragePath') return storageDir;
+    if (key === 'features') return { ...getConfig('features'), auth: true };
+    return getConfig(key);
+  });
+  new TemplateContextCapabilityStore({
+    storageDir,
+    runtimeScopeId: new RuntimeIdentityService({ storageDir }).getRuntimeScopeId(),
+  }).getOrCreate();
   const inboundProvider = new SDKOAuthServerProvider(storageDir, 'oauth-authority-e2e-runtime');
   let provider: SDKOAuthClientProvider | undefined;
   let upstreamEra: OAuthEra = 'modern';
@@ -177,25 +199,32 @@ export async function startAuthoritySurfaceFixture(): Promise<AuthoritySurfaceFi
   const server = createServer(app);
   const baseUrl = await listen(server);
   const issuerUrl = new URL(`${baseUrl}/`);
-  app.use(
-    mcpAuthRouter({
-      provider: inboundProvider,
-      issuerUrl,
-      baseUrl: issuerUrl,
-      scopesSupported: ['tag:allowed'],
-      authorizationOptions: { rateLimit: false },
-      tokenOptions: { rateLimit: false },
-      revocationOptions: { rateLimit: false },
-      clientRegistrationOptions: { rateLimit: false },
-    }),
-  );
+  const authRouter = mcpAuthRouter({
+    provider: inboundProvider,
+    issuerUrl,
+    baseUrl: issuerUrl,
+    scopesSupported: ['tag:allowed'],
+    authorizationOptions: { rateLimit: false },
+    tokenOptions: { rateLimit: false },
+    revocationOptions: { rateLimit: false },
+    clientRegistrationOptions: { rateLimit: false },
+  });
+  const admin = new AdminIdentityService({ storageDir, runtimeScopeId: 'oauth-authority-e2e-runtime' });
+  await admin.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+  const operatorSession = (await admin.login({ username: 'operator', password: 'correct horse battery staple' }))
+    .sessionToken;
+  const guard = createOperatorConsentGuard(admin, true);
+  const oauthRouter = createOAuthRoutes(inboundProvider, undefined, flow, guard);
+  app.use(createOperatorConsentRoutes(authRouter, oauthRouter, guard));
+  app.use(authRouter);
   app.post('/api/auth/cli-token', createCliTokenRoute(inboundProvider));
-  app.use('/oauth', createOAuthRoutes(inboundProvider, undefined, flow));
+  app.use('/oauth', oauthRouter);
   app.get('/admin/oauth', (_request, response) => response.type('text').send('OAuth complete'));
 
   return {
     baseUrl,
     storageDir,
+    operatorSession,
     inboundProvider,
     setUpstreamProvider(nextProvider, era, resourceUrl) {
       provider = nextProvider;
@@ -203,6 +232,7 @@ export async function startAuthoritySurfaceFixture(): Promise<AuthoritySurfaceFi
       upstreamResourceUrl = resourceUrl;
     },
     async close() {
+      configGetter.mockRestore();
       inboundProvider.shutdown();
       await closeServer(server);
       fs.rmSync(storageDir, { recursive: true, force: true });
@@ -308,6 +338,16 @@ export async function acquireBrowserGrant(browser: Browser, surface: AuthoritySu
       resource: `${surface.baseUrl}/mcp`,
     }).toString();
     const context = await browser.newContext();
+    await context.addCookies([
+      {
+        name: ADMIN_SESSION_COOKIE_NAME,
+        value: surface.operatorSession,
+        domain: '127.0.0.1',
+        path: '/admin',
+        httpOnly: true,
+        sameSite: 'Strict',
+      },
+    ]);
     try {
       const page = await context.newPage();
       await page.goto(authorizationUrl.href);
@@ -333,7 +373,13 @@ export async function acquireBrowserGrant(browser: Browser, surface: AuthoritySu
 }
 
 export async function acquireCliGrant(surface: AuthoritySurfaceFixture): Promise<string> {
-  const response = await fetch(`${surface.baseUrl}/api/auth/cli-token`, { method: 'POST' });
+  const capability = new TemplateContextCapabilityStore({ storageDir: surface.storageDir }).read();
+  if (!capability) throw new Error('Owned fixture capability is missing');
+  const response = await fetch(`${surface.baseUrl}/api/auth/cli-token`, {
+    method: 'POST',
+    headers: { Authorization: createCliTokenAuthorization(capability) },
+    redirect: 'error',
+  });
   if (!response.ok) throw new Error(`CLI token request failed with HTTP ${response.status}`);
   const result = (await response.json()) as { token: string };
   return result.token;

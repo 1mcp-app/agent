@@ -52,6 +52,10 @@ import createOAuthRoutes, {
   createBackendOAuthAuthorizationFlow,
   createBackendOAuthDashboardProvider,
 } from '@src/transport/http/routes/oauthRoutes.js';
+import {
+  createOperatorConsentGuard,
+  createOperatorConsentRoutes,
+} from '@src/transport/http/routes/operatorConsentRoutes.js';
 import { createRuntimeIdentityRoutes } from '@src/transport/http/routes/runtimeIdentityRoutes.js';
 import { setupSseRoutes } from '@src/transport/http/routes/sseRoutes.js';
 import { setupStreamableHttpRoutes } from '@src/transport/http/routes/streamableHttpRoutes.js';
@@ -428,11 +432,8 @@ export class ExpressServer {
         rateLimit: rateLimitConfig,
       },
     });
-    this.app.use(authRouter);
-
-    // Setup OAuth management routes (no auth required)
+    // Protocol callbacks remain public; human consent is mounted after Admin identity exists.
     const oauthFlow = createBackendOAuthAuthorizationFlow(this.oauthProvider, this.loadingManager);
-    this.app.use('/oauth', createOAuthRoutes(this.oauthProvider, this.loadingManager, oauthFlow));
     const getOAuthDashboard = createBackendOAuthDashboardProvider(this.oauthProvider, this.loadingManager, oauthFlow);
 
     // Setup health check routes (no auth required for monitoring)
@@ -515,6 +516,11 @@ export class ExpressServer {
       }),
       oauthFlow,
     });
+    const consentGuard = createOperatorConsentGuard(adminDomain.adminService, adminEnabled);
+    const oauthRoutes = createOAuthRoutes(this.oauthProvider, this.loadingManager, oauthFlow, consentGuard);
+    this.app.use(createOperatorConsentRoutes(authRouter, oauthRoutes, consentGuard));
+    this.app.use(authRouter);
+    this.app.use('/oauth', oauthRoutes);
     const adminRoutes = createAdminRoutes({
       adminEnabled,
       adminService: adminDomain.adminService,

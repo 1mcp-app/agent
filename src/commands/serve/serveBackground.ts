@@ -66,6 +66,7 @@ const BACKGROUND_STARTUP_OPTION_KEYS = [
   'pagination',
   'auth',
   'enable-auth',
+  'allow-unauthenticated-network',
   'enable-scope-validation',
   'enable-enhanced-security',
   'session-ttl',

@@ -16,6 +16,7 @@ export interface AuthRuntimeTargetOptions extends GlobalOptions {
 }
 
 export interface AuthRuntimeTarget {
+  target: ResolvedServeTarget<ResolvableServeTargetOptions & { context: string }>;
   context: string;
   baseUrl: string;
   runtimeScopeId: string;
@@ -50,6 +51,7 @@ export async function resolveAuthRuntimeTarget(
   } as ResolvableServeTargetOptions & { context: string });
   const baseUrl = normalizeServerUrl(stripMcpSuffix(target.discoveredUrl));
   return {
+    target,
     context,
     baseUrl,
     runtimeScopeId: await resolveRuntimeScopeId(target, baseUrl),
