@@ -182,6 +182,7 @@ describe('SDKOAuthProvider', () => {
         scopes: ['tag:context7'],
       };
       const response = {
+        locals: { oauthConsentCsrfToken: 'admin_csrf_test' },
         set: vi.fn(),
         send: vi.fn(),
         removeHeader: vi.fn(),
@@ -228,7 +229,7 @@ describe('SDKOAuthProvider', () => {
         response_types: ['code'],
         token_endpoint_auth_method: 'none',
       };
-      const response = { set: vi.fn(), send: vi.fn() } as any;
+      const response = { locals: { oauthConsentCsrfToken: 'admin_csrf_test' }, set: vi.fn(), send: vi.fn() } as any;
 
       await provider['renderConsentPage'](
         client,

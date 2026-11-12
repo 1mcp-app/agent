@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.40.0-beta.2] - 2026-11-05
+## [0.40.0-beta.3] - 2026-11-12
 
 ### 🚀 Features
 - Spill oversized results to a configurable directory by @xizhibei in [#725](https://github.com/1mcp-app/agent/pull/725)
@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bind project selections to individual calls by @xizhibei in [#636](https://github.com/1mcp-app/agent/pull/636)
 
 ### 🐛 Bug Fixes
+- Require operator authority for token issuance by @xizhibei in [#754](https://github.com/1mcp-app/agent/pull/754)
+- Add opt-in legacy-only inbound compatibility by @xizhibei in [#751](https://github.com/1mcp-app/agent/pull/751)
+- Reclaim idle sessions and expose admission capacity by @xizhibei in [#752](https://github.com/1mcp-app/agent/pull/752)
+- Coordinate upstream OAuth refresh ownership by @xizhibei in [#753](https://github.com/1mcp-app/agent/pull/753)
 - Recover abandoned acquisition guards safely by @xizhibei in [#738](https://github.com/1mcp-app/agent/pull/738)
 - Run Windows binary smoke without PowerShell jobs by @xizhibei
 - Honor tool output budgets across result capture by @xizhibei in [#726](https://github.com/1mcp-app/agent/pull/726)
@@ -51,9 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Merge commit from fork by @xizhibei
 
 ### 🚜 Refactor
+- Update configuration file references and remove deprecated example by @xizhibei
 - Retire MCP migration evidence gates by @xizhibei in [#699](https://github.com/1mcp-app/agent/pull/699)
 
 ### 📚 Documentation
+- Align bilingual guides, navigation, and installed CLI examples by @xizhibei in [#673](https://github.com/1mcp-app/agent/pull/673)
 - Refresh agent guidance and architecture decisions by @xizhibei
 - Guide worktrees and cross-project agent sessions by @xizhibei in [#668](https://github.com/1mcp-app/agent/pull/668)
 - Isolate VitePress site under docs/site by @xizhibei in [#658](https://github.com/1mcp-app/agent/pull/658)
@@ -1330,7 +1336,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[0.40.0-beta.2]: https://github.com/1mcp-app/agent/compare/v0.39.2..v0.40.0-beta.2
+[0.40.0-beta.3]: https://github.com/1mcp-app/agent/compare/v0.39.2..v0.40.0-beta.3
 [0.39.2]: https://github.com/1mcp-app/agent/compare/v0.39.1..v0.39.2
 [0.39.1]: https://github.com/1mcp-app/agent/compare/v0.39.0..v0.39.1
 [0.39.0]: https://github.com/1mcp-app/agent/compare/v0.38.2..v0.39.0

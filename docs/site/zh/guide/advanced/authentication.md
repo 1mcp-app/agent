@@ -29,6 +29,12 @@ head:
 
 Admin Console 是独立的访问面。其浏览器路由使用 Admin Session 登录流程和会话 cookie；MCP/API bearer token 不是 Admin Console 会话，Admin Session 也不是 MCP bearer token。
 
+## 批准客户端访问
+
+批准 MCP 客户端之前，先运行 `1mcp admin create` 创建管理员。公开的 `/authorize` 端点会跳转到 `/admin/oauth/authorize`，该页面要求有效的管理员会话。若页面提示登录，请在链接打开的标签页中登录 `/admin`，再刷新授权页面。批准和拒绝请求都必须携带当前会话的 CSRF 令牌。禁用管理界面或未创建管理员时，无法通过浏览器批准访问；MCP 访问令牌不能代替管理员会话。
+
+本地 `1mcp auth login` 只有在验证所选本地运行时，并证明持有仅属主可读的凭据后，才能自动签发令牌。远程上下文需要显式提供令牌。详见 [auth 命令](/zh/commands/auth)。
+
 ## 刷新令牌轮换
 
 只有请求 `refresh_token` 授权类型的已注册客户端才会收到刷新令牌。刷新令牌只能使用一次，每次成功交换都会轮换。每个令牌家族的生命周期固定为 30 天，并始终绑定到原始客户端和资源；后续请求只能保持或缩小原始作用域。

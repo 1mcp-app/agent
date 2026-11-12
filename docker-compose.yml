@@ -2,11 +2,13 @@ services:
   1mcp:
     image: ghcr.io/1mcp-app/agent:latest
     ports:
-      - '3050:3050'
+      - '127.0.0.1:3050:3050'
     volumes:
       - ~/.config/1mcp/:/root/.config/1mcp # 1mcp config
     environment:
       - ONE_MCP_HOST=0.0.0.0
+      # The container listener binds broadly; the published port above is loopback-only.
+      - ONE_MCP_ALLOW_UNAUTHENTICATED_NETWORK=true
       - ONE_MCP_PORT=3050
       - ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050
       # - https_proxy=${https_proxy}

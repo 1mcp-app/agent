@@ -23,6 +23,26 @@ export function resolveTemplateContextTrust(input: ResolveTemplateContextTrustIn
   return trust;
 }
 
+interface ValidateUnauthenticatedNetworkInput {
+  authEnabled: boolean;
+  host: string;
+  transport: string;
+  allowUnauthenticatedNetwork: boolean;
+}
+
+export function validateUnauthenticatedNetwork(input: ValidateUnauthenticatedNetworkInput): void {
+  if (input.transport === 'stdio' || input.authEnabled || isLoopbackHost(input.host)) {
+    return;
+  }
+
+  if (!input.allowUnauthenticatedNetwork) {
+    throw new Error(
+      'Unauthenticated HTTP on a non-loopback host requires --allow-unauthenticated-network. ' +
+        'Enable authentication or explicitly acknowledge this network exposure.',
+    );
+  }
+}
+
 export function isLoopbackHost(host: string): boolean {
   const normalized = host
     .trim()

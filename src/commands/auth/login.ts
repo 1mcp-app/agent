@@ -1,9 +1,11 @@
 import { ApiClient } from '@src/commands/shared/apiClient.js';
+import { readLiveLocalCapability } from '@src/commands/shared/clientSurfaceAttachment.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
+import { createCliTokenAuthorization } from '@src/core/context/cliTokenProof.js';
 import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 
-import { resolveAuthRuntimeTarget } from './runtimeTargetContext.js';
+import { type AuthRuntimeTarget, resolveAuthRuntimeTarget } from './runtimeTargetContext.js';
 
 export interface AuthLoginOptions extends GlobalOptions {
   context?: string;
@@ -12,7 +14,8 @@ export interface AuthLoginOptions extends GlobalOptions {
 }
 
 export async function authLoginCommand(options: AuthLoginOptions): Promise<void> {
-  const { context, baseUrl, runtimeScopeId } = await resolveAuthRuntimeTarget(options, 'login');
+  const resolved = await resolveAuthRuntimeTarget(options, 'login');
+  const { context, baseUrl, runtimeScopeId } = resolved;
 
   // Probe without auth — if it succeeds, auth is disabled
   const probeClient = new ApiClient({ baseUrl });
@@ -22,11 +25,11 @@ export async function authLoginCommand(options: AuthLoginOptions): Promise<void>
     return;
   }
 
-  // Resolve token: explicit flag > stdin > localhost auto-generate
+  // Resolve token: explicit flag > stdin > verified local runtime
   let token = options.token || (await readTokenFromStdin());
 
-  if (!token && isLocalhostUrl(baseUrl)) {
-    token = await tryCliTokenGeneration(baseUrl);
+  if (!token) {
+    token = await tryCliTokenGeneration(resolved);
   }
 
   if (!token) {
@@ -58,21 +61,22 @@ export async function authLoginCommand(options: AuthLoginOptions): Promise<void>
   process.stdout.write(`Saved authentication profile for ${context} (${baseUrl})\n`);
 }
 
-function isLocalhostUrl(url: string): boolean {
+async function tryCliTokenGeneration({ baseUrl, runtimeScopeId, target }: AuthRuntimeTarget): Promise<string | null> {
+  if (target.runtimeTargetContext?.kind !== 'local') return null;
   try {
-    const hostname = new URL(url).hostname;
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
-  } catch {
-    return false;
-  }
-}
-
-async function tryCliTokenGeneration(baseUrl: string): Promise<string | null> {
-  try {
+    const capability = await readLiveLocalCapability(target);
+    if (!capability || capability.runtimeScopeId !== runtimeScopeId) return null;
     const client = new ApiClient({ baseUrl });
-    const response = await client.post<{ token?: string; authRequired?: boolean }>('/api/auth/cli-token', {});
+    const response = await client.post<{ token?: string; authRequired?: boolean }>(
+      '/api/auth/cli-token',
+      {},
+      {
+        headers: { Authorization: createCliTokenAuthorization(capability) },
+        redirect: 'error',
+      },
+    );
     if (response.ok && response.data?.token) {
-      process.stderr.write('Auto-generated CLI token for localhost.\n');
+      process.stderr.write('Auto-generated CLI token for the verified local runtime.\n');
       return response.data.token;
     }
   } catch {

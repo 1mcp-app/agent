@@ -2,14 +2,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { authLoginCommand } from './login.js';
 
-const { mockResolveServeTarget, mockSaveAuthProfile, mockSetOAuthTokenReference, mockApiClientGet, mockApiClientPost } =
-  vi.hoisted(() => ({
-    mockResolveServeTarget: vi.fn(),
-    mockSaveAuthProfile: vi.fn(),
-    mockSetOAuthTokenReference: vi.fn(),
-    mockApiClientGet: vi.fn(),
-    mockApiClientPost: vi.fn(),
-  }));
+const {
+  mockReadLocalCapability,
+  mockResolveServeTarget,
+  mockSaveAuthProfile,
+  mockSetOAuthTokenReference,
+  mockApiClientGet,
+  mockApiClientPost,
+} = vi.hoisted(() => ({
+  mockReadLocalCapability: vi.fn(),
+  mockResolveServeTarget: vi.fn(),
+  mockSaveAuthProfile: vi.fn(),
+  mockSetOAuthTokenReference: vi.fn(),
+  mockApiClientGet: vi.fn(),
+  mockApiClientPost: vi.fn(),
+}));
+
+vi.mock('@src/commands/shared/clientSurfaceAttachment.js', () => ({
+  readLiveLocalCapability: mockReadLocalCapability,
+}));
 
 vi.mock('@src/commands/shared/serveTargetResolver.js', () => ({
   resolveServeTarget: mockResolveServeTarget,
@@ -45,6 +56,7 @@ vi.mock('@src/commands/shared/apiClient.js', () => ({
 const baseOptions = { 'config-dir': '/tmp/test-config' } as Parameters<typeof authLoginCommand>[0];
 
 beforeEach(() => {
+  mockReadLocalCapability.mockReset();
   mockResolveServeTarget.mockReset();
   mockSaveAuthProfile.mockReset();
   mockSetOAuthTokenReference.mockReset();
@@ -132,5 +144,49 @@ describe('authLoginCommand', () => {
     mockApiClientGet.mockResolvedValue({ ok: false, status: 401 });
 
     await expect(authLoginCommand({ ...baseOptions, context: 'prod' })).rejects.toThrow('No token provided');
+  });
+  it('automatically authenticates only a verified local runtime and forbids redirects', async () => {
+    mockResolveServeTarget.mockResolvedValue({
+      discoveredUrl: 'http://127.0.0.1:3050/mcp',
+      runtimeTargetContext: { name: 'local', kind: 'local', runtimeScopeId: 'scope-local' },
+    });
+    mockReadLocalCapability.mockResolvedValue({
+      version: 1,
+      runtimeScopeId: 'scope-local',
+      secret: Buffer.alloc(32, 1).toString('base64url'),
+    });
+    mockApiClientGet.mockResolvedValueOnce({ ok: false, status: 401 }).mockResolvedValueOnce({ ok: true, status: 200 });
+    mockApiClientPost.mockResolvedValue({ ok: true, data: { token: 'local-token' } });
+    await authLoginCommand({ ...baseOptions, context: 'local' });
+    expect(mockApiClientPost).toHaveBeenCalledWith(
+      '/api/auth/cli-token',
+      {},
+      {
+        headers: { Authorization: expect.stringMatching(/^1MCP-CLI /) },
+        redirect: 'error',
+      },
+    );
+  });
+
+  it('never loads local authority for a remote context even when its URL is loopback', async () => {
+    mockResolveServeTarget.mockResolvedValue({
+      discoveredUrl: 'http://127.0.0.1:3050/mcp',
+      runtimeTargetContext: { name: 'forwarded', kind: 'remote', runtimeScopeId: 'scope-remote' },
+    });
+    await expect(authLoginCommand({ ...baseOptions, context: 'forwarded' })).rejects.toThrow('No token provided');
+    expect(mockReadLocalCapability).not.toHaveBeenCalled();
+    expect(mockApiClientPost).not.toHaveBeenCalled();
+  });
+
+  it('does not mint when local authority is unavailable or belongs to another scope', async () => {
+    mockResolveServeTarget.mockResolvedValue({
+      discoveredUrl: 'http://127.0.0.1:3050/mcp',
+      runtimeTargetContext: { name: 'local', kind: 'local', runtimeScopeId: 'scope-local' },
+    });
+    for (const capability of [undefined, { version: 1, runtimeScopeId: 'scope-other', secret: 'unused' }]) {
+      mockReadLocalCapability.mockResolvedValue(capability);
+      await expect(authLoginCommand({ ...baseOptions, context: 'local' })).rejects.toThrow('No token provided');
+    }
+    expect(mockApiClientPost).not.toHaveBeenCalled();
   });
 });

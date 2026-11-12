@@ -389,7 +389,7 @@ describe('OAuth Routes', () => {
       );
 
       // Skip sensitive operation limiter middleware
-      await consentRoute?.route?.stack[1].handle(mockRequest, mockResponse);
+      await consentRoute?.route?.stack[2].handle(mockRequest, mockResponse);
 
       expect(mockResponse.redirect).toHaveBeenCalledWith('https://example.com/callback');
       expect(mockOAuthProvider.oauthFlow.submitConsent).toHaveBeenCalledWith({
@@ -416,7 +416,7 @@ describe('OAuth Routes', () => {
         (layer: any) => layer.route?.path === '/consent' && layer.route?.methods?.post,
       );
 
-      await consentRoute?.route?.stack[1].handle(mockRequest, mockResponse);
+      await consentRoute?.route?.stack[2].handle(mockRequest, mockResponse);
 
       expect(mockResponse.redirect).toHaveBeenCalledWith('https://example.com/callback?error=access_denied');
       expect(mockOAuthProvider.oauthFlow.submitConsent).toHaveBeenCalledWith({
@@ -438,7 +438,7 @@ describe('OAuth Routes', () => {
         (layer: any) => layer.route?.path === '/consent' && layer.route?.methods?.post,
       );
 
-      await consentRoute?.route?.stack[1].handle(mockRequest, mockResponse);
+      await consentRoute?.route?.stack[2].handle(mockRequest, mockResponse);
 
       expect(mockResponse.status).toHaveBeenCalledWith(400);
       expect(mockResponse.json).toHaveBeenCalledWith({
@@ -458,7 +458,7 @@ describe('OAuth Routes', () => {
         (layer: any) => layer.route?.path === '/consent' && layer.route?.methods?.post,
       );
 
-      await consentRoute?.route?.stack[1].handle(mockRequest, mockResponse);
+      await consentRoute?.route?.stack[2].handle(mockRequest, mockResponse);
 
       expect(mockResponse.status).toHaveBeenCalledWith(400);
       expect(mockResponse.json).toHaveBeenCalledWith({

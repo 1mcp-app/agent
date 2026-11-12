@@ -6,13 +6,16 @@ import { activateUpstreamOAuthStore } from '@src/auth/storage/upstreamOAuthStora
 import { resolveUpstreamOAuthStorageBaseDir } from '@src/auth/storage/upstreamOAuthStoragePath.js';
 import { resolveAsyncLoadingOptions } from '@src/commands/serve/asyncLoadingOptions.js';
 import { resolveServeConfigPaths } from '@src/commands/serve/runtimeScope.js';
-import { describeServeLifecycleFailure } from '@src/commands/serve/serveLifecycleError.js';
+import { describeServeLifecycleFailure, markServeLifecycleFailure } from '@src/commands/serve/serveLifecycleError.js';
 import {
   parseCommaSeparatedList,
   parseInternalToolsList,
   resolveStdioFilterConfig,
 } from '@src/commands/serve/serveOptions.js';
-import { resolveTemplateContextTrust } from '@src/commands/serve/templateContextTrust.js';
+import {
+  resolveTemplateContextTrust,
+  validateUnauthenticatedNetwork,
+} from '@src/commands/serve/templateContextTrust.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { configureProductTelemetryBootstrap } from '@src/config/productTelemetryBootstrap.js';
 import { getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
@@ -86,6 +89,7 @@ export interface ServeOptions {
   pagination: boolean;
   auth?: boolean;
   'enable-auth'?: boolean;
+  'allow-unauthenticated-network'?: boolean;
   'enable-scope-validation'?: boolean;
   'enable-enhanced-security'?: boolean;
   'session-ttl'?: number;
@@ -453,6 +457,16 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
     const effectivePort = parsedArgv.port ?? appConfig.port ?? PORT;
     const effectiveHost = parsedArgv.host ?? appConfig.host ?? HOST;
+    try {
+      validateUnauthenticatedNetwork({
+        authEnabled,
+        host: effectiveHost,
+        transport: effectiveTransport,
+        allowUnauthenticatedNetwork: parsedArgv['allow-unauthenticated-network'] ?? false,
+      });
+    } catch (error) {
+      throw markServeLifecycleFailure('network-security', error);
+    }
     const templateContextTrust = resolveTemplateContextTrust({
       cliTrust: parsedArgv['template-context-trust'],
       configTrust: appConfig.templateContext?.trust,

@@ -1,10 +1,12 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
+
+import { isolatedTestEnvironment } from '../../../scripts/test-process-environment.mjs';
 
 const cliPath = path.join(process.cwd(), 'build', 'index.js');
 const dirs: string[] = [];
@@ -87,6 +89,40 @@ function readOwner(dir: string): Record<string, unknown> {
 }
 
 describe('runtime ownership recovery', () => {
+  it('requires acknowledgement before an unauthenticated non-loopback bind', async () => {
+    const isolated = isolatedTestEnvironment();
+    const configDir = isolated.env.ONE_MCP_CONFIG_DIR!;
+    const port = await freePort();
+    const deniedLog = path.join(configDir, 'denied.log');
+    const denied = spawnSync(
+      process.execPath,
+      [
+        cliPath,
+        'serve',
+        '--transport',
+        'http',
+        '--host',
+        '203.0.113.1',
+        '--port',
+        String(port),
+        '--config-dir',
+        configDir,
+        '--log-file',
+        deniedLog,
+        '--enable-auth=false',
+      ],
+      { encoding: 'utf8', timeout: 10_000, env: isolated.env },
+    );
+
+    try {
+      expect(denied.status).toBe(1);
+      expect(denied.stderr).toContain('--allow-unauthenticated-network');
+      expect(fs.readFileSync(deniedLog, 'utf8')).toContain('--allow-unauthenticated-network');
+    } finally {
+      isolated.cleanup();
+    }
+  });
+
   it('starts when a recorded owner PID is provably absent', async () => {
     const dir = createScope({
       'owner.json': JSON.stringify({
