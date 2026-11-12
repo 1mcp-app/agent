@@ -125,7 +125,8 @@ for (const era of ['legacy', 'modern'])
       base = `http://127.0.0.1:${address.port}`;
       const isolated = isolatedTestEnvironment();
       const environment = createTestProcessEnvironment({}, isolated.env);
-      expect(environment.ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED).toBe('true');
+      expect(environment.ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED).toBeUndefined();
+      expect(environment.ONE_MCP_PROJECT_OWNER).toBeUndefined();
       expect(environment.HOME).not.toBe(process.env.HOME);
 
       try {
