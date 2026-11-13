@@ -232,6 +232,7 @@ function ServerCard({
           {server.enabled ? 'enabled' : 'disabled'}
         </Badge>
       </Group>
+      <BackendSleepStatus sleep={server.sleep} />
       <dl className="server-mobile-facts">
         <div>
           <dt>Transport</dt>
@@ -317,6 +318,7 @@ function ServerRow({
         <Badge color={server.enabled ? 'teal' : 'yellow'} variant="light">
           {server.enabled ? 'enabled' : 'disabled'}
         </Badge>
+        <BackendSleepStatus sleep={server.sleep} />
       </Table.Td>
       <Table.Td>{transportSummaryLabel(server)}</Table.Td>
       <Table.Td>{secretSummary(server)}</Table.Td>
@@ -376,5 +378,26 @@ function ServerStateControl({
         {action === 'disable' ? 'Enabled' : 'Disabled'}
       </Text>
     </Group>
+  );
+}
+
+function BackendSleepStatus({ sleep }: { sleep: ConfiguredServerReadModel['sleep'] }) {
+  if (!sleep) return null;
+  const lastActivity = sleep.lastActivityAt === null ? 'none' : new Date(sleep.lastActivityAt).toISOString();
+  return (
+    <Stack gap={2} mt="xs">
+      <Text size="xs" fw={600}>
+        Sleep: {sleep.state}
+      </Text>
+      <Text size="xs">Last activity: {lastActivity}</Text>
+      <Text size="xs">Idle timeout: {sleep.idleTimeoutMs} ms</Text>
+      <Text size="xs">Blockers: {sleep.blockers.join(', ') || 'none'}</Text>
+      {sleep.failure ? (
+        <Text size="xs" c="red">
+          Failure: {sleep.failure}
+        </Text>
+      ) : null}
+      {sleep.retryAt !== undefined ? <Text size="xs">Retry after: {new Date(sleep.retryAt).toISOString()}</Text> : null}
+    </Stack>
   );
 }

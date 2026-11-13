@@ -35,6 +35,7 @@ vi.mock('@src/application/services/healthService.js', () => {
     getInstance: vi.fn(),
     performHealthCheck: vi.fn(),
     getHttpStatusCode: vi.fn(),
+    serializeBackendSleep: vi.fn((snapshots: Record<string, any>) => snapshots),
     serializeBackendSupervision: vi.fn((snapshots: Record<string, any>) =>
       Object.fromEntries(
         Object.entries(snapshots).map(([name, snapshot]) => [
@@ -452,6 +453,30 @@ describe('Health Routes', () => {
   });
 
   describe('GET /health/mcp/:serverName', () => {
+    it('keeps minimal sleep state accurate without exposing diagnostics', async () => {
+      const loadingManager = { getStateTracker: () => ({ getServerState: vi.fn() }) } as any;
+      const sleepApp = express();
+      sleepApp.use('/health', createHealthRoutes(loadingManager));
+      mockRuntimeConnections.set('worker', { sleep: { state: 'sleeping', failure: 'private' } });
+      mockHealthService.serializeBackendSleep.mockReturnValueOnce({});
+      const response = await get(sleepApp, '/health/mcp/worker');
+      expect(response.status).toBe(200);
+      expect(response.body.state).toBe('sleeping');
+      expect(response.body).not.toHaveProperty('sleep');
+      expect(JSON.stringify(response.body)).not.toContain('private');
+    });
+
+    it('reports sleeping backends without waking them or requiring crash supervision', async () => {
+      const loadingManager = { getStateTracker: () => ({ getServerState: vi.fn() }) } as any;
+      const sleepApp = express();
+      sleepApp.use('/health', createHealthRoutes(loadingManager));
+      const sleep = { state: 'sleeping', lastActivityAt: 1000, idleTimeoutMs: 300000, blockers: [] };
+      mockRuntimeConnections.set('worker', { sleep });
+      const response = await get(sleepApp, '/health/mcp/worker');
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ name: 'worker', state: 'sleeping', sleep });
+    });
+
     it('groups operational facts for all instances of a template target', async () => {
       const loadingManager = {
         getStateTracker: () => ({ getServerState: vi.fn() }),

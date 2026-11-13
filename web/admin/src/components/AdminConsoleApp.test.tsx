@@ -230,6 +230,25 @@ describe('AdminConsoleApp', () => {
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
+  it('shows Backend Sleep lifecycle facts in server inventory', () => {
+    const state = consoleState();
+    state.configuredServers[0].sleep = {
+      state: 'wake-failed',
+      lastActivityAt: 0,
+      idleTimeoutMs: 300000,
+      blockers: ['startup failed'],
+      failure: 'connection failed',
+      retryAt: 30000,
+    };
+    renderApp(state, { navigation: { route: 'servers' } });
+    expect(screen.getByText('Sleep: wake-failed')).toBeInTheDocument();
+    expect(screen.getByText('Last activity: 1970-01-01T00:00:00.000Z')).toBeInTheDocument();
+    expect(screen.getByText('Idle timeout: 300000 ms')).toBeInTheDocument();
+    expect(screen.getByText('Blockers: startup failed')).toBeInTheDocument();
+    expect(screen.getByText('Failure: connection failed')).toBeInTheDocument();
+    expect(screen.getByText('Retry after: 1970-01-01T00:00:30.000Z')).toBeInTheDocument();
+  });
+
   it('keeps custom server creation available when the inventory is empty', async () => {
     const open = vi.fn();
     const state = { ...consoleState(), configuredServers: [] };

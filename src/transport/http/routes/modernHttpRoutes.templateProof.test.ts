@@ -1,4 +1,6 @@
+import { once } from 'node:events';
 import fs from 'node:fs';
+import type { Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -29,11 +31,16 @@ const meta = {
   'io.modelcontextprotocol/clientCapabilities': {},
 };
 let directory: string | undefined;
-afterEach(() => {
+const listeners: Server[] = [];
+afterEach(async () => {
+  for (const listener of listeners.splice(0)) {
+    listener.closeAllConnections();
+    await new Promise<void>((resolve, reject) => listener.close((error) => (error ? reject(error) : resolve())));
+  }
   vi.restoreAllMocks();
   if (directory) fs.rmSync(directory, { recursive: true, force: true });
 });
-function fixture(mode: 'verified' | 'disabled' | 'legacy' = 'verified') {
+async function fixture(mode: 'verified' | 'disabled' | 'legacy' = 'verified') {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'modern-template-proof-'));
   // The real authority reads its Runtime Scope identity and owner-only capability from disk.
   const capability = new TemplateContextCapabilityStore({
@@ -89,8 +96,13 @@ function fixture(mode: 'verified' | 'disabled' | 'legacy' = 'verified') {
     },
     { allowsHost: () => true, allowsOrigin: () => true },
   );
+  // Reserve the IPv4 address Supertest connects to, avoiding dual-stack port collisions.
+  const listener = instance.listen(0, '127.0.0.1');
+  listeners.push(listener);
+  await once(listener, 'listening');
+  expect(listener.address()).toMatchObject({ address: '127.0.0.1', family: 'IPv4' });
   const post = (proof?: TemplateContextProof, session = 'proxy-a', requestContext = context) =>
-    request(instance)
+    request(listener)
       .post('/mcp')
       .set('MCP-Protocol-Version', '2026-07-28')
       .set('Mcp-Method', 'tools/list')
@@ -108,7 +120,7 @@ describe('modern ingress reauthorizes signed template memberships', () => {
   it.each(['missing', 'tampered', 'expired', 'scope', 'session'] as const)(
     'denies %s proofs after a trusted request without reusing template membership',
     async (kind) => {
-      const f = fixture();
+      const f = await fixture();
       const valid = createTemplateContextProof(context, f.capability);
       const first = await f.post(valid);
       expect(first.body.error, JSON.stringify(first.body)).toBeUndefined();
@@ -136,7 +148,7 @@ describe('modern ingress reauthorizes signed template memberships', () => {
   );
 
   it('prepares renewed signed transport context without changing logical membership', async () => {
-    const f = fixture();
+    const f = await fixture();
     const firstContext: ContextData = {
       ...context,
       transport: { type: 'stdio', connectionTimestamp: '2026-10-12T00:00:00Z' },
@@ -157,7 +169,7 @@ describe('modern ingress reauthorizes signed template memberships', () => {
   });
 
   it('never prepares signed caller templates in disabled mode', async () => {
-    const f = fixture('disabled');
+    const f = await fixture('disabled');
     const response = await f.post(createTemplateContextProof(context, f.capability));
     expect(response.status).toBe(400);
     expect(f.bridgeConfigs).toHaveLength(0);
@@ -165,7 +177,7 @@ describe('modern ingress reauthorizes signed template memberships', () => {
   });
 
   it('preserves explicit legacy policy for unsigned caller context', async () => {
-    const f = fixture('legacy');
+    const f = await fixture('legacy');
     const response = await f.post();
     expect(response.body.error).toBeUndefined();
     expect(f.prepare).toHaveBeenCalledWith(

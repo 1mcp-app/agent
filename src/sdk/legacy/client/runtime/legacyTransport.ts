@@ -1,4 +1,5 @@
 import type { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
+import type { BackendSleep } from '@src/core/server/backendSleep.js';
 import type { Transport } from '@src/sdk/legacy/shared/transport.js';
 
 export type OutboundProtocolVersion = 'auto' | 'legacy' | '2026-07-28';
@@ -21,6 +22,13 @@ export interface AuthProviderTransport extends Transport {
   timeout?: number;
   tags?: string[];
   oauthProvider?: SDKOAuthClientProvider;
+  backendSleepTracker?: BackendSleep;
+  backendSleep?: {
+    readonly idleTimeoutMs?: number;
+    readonly recreate: () => AuthProviderTransport;
+    readonly release: () => Promise<void>;
+    readonly ownershipBlocker: () => string | undefined;
+  };
   stdioSupervision?: {
     readonly policy: {
       readonly restartOnExit: true;

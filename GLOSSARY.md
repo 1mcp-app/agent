@@ -53,7 +53,7 @@ The terminal **Backend Stdio Supervision** state reached after the configured co
 _Avoid_: disconnected, runtime crash-loop
 
 **Backend Sleep**:
-An intentional state in which an enabled backend's process is released while its capabilities remain discoverable and a subsequent operation can wake it. It is distinct from a disabled server or a backend awaiting crash recovery.
+An intentional state in which an enabled backend's exclusively owned process is released while its last-known capabilities remain discoverable under current access rules. A subsequent backend operation wakes a fresh session; sleep is distinct from disabling, crash recovery, or suspending a retained process.
 _Avoid_: disabled server, crashed backend, process suspension
 
 **Backend Log Source**:

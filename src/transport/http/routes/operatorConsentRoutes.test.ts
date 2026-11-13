@@ -1,3 +1,5 @@
+import { createLoopbackListeners } from '@test/unit-utils/loopbackListeners.js';
+
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +11,8 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createOperatorConsentGuard, createOperatorConsentRoutes } from './operatorConsentRoutes.js';
+
+const listeners = createLoopbackListeners();
 
 describe('operator consent authorization boundary', () => {
   let directory: string;
@@ -44,33 +48,47 @@ describe('operator consent authorization boundary', () => {
     approve.mockClear();
   });
 
-  afterEach(() => fs.rmSync(directory, { recursive: true, force: true }));
+  afterEach(async () => {
+    await listeners.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
 
   it('preserves authorization parameters while moving the browser into the Admin cookie scope', async () => {
-    const response = await request(app()).get('/authorize?client_id=test&state=a%26b');
+    const response = await request(await listeners.listen(app())).get('/authorize?client_id=test&state=a%26b');
     expect(response.status).toBe(303);
     expect(response.headers.location).toBe('/admin/oauth/authorize?client_id=test&state=a%26b');
-    const post = await request(app()).post('/authorize').type('form').send({ client_id: 'test', state: 'a&b' });
+    const post = await request(await listeners.listen(app()))
+      .post('/authorize')
+      .type('form')
+      .send({ client_id: 'test', state: 'a&b' });
     expect(post.status).toBe(303);
     expect(post.headers.location).toBe('/admin/oauth/authorize?client_id=test&state=a%26b');
   });
 
   it('requires a live Admin Session before showing consent and supplies its CSRF token', async () => {
     const server = app();
-    expect((await request(server).get('/admin/oauth/authorize')).status).toBe(401);
-    const response = await request(server).get('/admin/oauth/authorize').set('Cookie', cookie());
+    expect((await request(await listeners.listen(server)).get('/admin/oauth/authorize')).status).toBe(401);
+    const response = await request(await listeners.listen(server))
+      .get('/admin/oauth/authorize')
+      .set('Cookie', cookie());
     expect(response.status).toBe(200);
     expect(response.body.csrfToken).toBe(login.csrfToken);
     expect(response.headers['cache-control']).toBe('no-store');
     admin.revokeSession(login.sessionToken);
-    expect((await request(server).get('/admin/oauth/authorize').set('Cookie', cookie())).status).toBe(401);
+    expect(
+      (
+        await request(await listeners.listen(server))
+          .get('/admin/oauth/authorize')
+          .set('Cookie', cookie())
+      ).status,
+    ).toBe(401);
   });
 
   it("binds approval to the authenticated session and rejects missing or another session's CSRF token", async () => {
     const server = app();
     const other = await admin.login({ username: 'operator', password: 'correct horse battery staple' });
     for (const csrf of [undefined, other.csrfToken]) {
-      const response = await request(server)
+      const response = await request(await listeners.listen(server))
         .post('/admin/oauth/consent')
         .set('Cookie', cookie())
         .type('form')
@@ -80,7 +98,7 @@ describe('operator consent authorization boundary', () => {
     expect(approve).not.toHaveBeenCalled();
     expect(
       (
-        await request(server)
+        await request(await listeners.listen(server))
           .post('/admin/oauth/consent')
           .set('Cookie', cookie())
           .type('form')
@@ -92,15 +110,26 @@ describe('operator consent authorization boundary', () => {
 
   it('does not allow the original consent path to bypass session checks', async () => {
     expect(
-      (await request(app()).post('/oauth/consent').type('form').send({ csrf_token: login.csrfToken })).status,
+      (
+        await request(await listeners.listen(app()))
+          .post('/oauth/consent')
+          .type('form')
+          .send({ csrf_token: login.csrfToken })
+      ).status,
     ).toBe(401);
     expect(approve).not.toHaveBeenCalled();
   });
 
   it('fails closed when Admin is disabled or has no account', async () => {
-    expect((await request(app(false)).get('/admin/oauth/authorize').set('Cookie', cookie())).status).toBe(403);
+    expect(
+      (
+        await request(await listeners.listen(app(false)))
+          .get('/admin/oauth/authorize')
+          .set('Cookie', cookie())
+      ).status,
+    ).toBe(403);
     admin = new AdminIdentityService({ storageDir: path.join(directory, 'empty'), runtimeScopeId: 'empty' });
-    expect((await request(app()).get('/admin/oauth/authorize')).status).toBe(403);
+    expect((await request(await listeners.listen(app())).get('/admin/oauth/authorize')).status).toBe(403);
     expect(approve).not.toHaveBeenCalled();
   });
 });

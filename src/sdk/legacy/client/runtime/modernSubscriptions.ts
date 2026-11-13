@@ -1,5 +1,6 @@
 import type { Client } from '@modelcontextprotocol/client';
 
+import { BackendSleepAdapter } from '@src/core/server/backendSleepAdapter.js';
 import type { OutboundConnection } from '@src/core/types/client.js';
 import { OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
@@ -88,7 +89,10 @@ export function ensureModernSubscriptionCoverage(
   connection: object,
   filter: ModernSubscriptionFilter,
 ): Promise<ModernSubscriptionFilter> {
-  return states.get(connection)?.coverage(filter) ?? Promise.resolve(filter);
+  return (
+    states.get(connection instanceof BackendSleepAdapter ? connection.current : connection)?.coverage(filter) ??
+    Promise.resolve(filter)
+  );
 }
 
 /** Publish declined catalog coverage for this exact adapter before narrowing an inbound filter. */
@@ -117,7 +121,7 @@ export async function openModernSubscription(
   onClose: () => void,
   signal?: AbortSignal,
 ): Promise<ModernSubscriptionHandle> {
-  const state = states.get(connection);
+  const state = states.get(connection instanceof BackendSleepAdapter ? connection.current : connection);
   if (!state) throw new OneMcpProtocolError(-32601, 'Modern subscriptions are unavailable');
   signal?.throwIfAborted();
   if (activeSubscriptions >= maxSubscriptions)
@@ -218,7 +222,7 @@ function accepts(filter: ModernSubscriptionFilter, method: string, uri: unknown)
 }
 
 export function rebindModernSubscriptionTransport(connection: object, transport: AuthProviderTransport): void {
-  const state = states.get(connection);
+  const state = states.get(connection instanceof BackendSleepAdapter ? connection.current : connection);
   if (!state) return;
   for (const entry of state.entries.values()) entry.stop();
   states.delete(connection);
@@ -226,5 +230,8 @@ export function rebindModernSubscriptionTransport(connection: object, transport:
 }
 
 export function closeModernSubscriptions(connection: object): void {
-  for (const entry of states.get(connection)?.entries.values() ?? []) entry.cancel();
+  for (const entry of states
+    .get(connection instanceof BackendSleepAdapter ? connection.current : connection)
+    ?.entries.values() ?? [])
+    entry.cancel();
 }

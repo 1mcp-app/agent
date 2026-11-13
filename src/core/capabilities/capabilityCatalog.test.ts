@@ -4,10 +4,12 @@ import * as toolSchemaBoundary from '@src/core/validation/toolSchemaBoundary.js'
 import * as localDiagnostics from '@src/logger/localDiagnostics.js';
 import logger, * as loggerModule from '@src/logger/logger.js';
 import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
+import { BackendSleep } from '@src/core/server/backendSleep.js';
+import { BackendSleepAdapter } from '@src/core/server/backendSleepAdapter.js';
 import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
-import { ErrorCode, OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
+import { ErrorCode, type JsonValue, OneMcpProtocolError, type Tool } from '@src/sdk/contracts/index.js';
 
 import {
   attachCatalogCursorOwner,
@@ -128,6 +130,240 @@ describe('CapabilityCatalog', () => {
   }
 
   afterEach(() => vi.restoreAllMocks());
+
+  it('keeps sleeping discovery under current visibility and only explicit permitted refresh wakes it', async () => {
+    vi.useFakeTimers();
+    const connection = outboundConnections.get('filesystem')!;
+    const wake = vi.fn(async () => {});
+    const lifecycle = new BackendSleep({
+      idleTimeoutMs: 30_000,
+      release: async () => {},
+      wake,
+      isCurrent: () => true,
+      onChange: (snapshot) => {
+        connection.status = snapshot.state === 'awake' ? ClientStatus.Connected : ClientStatus.Sleeping;
+      },
+    });
+    const raw = connection.adapter;
+    vi.mocked(raw.request).mockResolvedValue({ tools: [{ name: 'read_file', inputSchema: { type: 'object' } }] });
+    const adapter = new BackendSleepAdapter(raw, lifecycle);
+    Object.assign(connection, { adapter });
+    await adapter.refresh({ tools: {} });
+    lifecycle.ready();
+    registry = registry.withConnections(outboundConnections);
+    try {
+      await vi.advanceTimersByTimeAsync(30_000);
+      const catalog = createCatalog();
+      const allowed = createCapabilityVisibility([['filesystem', 'filesystem']]);
+      const denied = createCapabilityVisibility([]);
+      expect((await catalog.listVisibleTools({}, allowed)).tools.map((tool) => tool.name)).toEqual(['read_file']);
+      expect((await catalog.listVisibleTools({}, denied)).tools).toEqual([]);
+      expect(
+        (await catalog.invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} }, denied)).error,
+      ).toBeDefined();
+      await catalog.listVisibleTools({}, denied, { refreshIntent: 'force' });
+      expect(wake).not.toHaveBeenCalled();
+      await catalog.listVisibleTools({}, allowed, { refreshIntent: 'force' });
+      expect(wake).toHaveBeenCalledTimes(1);
+    } finally {
+      lifecycle.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('skips disconnected sleep backends while forcing discovery of a healthy backend', async () => {
+    const disconnected = outboundConnections.get('filesystem')!;
+    const lifecycle = new BackendSleep({
+      idleTimeoutMs: 30_000,
+      release: async () => {},
+      wake: async () => {},
+      isCurrent: () => true,
+    });
+    const ensureAwake = vi.spyOn(lifecycle, 'ensureAwake').mockRejectedValue(new Error('Backend unavailable'));
+    Object.assign(disconnected, {
+      adapter: new BackendSleepAdapter(disconnected.adapter, lifecycle),
+      status: ClientStatus.Disconnected,
+    });
+    const healthy = outboundConnections.get('template-server:rendered123')!;
+    const healthyLifecycle = new BackendSleep({
+      idleTimeoutMs: 30_000,
+      release: async () => {},
+      wake: async () => {},
+      isCurrent: () => true,
+    });
+    const healthyAdapter = new BackendSleepAdapter(healthy.adapter, healthyLifecycle);
+    Object.assign(healthy, { adapter: healthyAdapter });
+    const refresh = vi.spyOn(healthyAdapter, 'refresh').mockResolvedValue([]);
+    healthyLifecycle.ready();
+    registry = registry
+      .filterByConnectionKeys(new Set(['template-server:rendered123']))
+      .withConnections(outboundConnections);
+    try {
+      await expect(createCatalog().listVisibleTools({}, undefined, { refreshIntent: 'force' })).resolves.toBeDefined();
+      expect(ensureAwake).not.toHaveBeenCalled();
+      expect(refresh).toHaveBeenCalledTimes(1);
+    } finally {
+      lifecycle.stop();
+      healthyLifecycle.stop();
+    }
+  });
+
+  it('invokes an unchanged tool when wake adds another tool', async () => {
+    vi.useFakeTimers();
+    const connection = outboundConnections.get('filesystem')!;
+    const tool = { name: 'read_file', inputSchema: { type: 'object' as const } };
+    let tools = [tool];
+    const raw = connection.adapter;
+    vi.mocked(raw.request).mockImplementation(async ({ method }): Promise<JsonValue> =>
+      method === 'tools/list' ? { tools } : { content: [{ type: 'text', text: 'awake result' }] },
+    );
+    let adapter: BackendSleepAdapter;
+    const lifecycle = new BackendSleep({
+      idleTimeoutMs: 30_000,
+      release: async () => {},
+      wake: async () => {
+        tools = [tool, { name: 'new_tool', inputSchema: { type: 'object' } }];
+        await adapter.refresh({ tools: {} });
+        advanceCapabilityPaginationGeneration(outboundConnections, 'tools');
+        registry = ToolRegistry.fromToolsWithServer(tools.map((tool) => ({ tool, server: 'filesystem' })));
+      },
+      isCurrent: () => true,
+    });
+    adapter = new BackendSleepAdapter(raw, lifecycle);
+    Object.assign(connection, { adapter });
+    registry = ToolRegistry.fromToolsWithServer([{ tool, server: 'filesystem' }]);
+    await adapter.refresh({ tools: {} });
+    lifecycle.ready();
+    try {
+      await vi.advanceTimersByTimeAsync(30_000);
+      const result = await createCatalog().invokeVisibleTool({ server: 'filesystem', toolName: 'read_file', args: {} });
+      expect(result.error).toBeUndefined();
+      expect(result.result).toEqual({ content: [{ type: 'text', text: 'awake result' }] });
+    } finally {
+      lifecycle.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a tool generation change after wake admission before dispatch', async () => {
+    const result = await createCatalog().invokeVisibleTool(
+      { server: 'filesystem', toolName: 'read_file', args: {} },
+      undefined,
+      {
+        beforeDispatch: async () => {
+          advanceCapabilityPaginationGeneration(outboundConnections, 'tools');
+          return true;
+        },
+      },
+    );
+    expect(result.error).toMatchObject({ type: 'upstream', message: 'schema_evaluation_unavailable' });
+    expect(mockClient.callTool).not.toHaveBeenCalled();
+  });
+
+  it.each(['before refresh', 'during wake'] as const)(
+    'cancels forced discovery %s without waking remaining backends',
+    async (when) => {
+      vi.useFakeTimers();
+      const abort = new AbortController();
+      const lifecycles: BackendSleep[] = [];
+      let finishWake!: () => void;
+      let wakeStarted!: () => void;
+      const waking = new Promise<void>((resolve) => {
+        wakeStarted = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        finishWake = resolve;
+      });
+      const wakes: string[] = [];
+      for (const [key, connection] of outboundConnections) {
+        const lifecycle = new BackendSleep({
+          idleTimeoutMs: 30_000,
+          release: async () => {},
+          wake: async () => {
+            wakes.push(key);
+            wakeStarted();
+            await gate;
+          },
+          isCurrent: () => true,
+        });
+        lifecycles.push(lifecycle);
+        Object.assign(connection, { adapter: new BackendSleepAdapter(connection.adapter, lifecycle) });
+        lifecycle.ready();
+      }
+      try {
+        await vi.advanceTimersByTimeAsync(30_000);
+        if (when === 'before refresh') abort.abort();
+        const catalog = createCatalog();
+        const pending = catalog.listVisibleTools({}, undefined, { refreshIntent: 'force', signal: abort.signal });
+        const outcome = pending.then(
+          () => 'completed',
+          () => 'cancelled',
+        );
+        let survivingRefresh: Promise<unknown> | undefined;
+        if (when === 'during wake') {
+          await waking;
+          survivingRefresh = catalog.listVisibleTools({}, createCapabilityVisibility([['filesystem', 'filesystem']]), {
+            refreshIntent: 'force',
+          });
+          abort.abort();
+        }
+        expect(await outcome).toBe('cancelled');
+        finishWake();
+        await survivingRefresh;
+        expect(wakes).toEqual(when === 'before refresh' ? [] : ['filesystem']);
+      } finally {
+        finishWake();
+        lifecycles.forEach((lifecycle) => lifecycle.stop());
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('cancels an in-flight forced discovery listing before querying another backend', async () => {
+    const abort = new AbortController();
+    const connection = outboundConnections.get('filesystem')!;
+    const raw = connection.adapter;
+    let listingStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      listingStarted = resolve;
+    });
+    let finishListing!: () => void;
+    let cancelListing!: (reason: Error) => void;
+    const gate = new Promise<void>((resolve, reject) => {
+      finishListing = resolve;
+      cancelListing = reject;
+    });
+    vi.mocked(raw.cancel).mockImplementation(async () => {
+      cancelListing(new Error('Request cancelled'));
+    });
+    vi.mocked(raw.request).mockImplementation(async () => {
+      listingStarted();
+      await gate;
+      return { tools: [] };
+    });
+    const lifecycle = new BackendSleep({
+      idleTimeoutMs: 30_000,
+      release: async () => {},
+      wake: async () => {},
+      isCurrent: () => true,
+    });
+    Object.assign(connection, { adapter: new BackendSleepAdapter(raw, lifecycle), capabilities: { tools: {} } });
+    lifecycle.ready();
+    try {
+      const pending = createCatalog().listVisibleTools({}, undefined, { refreshIntent: 'force', signal: abort.signal });
+      const outcome = pending.then(
+        () => 'completed',
+        () => 'cancelled',
+      );
+      await started;
+      abort.abort();
+      await vi.waitFor(() => expect(raw.cancel).toHaveBeenCalledTimes(1), { timeout: 100 });
+      expect(await outcome).toBe('cancelled');
+    } finally {
+      finishListing();
+      lifecycle.stop();
+    }
+  });
 
   it('reports unresolved selection labels for an admitted target backend while excluded backends remain hidden', async () => {
     const catalog = createCatalog(undefined, {

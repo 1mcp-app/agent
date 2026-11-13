@@ -146,6 +146,17 @@ export const CLOSED_VALUES = {
   ownershipEvidenceStatus: ['available', 'unavailable', 'unknown', 'other'],
   releaseStage: ['ownership', 'stop-lock', 'file-lock', 'other'],
   pidRepairOutcome: ['repaired', 'skipped', 'retry', 'ownership-changed', 'unsafe', 'not-attempted', 'other'],
+  backendSleepState: [
+    'initializing',
+    'awake',
+    'releasing',
+    'sleeping',
+    'waking',
+    'wake-failed',
+    'release-failed',
+    'stopped',
+    'other',
+  ],
   transport: ['stdio', 'http', 'sse', 'streamable-http', 'other'],
   status: [
     'pending',
