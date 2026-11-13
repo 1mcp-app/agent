@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file tells coding agents how to edit public documentation and repository development notes under `docs/`.
+This file tells coding agents how to edit public documentation, architectural decisions, and repository development notes under `docs/`.
 
 ## Mission
 
@@ -33,7 +33,7 @@ pnpm docs:preview
 
 ## Development Documentation Placement
 
-- Put contributor implementation notes, diagnostic reproduction steps, test harness instructions, and acceptance evidence directly in `docs/development` as Markdown files (for example, `docs/development/backend-preparation-acceptance.md`).
+- Put maintained contributor workflows, diagnostic procedures, and implementation constraints in `docs/development/`. Put run-specific results, acceptance evidence, and delivery history in the relevant PR, issue, or CI artifacts.
 - VitePress builds only `docs/site/`; repository notes stay outside that directory. Public pages belong in its locale directories.
 - Keep these development documents outside `docs/site/en/` and `docs/site/zh/` and out of public site navigation. Maintain development documents in English only; both site locales link to the same English repository file.
 - Keep user-facing setup instructions, prerequisites, supported behavior, and limitations in the localized site. The existing public development guide may link to repository notes rather than embedding their evidence or harness details.
@@ -41,6 +41,28 @@ pnpm docs:preview
 - When moving development content, update all incoming links and navigation. Retain a short routing page only for an existing public URL that must remain accessible.
 
 ## Content-Type Rules
+
+### Contributor handbook (`docs/development/`)
+
+- Each page must answer a recurring contributor question: how to change, test, or diagnose a subsystem, or which constraints make a change safe. A completed task alone does not justify a new page.
+- Document the current workflow. Include purpose, prerequisites, commands, expected observations, and failure interpretation where relevant; reference pages need only the structure their subject requires.
+- Preserve knowledge that is difficult to recover from code: hidden prerequisites, cross-component relationships, and non-obvious constraints. Link to owning scripts, tests, and configuration instead of copying assertion inventories or settings tables.
+- Keep dated results, pass counts, rollout narratives, screenshots, and task checklists with their PR, issue, or CI run. Distinguish a procedure's expected outcome from an observed result; a historical pass is not current support evidence.
+- Update the existing explanation when behavior changes. Remove obsolete instructions and migration narration; preserve durable decision rationale in ADRs. Version pins belong here only when required to run the documented workflow.
+- Link each page from the [development index](development/README.md) or a relevant contributor guide. Prefer extending an existing page over adding a second page for the same task.
+- Update affected procedures and links with behavior changes. Merge or remove pages that no longer answer a useful question, repairing incoming links. Before finishing, ask: what can a contributor do or understand better because this page exists?
+
+### Architectural decision records (`docs/adr/`)
+
+- Apply the `domain-modeling` skill when recording or revising architectural decisions. Create an ADR only when the decision is costly to reverse, surprising without context, and the result of a real trade-off. All three criteria must hold.
+- Default to a short title and one paragraph of 1–3 sentences covering context, decision, and rationale. Add status, considered alternatives, or consequences only when they help a future reader understand the decision.
+- Record durable architectural boundaries, constraints, and reasons. ADRs must not contain development details: code snippets, file-by-file changes, implementation plans, task checklists, reproduction commands, test matrices, or acceptance evidence.
+- Put implementation and verification notes in `docs/development/`. Put issue requirements and delivery plans in the issue tracker following [the issue-tracker instructions](agents/issue-tracker.md). Link to those details when needed instead of embedding them in the ADR.
+- Keep ADRs in English and use sequential `NNNN-short-slug.md` names; choose the next number after the highest existing ADR. When a decision changes, make its status and any superseding ADR explicit.
+
+### Domain terminology
+
+- Use the canonical terms in `GLOSSARY.md` when present. Capture resolved definitions there using the `domain-modeling` skill; keep the glossary limited to domain meanings, without implementation details, specifications, or decision history.
 
 ### Home and landing pages
 
@@ -107,7 +129,7 @@ VitePress renders through Vue. If docs need literal <span v-pre>`{{ }}`</span> s
 
 Before finishing a docs change:
 
-1. Confirm the page type.
+1. Confirm the page type and keep its content within the corresponding rules above.
 2. Keep the current path unless explicitly asked to migrate it.
 3. Update both locales for touched public pages.
 4. Check internal links and cross-links.

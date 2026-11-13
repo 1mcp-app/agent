@@ -11,15 +11,13 @@ For contributors and integration authors. End users should read [Backend prepara
 
 `examples/preparation/` is a test backend for the generic recipe mechanism. It compares the bytes of one `source.txt` file with a stored digest, so contributors can reproduce initialization, synchronization, checkout isolation, and pending tool results. It is not a product integration, a code indexer, or a preparation recipe for CodeGraph, Code Review Graph, or Serena. Users do not need to install or run it.
 
-The generator and helper are source-checkout examples, not npm package contents. Real backend recipes need their own verified readiness, ownership, and cancellation behavior; passing this fixture does not establish those guarantees. The runtime E2E coverage lives in `test/e2e/configured-preparation-discovery.test.ts`.
+The generator and helper are source-checkout examples, not npm package contents. Real backend recipes need their own verified readiness, ownership, and cancellation behavior; passing this fixture does not establish those guarantees. The runtime E2E coverage lives in [configured preparation discovery tests](../../test/e2e/configured-preparation-discovery.test.ts). Use [integration verification](backend-preparation-acceptance.md) when evaluating a real backend.
 
 ## Fixture configuration
 
 Use this guide when you want to edit and share preparation behavior without rebuilding 1MCP. Keep machine-specific inputs and action permissions in `mcp.json`; reference a local JSON recipe for readiness probes and preparation commands. The same configured-command runtime executes inline commands and referenced recipes. No TypeScript plugin loader is required.
 
 The following configuration uses the **demonstration fixture**, not a CodeGraph, Code Review Graph, or Serena integration. Replace the absolute paths with your repository and Node installation paths. The complete recipe and helper are in [examples/preparation](https://github.com/1mcp-app/agent/tree/main/examples/preparation); they are source-checkout examples, not files bundled in the npm package.
-
-::: v-pre
 
 ```json
 {
@@ -43,8 +41,6 @@ The following configuration uses the **demonstration fixture**, not a CodeGraph,
   }
 }
 ```
-
-:::
 
 The recipe declares available actions; `allowedActions` grants permission to run them. `activation: "setup"` explicitly enables automatic preparation for authorized fresh checkouts without adding a preparation preference to every `.1mcprc`. Backend and project disables still win. Neither copying a recipe nor upgrading 1MCP grants new permissions or checkout access.
 
@@ -131,7 +127,7 @@ Each retained adapter owns its expected helper digests. It verifies them before 
 
 Explicit runtime adoption can set `activation: "setup"` with a named definition, enabling permitted preparation for fresh authorized checkouts without a preparation preference in each project. `enabled: false` at the backend and explicit project disables take precedence. Existing inline configurations retain their project opt-in behavior; upgrades do not set activation automatically.
 
-The built-in preparation-definition registry is empty, independently of the three setup examples above. Automatic preparation requires a separately verified public-interface integration. Local definitions remain an advanced operator-managed interface; setup examples do not resolve the native preparation gaps.
+The built-in preparation-definition registry is empty, independently of backend setup examples. Automatic preparation requires a separately verified public-interface integration. Local definitions remain an advanced operator-managed interface; setup examples do not resolve the native preparation gaps.
 
 ## Inline commands (advanced)
 
@@ -153,7 +149,11 @@ Add preparation metadata to an existing server definition. Use executable paths 
         "2": { "state": "required", "action": "initialize", "instructions": "Initialize the selected checkout." },
         "3": { "state": "required", "action": "sync", "instructions": "Synchronize changed source." },
         "4": { "state": "conflict", "instructions": "Reconcile the existing writer before retrying." },
-        "20": { "state": "unknown", "reason": "probe_failed", "instructions": "Inspect the native configuration before retrying." },
+        "20": {
+          "state": "unknown",
+          "reason": "probe_failed",
+          "instructions": "Inspect the native configuration before retrying."
+        },
         "21": { "state": "unsupported", "instructions": "Verify backend compatibility before updating this recipe." }
       },
       "actions": {
@@ -214,3 +214,14 @@ One job performs one action. Successful action exit triggers a fresh probe. Only
 Runtime defaults are one active expensive job, at most 16 queued jobs, a 120,000 ms execution deadline independent of queue time, and a 5,000 ms request inspection/wait budget. Configure scheduler bounds through the application's `[preparation]` settings. Backend metadata can set `executionDeadlineMs` and `transientRetryLimit`; increasing deadlines requires an explicit runtime configuration change.
 
 Cancellation and execution expiry stop owned action processes and their attached descendants. A direct child exiting does not prove descendants stopped. Restart treats saved state as advisory: the configured read-only probe verifies current readiness and native writer coordination. A native conflict stays blocked until external reconciliation; inspect can then report readiness without starting work, and explicit retry can admit required preparation. No saved PID or flag authorizes signalling, duplicate writers, index deletion, or foreign-lock recovery. Inspection does not erase these facts.
+
+## Verify recipe changes
+
+From the repository root, run the built runtime journey after changing the fixture or its recipe:
+
+```bash
+pnpm build
+pnpm test:e2e test/e2e/configured-preparation-discovery.test.ts
+```
+
+Use the disposable walkthrough above for manual inspection. Compare readiness and job states with the situation table; if action exit succeeds but readiness does not, inspect the probe rather than treating the exit as success. Keep observed timings and run output with the change record.
