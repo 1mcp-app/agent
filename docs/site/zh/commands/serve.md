@@ -53,6 +53,7 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 - **`--port, -P <port>`**：修改 HTTP 端口，默认 `3050`。
 - **`--host, -H <host>`**：修改绑定地址，默认 `localhost`。
 - **`--external-url <url>`**：设置外部基础 URL，常用于认证相关流程。
+- **`--http-body-limit <size>`**：HTTP 端点允许的最大请求体，默认 `100kb`。
 
 ### 过滤与预设
 
@@ -382,3 +383,15 @@ const client = new Client({ name: 'my-client', version: '1.0.0' }, { versionNego
 ```
 
 现代入站调用访问旧版后端时的状态连续性仍未解决。为保持交互隔离，每次现代调用可能使用新的私有旧版连接，因此上次调用返回的句柄可能无法在下次调用中使用。此兼容模式使用既有的旧版保留会话路径，不会增加持久化的现代会话亲和性，也不会在调用者之间共享私有交互状态。
+
+## HTTP 请求体上限
+
+`--http-body-limit <size>` 控制 HTTP 端点接受的请求体大小。默认 `100kb`，这是解析器的默认值，会以 `413 Payload Too Large` 拒绝较大的 JSON-RPC 载荷，例如 base64 编码的图片或体积很大的工具参数：
+
+```bash
+1mcp serve --http-body-limit 25mb
+```
+
+可写字节数（`26214400`）或尺寸字符串（`100kb`、`25mb`、`1gb`）。对应的环境变量为 `ONE_MCP_HTTP_BODY_LIMIT=25mb`；也可以在 `config.toml` 顶层设置 `httpBodyLimit = "25mb"`。显式命令行参数优先于环境变量，环境变量优先于持久化配置，修改后需重启运行时。
+
+该上限对 HTTP 端点的所有路由生效，JSON 与表单编码请求体同样受限。请谨慎调高：它决定单个请求可占用的内存，设置过大将放大未认证或异常客户端的影响面。
