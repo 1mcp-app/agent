@@ -78,6 +78,11 @@ export const serverOptions = {
     type: 'string' as const,
     choices: ['dual', 'legacy-only'] as const,
   },
+  'http-body-limit': {
+    describe: 'Max HTTP request body size, bytes or a size string like 100kb/25mb (env: ONE_MCP_HTTP_BODY_LIMIT)',
+    type: 'string' as const,
+    default: undefined,
+  },
   port: {
     alias: 'P',
     describe: 'HTTP port to listen on, applicable when transport is http',
@@ -357,7 +362,7 @@ export function setupServeCommand(yargs: Argv): Argv {
       return yargs
         .options(serverOptions)
         .group(['status', 'background', 'stop', 'restart', 'drain-timeout', 'on-drain-timeout'], 'Runtime:')
-        .group(['transport', 'inbound-http-era', 'port', 'host', 'external-url'], 'Transport:')
+        .group(['transport', 'inbound-http-era', 'http-body-limit', 'port', 'host', 'external-url'], 'Transport:')
         .group(['filter', 'preset', 'pagination', 'enable-internal-tools', 'internal-tools'], 'Filtering:')
         .group(
           [

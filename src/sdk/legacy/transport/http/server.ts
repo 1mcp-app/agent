@@ -10,7 +10,13 @@ import { getAllServerTargets, resolveServerTarget } from '@src/commands/shared/b
 import ConfigContext from '@src/config/configContext.js';
 import ConfigManager from '@src/config/configManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { getGlobalConfigDir, MCP_SERVER_VERSION, RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
+import {
+  getGlobalConfigDir,
+  HTTP_REQUEST_BODY_LIMIT,
+  MCP_SERVER_VERSION,
+  RATE_LIMIT_CONFIG,
+  STORAGE_SUBDIRS,
+} from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
@@ -273,6 +279,17 @@ export function createModernHttpRequestPolicy(configManager: AgentConfigManager)
  * expressServer.start(3050, 'localhost');
  * ```
  */
+/**
+ * Body parsers for the inbound HTTP transport.
+ *
+ * `body-parser` defaults to a 100 KB limit, which rejects large JSON-RPC payloads such as
+ * base64-encoded images or oversized tool arguments. The limit comes from configuration so a
+ * deployment can raise it without patching the package.
+ */
+export function createBodyParserMiddlewares(limit: number | string): express.RequestHandler[] {
+  return [bodyParser.json({ limit }), bodyParser.urlencoded({ extended: true, limit })];
+}
+
 export class ExpressServer {
   private app: express.Application;
   private serverManager: ServerManager;
@@ -366,8 +383,7 @@ export class ExpressServer {
         },
       }),
     );
-    this.app.use(bodyParser.json());
-    this.app.use(bodyParser.urlencoded({ extended: true }));
+    this.app.use(...createBodyParserMiddlewares(this.configManager.get('httpBodyLimit') ?? HTTP_REQUEST_BODY_LIMIT));
     this.app.use(httpRequestBodyLogger);
 
     // Add error handling middleware

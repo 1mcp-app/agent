@@ -63,6 +63,7 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 - **`--port, -P <port>`**: Change the HTTP port. Default: `3050`.
 - **`--host, -H <host>`**: Change the bind host. Default: `localhost`.
 - **`--external-url <url>`**: Set the external base URL, usually for auth-related flows.
+- **`--http-body-limit <size>`**: Max request body size accepted by the HTTP endpoint. Default: `100kb`.
 
 ### Filtering and presets
 
@@ -392,3 +393,15 @@ const client = new Client({ name: 'my-client', version: '1.0.0' }, { versionNego
 ```
 
 Modern-to-legacy backend state continuity remains unresolved. Modern calls may use a new private legacy peer per operation to preserve interaction isolation, so a handle returned by one call may be unavailable to the next. Legacy-only mode uses the existing retained legacy path; it does not add persistent modern affinity or share private interaction state between callers.
+
+## HTTP request body limit
+
+`--http-body-limit <size>` sets how large a request body the HTTP endpoint accepts. The default is `100kb`, which is the parser default and rejects large JSON-RPC payloads such as base64-encoded images or big tool arguments with `413 Payload Too Large`:
+
+```bash
+1mcp serve --http-body-limit 25mb
+```
+
+Accepts a byte count (`26214400`) or a size string (`100kb`, `25mb`, `1gb`). The equivalent environment variable is `ONE_MCP_HTTP_BODY_LIMIT=25mb`; in `config.toml`, set the top-level key `httpBodyLimit = "25mb"`. Explicit CLI flags override environment variables, which override persisted configuration, and a change requires a runtime restart.
+
+The limit applies to every route of the HTTP endpoint, both JSON and form-encoded bodies. Raise it deliberately: it caps how much memory a single request can consume, so a very large value widens the impact of an unauthenticated or misbehaving client.

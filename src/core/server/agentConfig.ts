@@ -1,4 +1,11 @@
-import { AUTH_CONFIG, HOST, PORT, RATE_LIMIT_CONFIG, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
+import {
+  AUTH_CONFIG,
+  HOST,
+  HTTP_REQUEST_BODY_LIMIT,
+  PORT,
+  RATE_LIMIT_CONFIG,
+  STREAMABLE_HTTP_ENDPOINT,
+} from '@src/constants.js';
 import type { TemplateContextTrustMode } from '@src/core/context/templateContextTrust.js';
 import { type BackendLoadingPolicy, DEFAULT_BACKEND_LOADING_POLICY } from '@src/core/loading/backendLoadingPolicy.js';
 import {
@@ -38,6 +45,7 @@ export interface AgentConfig {
   host: string;
   port: number;
   inboundHttpEra: 'dual' | 'legacy-only';
+  httpBodyLimit: number | string;
   externalUrl?: string;
   runtimeScopeStoragePath?: string;
   trustProxy: string | boolean;
@@ -151,6 +159,7 @@ export class AgentConfigManager {
       host: HOST,
       port: PORT,
       inboundHttpEra: 'dual',
+      httpBodyLimit: HTTP_REQUEST_BODY_LIMIT,
       trustProxy: 'loopback',
       admin: {
         enabled: true,
