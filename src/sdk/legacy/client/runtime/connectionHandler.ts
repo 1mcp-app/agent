@@ -3,6 +3,7 @@ import {
   ProtocolError,
   SdkError,
   SdkErrorCode,
+  SdkHttpError,
   UnsupportedProtocolVersionError,
 } from '@modelcontextprotocol/client';
 
@@ -11,6 +12,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { OAuthError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { readOAuthDiagnostic } from '@src/auth/oauthDiagnostics.js';
 import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
 import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
@@ -44,6 +46,19 @@ function isNonRetryableOAuthError(error: unknown): error is OAuthError {
   }
 
   return !RETRYABLE_OAUTH_ERROR_CODES.has(error.errorCode);
+}
+
+/**
+ * The version negotiation probe is the first request sent to an HTTP backend, so a backend
+ * that is not reachable yet (refused, reset, DNS) is reported as EraNegotiationFailed even
+ * though it never answered. That is transient, unlike a probe reply the SDK rejected.
+ */
+function isUnreachableNegotiationProbe(error: SdkError): boolean {
+  if (error.code !== SdkErrorCode.EraNegotiationFailed || error instanceof SdkHttpError) return false;
+  const cause = error.cause;
+  // Native fetch reports network failures as TypeError; the OAuth-aware fetch rewrites them.
+  if (cause instanceof TypeError) return true;
+  return cause instanceof Error && readOAuthDiagnostic(cause.message)?.reason === 'network_failure';
 }
 
 function diagnosticServerName(name: string | undefined): string | undefined {
@@ -133,7 +148,9 @@ export class ConnectionHandler {
           error instanceof SseWireLimitError ||
           error instanceof ProtocolError ||
           error instanceof UnsupportedProtocolVersionError ||
-          (error instanceof SdkError && TERMINAL_MODERN_CONNECT_ERRORS.has(error.code))
+          (error instanceof SdkError &&
+            TERMINAL_MODERN_CONNECT_ERRORS.has(error.code) &&
+            !isUnreachableNegotiationProbe(error))
         ) {
           if (ownsReplacementCandidate) {
             await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport, name);

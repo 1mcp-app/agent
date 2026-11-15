@@ -3,6 +3,7 @@ import {
   ProtocolError,
   SdkError,
   SdkErrorCode,
+  SdkHttpError,
   UnsupportedProtocolVersionError,
 } from '@modelcontextprotocol/client';
 
@@ -17,6 +18,7 @@ import {
 } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { oauthDiagnosticMessage } from '@src/auth/oauthDiagnostics.js';
 import { activateRuntimeScopeEnvironment } from '@src/config/runtimeScopeEnv.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
@@ -322,6 +324,62 @@ describe('ConnectionHandler', () => {
 
       expect(recreate).not.toHaveBeenCalled();
       expect(mockTransport.close).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['native fetch', new TypeError('fetch failed')],
+      ['OAuth-aware fetch', new Error(oauthDiagnosticMessage('network_failure'))],
+    ])('retries a negotiation probe that could not reach the backend (%s)', async (_label, cause) => {
+      (mockClient.connect as unknown as MockInstance)
+        .mockRejectedValueOnce(
+          new SdkError(
+            SdkErrorCode.EraNegotiationFailed,
+            `Version negotiation probe failed: ${cause.message}`,
+            { cause },
+            { cause },
+          ),
+        )
+        .mockResolvedValueOnce(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      const connecting = connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'modern-client');
+      await vi.advanceTimersByTimeAsync(CONNECTION_RETRY.INITIAL_DELAY_MS);
+      await vi.runAllTimersAsync();
+
+      await expect(connecting).resolves.toEqual({ client: mockClient, transport: mockTransport });
+      expect(mockClient.connect).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      [
+        'an unusable reply',
+        new SdkError(
+          SdkErrorCode.EraNegotiationFailed,
+          'Version negotiation probe failed: the server answered with an unusable reply',
+          { cause: new SyntaxError('Unexpected token') },
+          { cause: new SyntaxError('Unexpected token') },
+        ),
+      ],
+      [
+        'an HTTP error reply',
+        new SdkHttpError(SdkErrorCode.EraNegotiationFailed, 'the server answered the probe with HTTP 500', {
+          status: 500,
+          statusText: 'Internal Server Error',
+          text: '',
+        }),
+      ],
+    ])('does not retry a negotiation probe that got %s', async (_label, negotiationError) => {
+      (mockClient.connect as unknown as MockInstance).mockRejectedValue(negotiationError);
+      const recreate = vi.fn();
+
+      await expect(
+        connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'modern-client', undefined, recreate),
+      ).rejects.toMatchObject({ name: 'NonRetryableClientConnectionError' });
+
+      expect(recreate).not.toHaveBeenCalled();
     });
 
     it.each([
