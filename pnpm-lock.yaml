@@ -231,7 +231,7 @@ importers:
         version: 5.3.0(supports-color@5.5.0)
       express-rate-limit:
         specifier: ^8.2.1
-        version: 8.7.3(express@5.3.0(supports-color@5.5.0))(supports-color@5.5.0)
+        version: 8.7.4(express@5.3.0(supports-color@5.5.0))(supports-color@5.5.0)
       handlebars:
         specifier: ^4.7.8
         version: 4.7.10
@@ -1032,12 +1032,6 @@ packages:
   '@hono/node-server@1.19.17':
     resolution: {integrity: sha512-dSneS5qhiauZWGDCeK4o695Xd9nUNjviSZCMQrj10eetr8Uln1ucn6bbphOM6UynAMMtNIzZNSpL9vnASJwrPQ==}
     engines: {node: '>=18.14.1'}
-    peerDependencies:
-      hono: ^4
-
-  '@hono/node-server@2.1.3':
-    resolution: {integrity: sha512-TA//nWMqPhbfdfneACk6t5a9eqbS9lABEPyKn0/xZTah3H3U2XaVg85rJFl0/Fyit0I552YDHgXGVSf3GwqbUw==}
-    engines: {node: '>=20'}
     peerDependencies:
       hono: ^4
 
@@ -2835,8 +2829,8 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
 
-  express-rate-limit@8.7.3:
-    resolution: {integrity: sha512-zPLqDI2f0gV2WmGnacLf9XSSqn4VldRyP5LCzOwx0BKH40mO6+2PCFkoSsRO2jePx87/Kf6NUF6P2QOTKXHbQA==}
+  express-rate-limit@8.7.4:
+    resolution: {integrity: sha512-LKBXzX700wz3zAGNNmVnjRI5mEbYkLv7UbMI4+9Xa+JPcg2UZh6AgY/2CZh9RrJjFM5ttC/N1lD+KzyFoZITCw==}
     engines: {node: '>= 16'}
     peerDependencies:
       express: '>= 4.11'
@@ -5163,10 +5157,6 @@ snapshots:
     dependencies:
       hono: 4.13.16
 
-  '@hono/node-server@2.1.3(hono@4.13.16)':
-    dependencies:
-      hono: 4.13.16
-
   '@hono/node-server@2.1.6(hono@4.13.16)':
     dependencies:
       hono: 4.13.16
@@ -5308,7 +5298,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(supports-color@5.5.0)(zod@4.6.7)':
     dependencies:
-      '@hono/node-server': 2.1.3(hono@4.13.16)
+      '@hono/node-server': 2.1.6(hono@4.13.16)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -5317,7 +5307,7 @@ snapshots:
       eventsource: 3.0.7
       eventsource-parser: 3.1.0
       express: 5.3.0(supports-color@5.5.0)
-      express-rate-limit: 8.7.3(express@5.3.0(supports-color@5.5.0))(supports-color@5.5.0)
+      express-rate-limit: 8.7.4(express@5.3.0(supports-color@5.5.0))(supports-color@5.5.0)
       hono: 4.13.16
       jose: 6.2.8
       json-schema-typed: 8.0.2
@@ -5333,7 +5323,7 @@ snapshots:
       '@modelcontextprotocol/core': 2.4.0
       content-type: 1.0.5
       cors: 2.8.6
-      express-rate-limit: 8.7.3(express@5.3.0(supports-color@5.5.0))(supports-color@5.5.0)
+      express-rate-limit: 8.7.4(express@5.3.0(supports-color@5.5.0))(supports-color@5.5.0)
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
       zod: 4.6.7
@@ -7049,7 +7039,7 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  express-rate-limit@8.7.3(express@5.3.0(supports-color@5.5.0))(supports-color@5.5.0):
+  express-rate-limit@8.7.4(express@5.3.0(supports-color@5.5.0))(supports-color@5.5.0):
     dependencies:
       debug: 4.4.3(supports-color@5.5.0)
       express: 5.3.0(supports-color@5.5.0)
