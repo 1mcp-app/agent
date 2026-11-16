@@ -38,6 +38,7 @@ import { getBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import logger from '@src/logger/logger.js';
+import { parseByteSize } from '@src/logger/loggingConfig.js';
 import { mcpAuthRouter } from '@src/sdk/legacy/server/auth/router.js';
 import { createModernInboundLegacyBridge } from '@src/sdk/legacy/transport/http/modernInboundLegacyBridge.js';
 import errorHandler from '@src/transport/http/middlewares/errorHandler.js';
@@ -287,7 +288,13 @@ export function createModernHttpRequestPolicy(configManager: AgentConfigManager)
  * deployment can raise it without patching the package.
  */
 export function createBodyParserMiddlewares(limit: number | string): express.RequestHandler[] {
-  return [bodyParser.json({ limit }), bodyParser.urlencoded({ extended: true, limit })];
+  const byteLimit = parseByteSize(limit);
+  if (byteLimit === undefined) {
+    throw new Error(
+      `Invalid httpBodyLimit '${String(limit)}': expected a byte count or a size string like "100kb" or "25mb"`,
+    );
+  }
+  return [bodyParser.json({ limit: byteLimit }), bodyParser.urlencoded({ extended: true, limit: byteLimit })];
 }
 
 export class ExpressServer {

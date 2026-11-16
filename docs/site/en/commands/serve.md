@@ -396,7 +396,7 @@ Modern-to-legacy backend state continuity remains unresolved. Modern calls may u
 
 ## HTTP request body limit
 
-`--http-body-limit <size>` sets how large a request body the HTTP endpoint accepts. The default is `100kb`, which is the parser default and rejects large JSON-RPC payloads such as base64-encoded images or big tool arguments with `413 Payload Too Large`:
+`--http-body-limit <size>` sets how large a request body the HTTP endpoint accepts. The default is `100kb`, which is the parser default and rejects large JSON-RPC payloads such as base64-encoded images or big tool arguments. Oversized bodies currently fail with an HTTP 500 response; the error handler does not yet map the parser's 413 status.
 
 ```bash
 1mcp serve --http-body-limit 25mb

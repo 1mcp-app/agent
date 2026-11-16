@@ -47,6 +47,17 @@ describe('inbound HTTP body parsers', () => {
     expect(response.status).toBe(200);
   });
 
+  it('parses accepted size strings so shorthand units do not silently shrink the limit', async () => {
+    const response = await request(appWithLimit('25m')).post('/echo').send(payloadOfBytes(200_000));
+
+    expect(response.status).toBe(200);
+  });
+
+  it('throws when the configured limit cannot be parsed', () => {
+    expect(() => appWithLimit('large')).toThrow(/httpBodyLimit/);
+    expect(() => appWithLimit('ten megabytes')).toThrow(/httpBodyLimit/);
+  });
+
   it('honors a byte-count limit passed as a number', async () => {
     const response = await request(appWithLimit(10)).post('/echo').send(payloadOfBytes(200));
 

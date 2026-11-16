@@ -386,7 +386,7 @@ const client = new Client({ name: 'my-client', version: '1.0.0' }, { versionNego
 
 ## HTTP 请求体上限
 
-`--http-body-limit <size>` 控制 HTTP 端点接受的请求体大小。默认 `100kb`，这是解析器的默认值，会以 `413 Payload Too Large` 拒绝较大的 JSON-RPC 载荷，例如 base64 编码的图片或体积很大的工具参数：
+`--http-body-limit <size>` 控制 HTTP 端点接受的请求体大小。默认 `100kb`，这是解析器的默认值，会拒绝较大的 JSON-RPC 载荷，例如 base64 编码的图片或体积很大的工具参数。当前超大请求体以 HTTP 500 返回；错误处理层尚未映射解析器的 413 状态码。
 
 ```bash
 1mcp serve --http-body-limit 25mb

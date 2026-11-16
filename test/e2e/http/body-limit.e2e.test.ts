@@ -1,13 +1,5 @@
-/**
- * E2E coverage for the configurable inbound HTTP request body limit.
- *
- * A deployment that raises the limit must accept JSON-RPC bodies beyond the
- * 100 KB parser default, and the default must stay unchanged. Both cases cross
- * the process and HTTP boundaries, so they run against the built CLI.
- */
-import { ConfigBuilder, TestProcessManager } from '@test/e2e/utils/index.js';
+import { CommandTestEnvironment, McpTestClient, TestProcessManager } from '@test/e2e/utils/index.js';
 
-import { promises as fsPromises } from 'fs';
 import { createServer } from 'net';
 import { join } from 'path';
 
@@ -48,41 +40,56 @@ async function waitForServerReady(healthUrl: string, deadlineMs = 30_000): Promi
 
 describe('inbound HTTP request body limit', () => {
   const processManager = new TestProcessManager();
-  const configBuilders: ConfigBuilder[] = [];
-  let configDir: string;
+  let environment: CommandTestEnvironment;
+  let client: McpTestClient | undefined;
 
   beforeEach(async () => {
-    configDir = await fsPromises.mkdtemp(join(process.env.ONE_MCP_TMPDIR ?? '/tmp', '1mcp-body-limit-'));
+    environment = new CommandTestEnvironment({
+      name: 'body-limit',
+      createConfigFile: true,
+      mockMcpServers: [
+        {
+          name: 'echo',
+          command: 'node',
+          args: [join(process.cwd(), 'test/e2e/fixtures/echo-server.js')],
+          tags: ['http', 'e2e'],
+          type: 'stdio',
+        },
+      ],
+    });
+    await environment.setup();
+    client = undefined;
   });
 
   afterEach(async () => {
+    await client?.disconnect();
+    client = undefined;
     await processManager.cleanup();
-    for (const builder of configBuilders.splice(0)) builder.cleanup();
-    await fsPromises.rm(configDir, { recursive: true, force: true });
+    await environment.cleanup();
   });
 
   async function startServer(extraArgs: string[]): Promise<string> {
     const port = await getAvailablePort();
-    const builder = new ConfigBuilder();
-    configBuilders.push(builder);
-    const configPath = builder.enableHttpTransport(port).writeToFile();
-
     await processManager.startProcess('1mcp-server', {
       command: 'node',
       args: [
-        join(__dirname, '../../..', 'build/index.js'),
+        'build/index.js',
         'serve',
-        '--config',
-        configPath,
+        '--transport',
+        'http',
         '--port',
         String(port),
+        '--config',
+        environment.getConfigPath(),
+        '--config-dir',
+        environment.getConfigDir(),
+        '--no-enable-config-reload',
+        '--log-level',
+        'error',
         ...extraArgs,
       ],
-      env: {
-        ONE_MCP_CONFIG_DIR: configDir,
-        ONE_MCP_LOG_LEVEL: 'error',
-        ONE_MCP_ENABLE_AUTH: 'false',
-      },
+      cwd: process.cwd(),
+      env: environment.getEnvironmentVariables(),
     });
 
     const baseUrl = `http://127.0.0.1:${port}`;
@@ -90,16 +97,7 @@ describe('inbound HTTP request body limit', () => {
     return `${baseUrl}/mcp`;
   }
 
-  function payload(): string {
-    return JSON.stringify({
-      jsonrpc: '2.0',
-      id: 2,
-      method: 'tools/call',
-      params: { name: 'unregistered-tool', arguments: { blob: 'x'.repeat(BODY_BYTES) } },
-    });
-  }
-
-  async function openSession(url: string): Promise<string | null> {
+  async function postOversizedBody(url: string): Promise<number> {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -108,38 +106,38 @@ describe('inbound HTTP request body limit', () => {
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'e2e', version: '0' } },
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'unregistered-tool', arguments: { blob: 'x'.repeat(BODY_BYTES) } },
       }),
     });
-    await response.text();
-    expect(response.status).toBe(200);
-    return response.headers.get('mcp-session-id');
-  }
-
-  async function postBody(url: string, sessionId: string | null): Promise<number> {
-    const headers: Record<string, string> = {
-      'content-type': 'application/json',
-      accept: 'application/json, text/event-stream',
-    };
-    if (sessionId) headers['mcp-session-id'] = sessionId;
-    const response = await fetch(url, { method: 'POST', headers, body: payload() });
     await response.text();
     return response.status;
   }
 
-  it('accepts a body larger than the parser default when the limit is raised', async () => {
+  it('carries a body over the parser default through the SDK protocol journey when the limit is raised', async () => {
     const url = await startServer(['--http-body-limit', '25mb']);
-    const sessionId = await openSession(url);
 
-    expect(await postBody(url, sessionId)).toBe(200);
+    client = new McpTestClient({
+      transport: 'streamable-http',
+      streamableHttpConfig: { url },
+    });
+    await client.connect();
+
+    const tools = await client.listTools();
+    expect(tools.tools.map((tool) => tool.name)).toContain('echo_1mcp_echo');
+
+    const blob = 'x'.repeat(BODY_BYTES);
+    const result = await client.callTool('echo_1mcp_echo', { message: blob });
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'text', text: expect.stringContaining(blob) })]),
+    );
   }, 60_000);
 
-  it('rejects the same body when the default limit applies', async () => {
+  it('rejects an oversized raw body when the default limit applies', async () => {
     const url = await startServer([]);
-    const sessionId = await openSession(url);
 
-    expect(await postBody(url, sessionId)).toBeGreaterThanOrEqual(400);
+    expect(await postOversizedBody(url)).toBeGreaterThanOrEqual(400);
   }, 60_000);
 });
