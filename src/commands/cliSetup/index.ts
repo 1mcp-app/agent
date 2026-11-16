@@ -6,7 +6,7 @@ import type { Argv } from 'yargs';
 export function setupCliSetupCommand(yargs: Argv): Argv {
   return withGlobalOptions(yargs).command(
     'cli-setup',
-    'Install Codex and Claude CLI hooks and preparation skill',
+    'Install Codex and Claude CLI hooks and usage/preparation skills',
     (commandYargs) =>
       commandYargs
         .option('scope', {
@@ -46,7 +46,7 @@ export function setupCliSetupCommand(yargs: Argv): Argv {
         )
         .example('$0 cli-setup --codex --scope all', 'Install global and repo-local Codex setup')
         .epilogue(
-          'This command writes hook config, startup-file references, and the preparation setup skill. It does not activate backend preparation. Errors are written to stderr only.',
+          'This command writes hook config, startup-file references, and the CLI usage and preparation setup skills. It does not activate backend preparation. Errors are written to stderr only.',
         ),
     async (argv) => {
       return runProductCommand('config', async () => {

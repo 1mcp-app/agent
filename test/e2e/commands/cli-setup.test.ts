@@ -42,11 +42,13 @@ describe('cli-setup command E2E', () => {
     const codexHooks = await readFile(path.join(homeDir, '.codex', 'hooks.json'), 'utf8');
     const agents = await readFile(path.join(homeDir, '.codex', 'AGENTS.md'), 'utf8');
 
-    expect(codexManagedDoc).toContain(
-      'If this session already received the current 1MCP instructions content from hooks',
+    expect(codexManagedDoc).toContain('Before using 1MCP-managed tools');
+    const usage = path.join(homeDir, '.agents/skills/1mcp-cli');
+    expect(codexManagedDoc).toContain(path.join(usage, 'SKILL.md').replace(/\\/g, '/'));
+    expect(codexManagedDoc.length).toBeLessThan(1500);
+    expect(await readFile(path.join(usage, 'references/preparation.md'), 'utf8')).toContain(
+      '1mcp project prepare inspect <backend>',
     );
-    expect(codexManagedDoc).toContain('1mcp project prepare inspect <backend>');
-    expect(codexManagedDoc).toContain('never executes or replays the original tool call');
     const hooks = JSON.parse(codexHooks).hooks;
     expect(hooks.SessionStart).toEqual([
       { hooks: [{ type: 'command', command: '1mcp bootstrap --client codex --event SessionStart', timeout: 10 }] },
@@ -76,9 +78,13 @@ describe('cli-setup command E2E', () => {
     const claudeManagedDoc = await readFile(path.join(environment.getTempDir(), '.claude', '1MCP.md'), 'utf8');
     const claude = await readFile(claudePath, 'utf8');
 
-    expect(claudeManagedDoc).toContain('Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.');
-    expect(claudeManagedDoc).toContain('1mcp project prepare start <backend>');
-    expect(claudeManagedDoc).toContain('never an automatic retry loop');
+    expect(claudeManagedDoc).toContain('without --compact');
+    const usage = path.join(environment.getTempDir(), '.claude/skills/1mcp-cli');
+    expect(claudeManagedDoc).toContain(path.join(usage, 'SKILL.md').replace(/\\/g, '/'));
+    expect(claudeManagedDoc.length).toBeLessThan(1500);
+    expect(await readFile(path.join(usage, 'references/preparation.md'), 'utf8')).toContain(
+      '1mcp project prepare start <backend>',
+    );
     expect(claude).toContain('# Existing Notes');
     expect(claude).toContain('Keep this section.');
     expect(claude).not.toContain('<!-- BEGIN 1MCP MANAGED STARTUP DOCS -->');

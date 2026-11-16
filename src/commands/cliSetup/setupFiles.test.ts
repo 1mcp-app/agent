@@ -51,6 +51,18 @@ describe('cli setup file writers', () => {
         for (const client of ['codex', 'claude']) {
           const base = location === 'global' ? home : repo;
           const directory = client === 'codex' ? '.agents' : '.claude';
+          const usage = path.join(base, directory, 'skills/1mcp-cli');
+          expect(results).toContainEqual(expect.objectContaining({ path: usage, kind: 'skill', status: 'installed' }));
+          for (const file of [
+            'SKILL.md',
+            'references/ownership.md',
+            'references/preparation.md',
+            'references/recovery.md',
+          ]) {
+            expect(await readFile(path.join(usage, file), 'utf8')).toBe(
+              await readFile(path.join(process.cwd(), 'skills/1mcp-cli', file), 'utf8'),
+            );
+          }
           const skill = path.join(base, directory, 'skills/1mcp-preparation-setup');
           expect(results).toContainEqual(expect.objectContaining({ path: skill, kind: 'skill', status: 'installed' }));
           for (const file of [
@@ -71,6 +83,23 @@ describe('cli setup file writers', () => {
       ).toBe(true);
     },
   );
+
+  it.each(['codex', 'claude'] as const)('retains startup files when the %s usage skill conflicts', async (target) => {
+    const root = path.join(process.cwd(), '.tmp-test', `usage-conflict-${target}-${Date.now()}`);
+    tempRoots.push(root);
+    const client = target === 'codex' ? '.codex' : '.claude';
+    const skill = path.join(root, target === 'codex' ? '.agents' : '.claude', 'skills/1mcp-cli');
+    await mkdir(skill, { recursive: true });
+    await mkdir(path.join(root, client), { recursive: true });
+    await writeFile(path.join(skill, 'SKILL.md'), 'User-owned skill');
+    const managed = path.join(root, client, '1MCP.md');
+    await writeFile(managed, 'Existing full bootstrap guidance');
+    const results = await writeCliSetupFiles({ repoRoot: root, scope: 'repo', targets: [target] });
+    expect(results).toContainEqual(expect.objectContaining({ path: skill, status: 'conflict' }));
+    expect(await readFile(managed, 'utf8')).toBe('Existing full bootstrap guidance');
+    expect(await readFile(path.join(skill, 'SKILL.md'), 'utf8')).toBe('User-owned skill');
+    expect(results.some((result) => result.kind === 'hook')).toBe(false);
+  });
 
   it('preserves legacy Codex skills while installing in the shared global directory', async () => {
     const home = path.join(process.cwd(), '.tmp-test', `cli-skill-legacy-${Date.now()}`);
@@ -156,9 +185,9 @@ describe('cli setup file writers', () => {
   it('renders managed doc content with conditional instructions guidance', () => {
     const content = renderManagedDocContent();
 
-    expect(content).toContain('If this session already received the current 1MCP instructions content from hooks');
-    expect(content).toContain('Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.');
-    expect(content).toContain('Run `1mcp instructions <server>` when its instructions are missing');
+    expect(content).toContain('Before using 1MCP-managed tools');
+    expect(content).toContain('without --compact');
+    expect(content).toContain('Read `1mcp instructions <server>` before using that server');
   });
 
   it.each(['global', 'repo', 'all'] as const)(
@@ -208,17 +237,9 @@ describe('cli setup file writers', () => {
       for (const file of files) {
         const content = await readFile(file.managed, 'utf8');
         expect(content).not.toContain('Old managed guidance');
-        expect(content).toContain('1mcp inspect --search <query>');
-        expect(content).toContain('1mcp inspect <server> --search <query>');
-        expect(content).toContain('case-insensitive literal substring');
-        expect(content).toContain('--search "filesystem/*read?" --glob');
-        expect(content).toContain('`--include-descriptions` also matches effective descriptions');
-        expect(content).toContain('`--show-descriptions` independently displays descriptions');
-        expect(content).toContain('When the target is known, skip discovery');
-        expect(content.indexOf('read its applicable instructions')).toBeLessThan(
-          content.indexOf('1mcp inspect <server>/<tool>'),
-        );
-        expect(content).toContain('do not run `1mcp instructions` again');
+        expect(content.length).toBeLessThan(1500);
+        expect(content).toContain('without --compact');
+        expect(content).toContain('1mcp-cli');
         const startup = await readFile(file.startup, 'utf8');
         expect(startup).toContain('# Keep custom startup instructions');
         expect(startup).not.toContain('--search');
@@ -294,8 +315,8 @@ describe('cli setup file writers', () => {
       hooks: { SessionStart: Array<{ hooks: Array<{ command: string }> }> };
     };
 
-    expect(codexManagedDoc).toContain('do not run `1mcp instructions` again');
-    expect(claudeManagedDoc).toContain('do not run `1mcp instructions` again');
+    expect(codexManagedDoc).toContain('1mcp-cli');
+    expect(claudeManagedDoc).toContain('1mcp-cli');
     expect(agents).not.toContain('<!-- BEGIN 1MCP MANAGED STARTUP DOCS -->');
     expect(claude).not.toContain('<!-- BEGIN 1MCP MANAGED STARTUP DOCS -->');
     expect(agents).toBe('@.codex/1MCP.md\n');

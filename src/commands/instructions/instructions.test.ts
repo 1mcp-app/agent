@@ -46,6 +46,53 @@ describe('instructions command', () => {
     });
   });
 
+  it('rejects compact selected-server output before connecting', async () => {
+    await expect(instructionsCommand({ server: 'alpha', compact: true })).rejects.toThrow(
+      '--compact cannot be combined',
+    );
+    expect(mockedGetInspectResult).not.toHaveBeenCalled();
+    expect(mockedAttachReusableClientSurface).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('selects the runtime compact field only when requested: %s', async (compact) => {
+    mockedApiGet.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      data: {
+        rendered: 'Full instructions',
+        compactRendered: 'Compact overview',
+        templateIdentity: 'default',
+        fallback: false,
+      },
+    });
+    useAttachmentCallbacks();
+    await instructionsCommand({ compact });
+    expect(mockedStdoutWrite).toHaveBeenCalledExactlyOnceWith(compact ? 'Compact overview\n' : 'Full instructions\n');
+  });
+
+  it.each(['team', 'default'])(
+    'preserves complete %s output when compact delivery is unavailable',
+    async (templateIdentity) => {
+      const rendered = 'User guidance 工具\n' + 'x'.repeat(12000);
+      mockedApiGet.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        data: { rendered, templateIdentity, fallback: false },
+      });
+      useAttachmentCallbacks();
+      await instructionsCommand({ compact: true });
+      expect(mockedStdoutWrite).toHaveBeenCalledExactlyOnceWith(`${rendered}\n`);
+    },
+  );
+
+  it('retains the full legacy path for compact requests', async () => {
+    mockedGetInspectResult.mockResolvedValueOnce({ kind: 'servers', servers: [] });
+    await instructionsCommand({ compact: true });
+    expect(mockedStdoutWrite).toHaveBeenCalledExactlyOnceWith(
+      `${formatInstructionsOutput({ servers: [], details: [] })}\n`,
+    );
+  });
+
   it('prints only the selected manual through scoped inspection', async () => {
     mockedGetInspectResult.mockResolvedValueOnce({
       kind: 'server',

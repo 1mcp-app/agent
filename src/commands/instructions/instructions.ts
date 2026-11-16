@@ -22,6 +22,7 @@ import { formatInstructionsOutput } from './instructionsUtils.js';
 
 export interface InstructionsCommandOptions extends GlobalOptions, ProjectSelectionOptions {
   server?: string;
+  compact?: boolean;
   url?: string;
   context?: string;
   preset?: string;
@@ -36,6 +37,7 @@ function toInspectOptions(options: InstructionsCommandOptions, target?: string):
 
 export async function instructionsCommand(options: InstructionsCommandOptions): Promise<void> {
   if (options.server !== undefined) {
+    if (options.compact) throw new Error('--compact cannot be combined with a server name.');
     const target = parseInspectTarget(options.server);
     if (target.kind !== 'server') throw new Error('instructions accepts a server name, not a tool target.');
     const result = await getInspectResult(toInspectOptions(options, target.serverName), instructionsInspectOptions);
@@ -59,9 +61,12 @@ export async function instructionsCommand(options: InstructionsCommandOptions): 
   }
 
   if (attachment.value.kind === 'rendered') {
-    const output = attachment.value.response.formatting
-      ? formatInstructionsOutput(attachment.value.response.formatting)
-      : attachment.value.response.rendered;
+    const response = attachment.value.response;
+    if (options.compact && response.compactRendered !== undefined) {
+      process.stdout.write(`${response.compactRendered}\n`);
+      return;
+    }
+    const output = response.formatting ? formatInstructionsOutput(response.formatting) : response.rendered;
     if (output.length > 0) {
       process.stdout.write(`${output}\n`);
     }

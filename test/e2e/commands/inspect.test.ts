@@ -299,6 +299,35 @@ describeInspectE2E('inspect command E2E', () => {
 
     await startServeProcess();
 
+    const setup = await runner.runCommand('cli-setup', '', {
+      cwd: environment.getTempDir(),
+      args: ['--codex', '--scope', 'repo', '--repo-root', environment.getTempDir()],
+    });
+    runner.assertSuccess(setup);
+    const skill = join(environment.getTempDir(), '.agents/skills/1mcp-cli/SKILL.md');
+    expect(await readFile(skill, 'utf8')).toContain('name: 1mcp-cli');
+    const bootstrap = await runner.runCommand('bootstrap', '', {
+      cwd: environment.getTempDir(),
+      args: [
+        '--client',
+        'codex',
+        '--event',
+        'SessionStart',
+        '--project',
+        environment.getTempDir(),
+        '--config-dir',
+        environment.getConfigDir(),
+      ],
+    });
+    runner.assertSuccess(bootstrap);
+    const context = JSON.parse(bootstrap.stdout).hookSpecificOutput.additionalContext;
+    expect(context).toContain('1MCP server overview');
+    expect(context).not.toContain('=== PLAYBOOK ===');
+    expect(context).not.toContain('# Serena Instructions');
+    expect(context).toContain('without --compact');
+    // A client without skill discovery follows the explicit full-instructions fallback.
+    await rm(skill);
+
     const instructionsResult = await runner.runCommand('instructions', '', {
       cwd: environment.getTempDir(),
       args: ['--config-dir', environment.getConfigDir()],
@@ -327,6 +356,12 @@ describeInspectE2E('inspect command E2E', () => {
         expect.objectContaining({ server: 'serena', type: 'template', available: false, toolCountKnown: false }),
       ]),
     );
+    const manual = await runner.runCommand('instructions', 'serena', {
+      cwd: environment.getTempDir(),
+      args: ['--config-dir', environment.getConfigDir()],
+    });
+    runner.assertSuccess(manual);
+    expect(manual.stdout).toContain('# Serena Instructions');
     const targeted = await runner.runInspectCommand('serena', {
       cwd: environment.getTempDir(),
       args: ['--config-dir', environment.getConfigDir(), '--format', 'json'],

@@ -1,12 +1,7 @@
 import path from 'node:path';
 
-import { INSPECTION_GUIDANCE } from '@src/core/instructions/inspectionGuidance.js';
-
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { z } from 'zod';
-
-import { PREPARATION_GUIDANCE } from './preparationGuidance.js';
-import { SESSION_GUIDANCE } from './sessionGuidance.js';
 
 const instructionServerSummarySchema = z.object({
   server: z.string(),
@@ -31,6 +26,7 @@ export const instructionsFormattingPayloadSchema = z.object({
 
 export const instructionsRenderResponseSchema = z.object({
   rendered: z.string(),
+  compactRendered: z.string().optional(),
   templateIdentity: z.string().min(1),
   fallback: z.boolean(),
   fallbackReason: z.literal('managed_template_render_failed').optional(),
@@ -184,33 +180,44 @@ function assembleUnavailableDetail(server: InstructionServerSummary): Instructio
   };
 }
 
-export function renderManagedDocContent(): string {
+/** Minimal rules shared by installed startup guidance and hook delivery. */
+export function renderManagedDocContent(skillPath?: string): string {
+  const skill = skillPath ? `[1mcp-cli](<${skillPath.replace(/\\/g, '/')}>)` : '`1mcp-cli`';
   return [
     '# 1MCP Agent Bootstrap',
     '',
-    'If this session already received the current 1MCP instructions content from hooks, do not run `1mcp instructions` again. Reuse it only for the same assigned target.',
-    'Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.',
-    'Use the 1MCP CLI for upstream capabilities; never call replaced servers directly. Config files alone do not prove trusted hooks or runtime readiness.',
-    '',
-    '## Tool workflow',
-    '',
-    '1. Review server instructions. If the provider/tool is unknown, search with `1mcp inspect --search <query>` or `1mcp inspect <server> --search <query>`. When the target is known, skip discovery.',
-    '2. Run `1mcp instructions <server>` when its instructions are missing; read its applicable instructions.',
-    '3. Inspect unknown schemas with `1mcp inspect <server>/<tool>`.',
-    "4. Invoke with `1mcp run <server>/<tool> --args '<json>'`.",
-    '',
-    'Server metadata uses `type: external` for static servers and `type: template` for dynamic servers. Narrow the server set with `--preset`, `--tags` or `--tag-filter`.',
-    '',
-    'Search is case-insensitive literal substring matching on server/tool references. Use `--search "filesystem/*read?" --glob` for whole-reference matching (`*` and `?` only).',
-    '`--include-descriptions` also matches effective descriptions; `--show-descriptions` independently displays descriptions without changing matches.',
-    '',
-    INSPECTION_GUIDANCE,
-    '',
-    SESSION_GUIDANCE,
-    '',
-    PREPARATION_GUIDANCE,
+    `Before using 1MCP-managed tools, read the ${skill} skill. Load its references only for the current operation.`,
+    'If the skill is unavailable, run `1mcp instructions` without --compact and read the full guidance before tool use. Do not install anything automatically.',
+    'Route upstream capabilities through the 1MCP CLI. Keep the verified startup or worker assignment and your own caller ownership; overrides do not change the session default. Workers need independent ownership and explicit assignments.',
+    'Resolve reported bootstrap coverage gaps before project-specific tool use. Configuration files alone do not prove trusted hooks or runtime readiness.',
+    'Compact hook output is an overview, not server instructions. Read `1mcp instructions <server>` before using that server unless current instructions for the same target are already available.',
     '',
   ].join('\n');
+}
+
+/** Built-in overview only: custom templates must be delivered intact. */
+export function renderCompactInstructions(output: z.infer<typeof instructionsFormattingPayloadSchema>): string {
+  const lines = [
+    '1MCP server overview',
+    'Use the 1mcp-cli skill; if unavailable, read full `1mcp instructions`. Read `1mcp instructions <server>` before tool use.',
+  ];
+  if (output.servers.length === 0) lines.push('No servers visible for the selected target and filters.');
+  const details = new Map(output.details.map((detail) => [detail.server, detail]));
+  for (const server of output.servers) {
+    const fields = [
+      server.server,
+      `type=${server.type ?? 'unknown'}`,
+      `status=${server.status ?? 'unknown'}`,
+      `available=${server.available === undefined ? 'unknown' : server.available}`,
+      `load_tracked=${server.loadTracked === undefined ? 'unknown' : server.loadTracked}`,
+      `tools=${server.toolCountKnown === false ? 'unknown' : server.toolCount}`,
+      `instructions=${server.hasInstructions ? 'yes' : 'no'}`,
+    ];
+    const note = details.get(server.server)?.note;
+    if (note && note !== '(none provided)') fields.push(note);
+    lines.push(fields.join(' | '));
+  }
+  return lines.join('\n');
 }
 
 export function renderStartupDocManagedBlock(startupDocPath: string, managedDocPath: string): string {
