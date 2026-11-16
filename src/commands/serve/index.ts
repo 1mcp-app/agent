@@ -77,6 +77,11 @@ export const serverOptions = {
     type: 'string' as const,
     choices: ['dual', 'legacy-only'] as const,
   },
+  'http-body-limit': {
+    describe: 'Max HTTP request body size, bytes or a size string like 100kb/25mb (env: ONE_MCP_HTTP_BODY_LIMIT)',
+    type: 'string' as const,
+    default: undefined,
+  },
   port: {
     alias: 'P',
     describe: 'HTTP port to listen on, applicable when transport is http',

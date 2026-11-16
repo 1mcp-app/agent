@@ -385,6 +385,13 @@ describe('ConfigLoader', () => {
       expect(() => loader.loadConfigWithEnvSubstitution()).toThrow();
     });
 
+    it('fails closed for an invalid httpBodyLimit without discarding authentication settings', async () => {
+      await fsPromises.writeFile(configFilePath, '{"mcpServers":{}}');
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), 'httpBodyLimit = "large"\n[auth]\nenabled = true');
+      expect(() => loader.loadAppConfigFromToml()).toThrow(/httpBodyLimit/);
+      expect(() => loader.loadConfigWithEnvSubstitution()).toThrow();
+    });
+
     it('should return empty object when config.toml does not exist', () => {
       const result = loader.loadAppConfigFromToml();
       expect(result).toEqual({});

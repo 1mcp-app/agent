@@ -2,6 +2,10 @@
 # Backend MCP servers belong in mcp.json, not this file.
 # CLI flags and ONE_MCP_* environment variables override these runtime settings.
 
+# Max HTTP request body size: bytes or a size such as "25mb" (default "100kb").
+# Raise it for payloads like base64-encoded images or large tool arguments.
+# httpBodyLimit = "25mb"
+
 [auth]
 # Upstream OAuth credential storage: "file" (default) or "native".
 credentialStore = "file"
