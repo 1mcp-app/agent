@@ -130,7 +130,7 @@
     "https-proxy-agent": "^9.0.0",
     "json5": "^2.2.3",
     "mdast-util-from-markdown": "2.1.0",
-    "ora": "^9.0.0",
+    "ora": "^10.0.0",
     "prompts": "^2.4.2",
     "proxy-from-env": "2.1.0",
     "semver": "^7.7.3",
