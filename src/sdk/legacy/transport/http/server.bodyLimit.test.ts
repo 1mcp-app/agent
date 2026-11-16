@@ -58,6 +58,10 @@ describe('inbound HTTP body parsers', () => {
     expect(() => appWithLimit('ten megabytes')).toThrow(/httpBodyLimit/);
   });
 
+  it('throws when the limit overflows to a non-finite byte count', () => {
+    expect(() => appWithLimit('9'.repeat(309) + 'm')).toThrow(/httpBodyLimit/);
+  });
+
   it('honors a byte-count limit passed as a number', async () => {
     const response = await request(appWithLimit(10)).post('/echo').send(payloadOfBytes(200));
 

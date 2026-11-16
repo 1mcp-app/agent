@@ -97,7 +97,7 @@ describe('inbound HTTP request body limit', () => {
     return `${baseUrl}/mcp`;
   }
 
-  async function postOversizedBody(url: string): Promise<number> {
+  async function openSession(url: string): Promise<string> {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -106,13 +106,35 @@ describe('inbound HTTP request body limit', () => {
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'e2e', version: '0' } },
+      }),
+    });
+    await response.text();
+    expect(response.status).toBe(200);
+    const sessionId = response.headers.get('mcp-session-id');
+    expect(sessionId).toBeTruthy();
+    return sessionId as string;
+  }
+
+  async function postOversizedBody(url: string, sessionId: string): Promise<{ status: number; error: string }> {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sessionId,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
         id: 2,
         method: 'tools/call',
         params: { name: 'unregistered-tool', arguments: { blob: 'x'.repeat(BODY_BYTES) } },
       }),
     });
-    await response.text();
-    return response.status;
+    const body = (await response.json()) as { error?: { message?: string } };
+    return { status: response.status, error: body.error?.message ?? '' };
   }
 
   it('carries a body over the parser default through the SDK protocol journey when the limit is raised', async () => {
@@ -135,9 +157,12 @@ describe('inbound HTTP request body limit', () => {
     );
   }, 60_000);
 
-  it('rejects an oversized raw body when the default limit applies', async () => {
+  it('rejects an oversized raw body on an initialized session when the default limit applies', async () => {
     const url = await startServer([]);
+    const sessionId = await openSession(url);
 
-    expect(await postOversizedBody(url)).toBeGreaterThanOrEqual(400);
+    const rejection = await postOversizedBody(url, sessionId);
+    expect(rejection.status).toBe(500);
+    expect(rejection.error).toBe('Internal server error');
   }, 60_000);
 });

@@ -289,7 +289,7 @@ export function createModernHttpRequestPolicy(configManager: AgentConfigManager)
  */
 export function createBodyParserMiddlewares(limit: number | string): express.RequestHandler[] {
   const byteLimit = parseByteSize(limit);
-  if (byteLimit === undefined) {
+  if (byteLimit === undefined || !Number.isFinite(byteLimit)) {
     throw new Error(
       `Invalid httpBodyLimit '${String(limit)}': expected a byte count or a size string like "100kb" or "25mb"`,
     );
