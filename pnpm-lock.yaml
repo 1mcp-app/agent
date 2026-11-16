@@ -297,8 +297,8 @@ importers:
         specifier: 8.3.14
         version: 8.3.14(react@18.3.1)
       '@modelcontextprotocol/conformance':
-        specifier: 0.2.0-alpha.11
-        version: 0.2.0-alpha.11(supports-color@5.5.0)
+        specifier: 0.2.0-alpha.12
+        version: 0.2.0-alpha.12(supports-color@5.5.0)
       '@testing-library/jest-dom':
         specifier: ^7.0.0
         version: 7.0.0(@testing-library/dom@10.4.1)
@@ -1130,8 +1130,8 @@ packages:
     resolution: {integrity: sha512-mIGZXpHsjnZ6lD+gD/WCMpR5k8yVQQ8nNFH1N0Srf7AvnwTUMYD6pvTY8ng2+He5FfV7YMZLmrjL7cLa/cc3dQ==}
     engines: {node: '>=20'}
 
-  '@modelcontextprotocol/conformance@0.2.0-alpha.11':
-    resolution: {integrity: sha512-imPK9tx5gQsL6ZKQq4MrsyDYfSaIwpRmX6+ogjbeAXs9LGvxkBxWcY7KcS7TvwaBk/ZiVWl6b/naF4q83UwDRA==}
+  '@modelcontextprotocol/conformance@0.2.0-alpha.12':
+    resolution: {integrity: sha512-eXtZFgmtZiU5SsvXty+RGXGnyIqEVm3GLU/HZmg1wMjtKOocPZZgD9HQKd30oJhio5UB0wFJmsc6r8u48Q+EYA==}
     hasBin: true
 
   '@modelcontextprotocol/core@2.3.1':
@@ -5275,7 +5275,7 @@ snapshots:
       pkce-challenge: 5.0.1
       zod: 4.6.7
 
-  '@modelcontextprotocol/conformance@0.2.0-alpha.11(supports-color@5.5.0)':
+  '@modelcontextprotocol/conformance@0.2.0-alpha.12(supports-color@5.5.0)':
     dependencies:
       '@modelcontextprotocol/sdk': 1.30.0(patch_hash=75c775371ba4b626db950c68d95331c6e8c9a3949d551aba01d9d1332cb82937)(supports-color@5.5.0)(zod@4.6.7)
       '@octokit/rest': 22.0.1
