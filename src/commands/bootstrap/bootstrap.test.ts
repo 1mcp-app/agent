@@ -18,7 +18,6 @@ import yargs from 'yargs';
 
 import {
   BOOTSTRAP_INPUT_LIMIT,
-  BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD,
   bootstrapCommand,
   buildInstructionsArguments,
   readBootstrapInput,
@@ -118,36 +117,28 @@ describe('worker bootstrap client contracts', () => {
     ['codex', 'SubagentStart'],
     ['claude', 'SessionStart'],
     ['claude', 'SubagentStart'],
-  ] as const)(
-    'delivers preparation recovery in %s %s context, advisory, and runtime fallback',
-    async (client, event) => {
-      for (const scenario of ['short', 'large', 'unavailable']) {
-        const instructions =
-          scenario === 'large'
-            ? 'x'.repeat(BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD + 1)
-            : 'Selected runtime instructions';
-        const output = await renderBootstrapContext(
-          { client, event, project: ['/selected'] },
-          JSON.stringify({ hook_event_name: event }),
-          async () => {
-            if (scenario === 'unavailable') throw new Error('Runtime unavailable');
-            return instructions;
-          },
-        );
-        expect(output).toContain('1mcp project prepare inspect <backend>');
-        expect(output).toContain('1mcp project prepare start <backend>');
-        expect(output).toContain('never executes or replays the original tool call');
-        expect(output).toContain('do not run `1mcp instructions` again');
-        if (scenario === 'unavailable') {
-          expect(output).toContain('coverage gap');
-          continue;
-        }
-        expect(output).toContain(instructions);
-        expect(output).not.toContain('coverage gap');
-        expect(output.includes('PRESET ADVISORY')).toBe(scenario === 'large');
+  ] as const)('delivers skill routing and fallback in %s %s context', async (client, event) => {
+    for (const scenario of ['short', 'large', 'unavailable']) {
+      const instructions = scenario === 'large' ? 'x'.repeat(9000 + 1) : 'Selected runtime instructions';
+      const output = await renderBootstrapContext(
+        { client, event, project: ['/selected'] },
+        JSON.stringify({ hook_event_name: event }),
+        async () => {
+          if (scenario === 'unavailable') throw new Error('Runtime unavailable');
+          return instructions;
+        },
+      );
+      expect(output).toContain('1mcp-cli');
+      expect(output).toContain('without --compact');
+      if (scenario === 'unavailable') {
+        expect(output).toContain('coverage gap');
+        continue;
       }
-    },
-  );
+      expect(output).toContain(instructions);
+      expect(output).not.toContain('Bootstrap coverage gap [');
+      expect(output).not.toContain('PRESET ADVISORY');
+    }
+  });
 
   it.each(['codex', 'claude'] as const)('ignores %s parent cwd and undocumented assignment fields', async (client) => {
     const render = vi.fn();
@@ -168,9 +159,8 @@ describe('worker bootstrap client contracts', () => {
     expect(output).toContain('Worker Project Assignment unresolved');
     expect(output).not.toContain('/parent');
     expect(output).not.toContain('/invented');
-    expect(output).toContain('inspect <server>/<tool>');
-    expect(output).toContain('1mcp project prepare inspect <backend>');
-    expect(output).toContain('the assigned session project is the default');
+    expect(output).toContain('1mcp-cli');
+    expect(output).toContain('without --compact');
   });
 
   it.each(['codex', 'claude'] as const)('emits a documented %s additionalContext envelope', async (client) => {
@@ -262,7 +252,6 @@ describe('worker bootstrap client contracts', () => {
         ...(selector === 'project' ? { project: [project] } : { 'project-set': project }),
       };
       const output = await renderBootstrapContext(options, '', render);
-      expect(output.length).toBeGreaterThan(BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD);
       const assignmentLine = output
         .split('\n')
         .find((line) => line.startsWith('Explicit Worker Project Assignment: '))!;
@@ -271,34 +260,24 @@ describe('worker bootstrap client contracts', () => {
       );
       expect(output).toContain('Instructions');
       expect(output).not.toContain('PRESET ADVISORY');
-      expect(output).not.toContain('coverage gap');
+      expect(output).not.toContain('Bootstrap coverage gap [');
       expect(render).toHaveBeenCalledWith(options);
     },
   );
 
-  it.each([8999, 9000, 9001])(
-    'delivers all %i instruction characters with an advisory only above the threshold',
-    async (length) => {
-      // Astral characters ensure the threshold uses JavaScript string length, not bytes or code points.
-      const instructions = '🚀'.repeat(Math.floor(length / 2)) + 'x'.repeat(length % 2);
-      expect(instructions.length).toBe(length);
-      const output = await renderBootstrapContext(
-        { client: 'codex', event: 'SessionStart' },
-        '',
-        async () => instructions,
-      );
-      expect(output).toContain(instructions);
-      expect(output).not.toContain('coverage gap');
-      expect(output.split('=== PRESET ADVISORY FOR THE AGENT ===').length - 1).toBe(length > 9000 ? 1 : 0);
-      if (length > 9000) {
-        expect(output.indexOf('=== PRESET ADVISORY')).toBeGreaterThan(output.indexOf(instructions));
-        expect(output).toContain('Inform the user briefly');
-        expect(output).toContain('1mcp instructions --preset <name>');
-        expect(output).toContain('All instructions have been delivered; continue the current task.');
-        expect(output).toContain("Do not change the user's configuration automatically.");
-      }
-    },
-  );
+  it.each([8999, 9000, 9001])('preserves all %i custom instruction characters without an advisory', async (length) => {
+    // Custom templates may contain astral characters and must remain intact.
+    const instructions = '🚀'.repeat(Math.floor(length / 2)) + 'x'.repeat(length % 2);
+    expect(instructions.length).toBe(length);
+    const output = await renderBootstrapContext(
+      { client: 'codex', event: 'SessionStart' },
+      '',
+      async () => instructions,
+    );
+    expect(output).toContain(instructions);
+    expect(output).not.toContain('Bootstrap coverage gap [');
+    expect(output).not.toContain('PRESET ADVISORY');
+  });
 
   it.each([
     ['codex', 'SessionStart'],
@@ -330,9 +309,9 @@ describe('worker bootstrap client contracts', () => {
       const context = envelope.hookSpecificOutput.additionalContext;
       expect(context).toContain(instructions);
       expect(context).toContain(`Explicit Worker Project Assignment: ${JSON.stringify([project])}`);
-      expect(context.split('=== PRESET ADVISORY FOR THE AGENT ===')).toHaveLength(2);
+      expect(context).not.toContain('PRESET ADVISORY');
       expect(context).toContain('--project-owner');
-      expect(context).not.toContain('coverage gap');
+      expect(context).not.toContain('Bootstrap coverage gap [');
     } finally {
       process.argv[1] = previousEntry;
       stdin.mockRestore();
@@ -360,7 +339,11 @@ describe('worker bootstrap client contracts', () => {
     const options = { client: 'claude', event: 'SubagentStart', 'project-set': '/sets/feature.json' } as const;
     expect(await renderBootstrapContext(options, '', render)).toContain('/sets/feature.json');
     expect(render).toHaveBeenCalledWith(options);
-    expect(buildInstructionsArguments(options)).toEqual(['instructions', '--project-set=/sets/feature.json']);
+    expect(buildInstructionsArguments(options)).toEqual([
+      'instructions',
+      '--compact',
+      '--project-set=/sets/feature.json',
+    ]);
   });
 
   it('preserves ordered repeated label selectors in argv and serialized worker handoff', async () => {
@@ -372,6 +355,7 @@ describe('worker bootstrap client contracts', () => {
     };
     expect(buildInstructionsArguments(options)).toEqual([
       'instructions',
+      '--compact',
       '--project=backend',
       '--project=front"end',
       '--project-set=/sets/feature.json',
@@ -519,6 +503,7 @@ describe('owned instructions subprocess', () => {
         '',
         (command) => {
           let configured = command
+            .option('compact', { type: 'boolean' })
             .option('project', { type: 'array', string: true })
             .option('tags', { type: 'array', string: true });
           for (const key of ['project-set', 'url', 'context', 'preset', 'tag-filter', 'config', 'config-dir']) {

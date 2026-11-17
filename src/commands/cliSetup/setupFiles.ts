@@ -12,6 +12,8 @@ import logger from '@src/logger/logger.js';
 
 import JSON5 from 'json5';
 
+import { cliSkillFiles } from './cliSkill.generated.js';
+import { installManagedSkill } from './installManagedSkill.js';
 import { installPreparationSkill, type SkillInstallResult } from './installPreparationSkill.js';
 
 export const CLI_SETUP_TARGETS = ['codex', 'claude'] as const;
@@ -85,7 +87,6 @@ export function resolveCliSetupScope(rawScope?: string): CliSetupScope {
 }
 
 export async function writeCliSetupFiles(options: WriteCliSetupOptions): Promise<CliSetupWriteResult[]> {
-  const managedDocContent = renderManagedDocContent();
   const writes = getScopePaths(options.repoRoot, options.scope).flatMap((scopePaths) =>
     options.targets.map(async (target) => {
       const isCodex = target === 'codex';
@@ -93,13 +94,21 @@ export async function writeCliSetupFiles(options: WriteCliSetupOptions): Promise
       const hookPath = isCodex ? scopePaths.codexHookPath : scopePaths.claudeHookPath;
       const startupPath = isCodex ? scopePaths.codexStartupPath : scopePaths.claudeStartupPath;
 
-      const results = await writeTargetSetupFiles(managedDocPath, hookPath, startupPath, managedDocContent, {
-        target,
-        scope: scopePaths.scope,
-      });
       const clientDirectory = isCodex ? '.agents' : '.claude';
-      const skill = await installPreparationSkill(scopePaths.rootDir, path.join(clientDirectory, 'skills'));
-      results.push({ ...skill, kind: 'skill', target, scope: scopePaths.scope });
+      const skillsPath = path.join(clientDirectory, 'skills');
+      const usage = await installManagedSkill(scopePaths.rootDir, skillsPath, '1mcp-cli', cliSkillFiles);
+      const results: CliSetupWriteResult[] = [{ ...usage, kind: 'skill', target, scope: scopePaths.scope }];
+      if (usage.status !== 'conflict') {
+        const skillPath = path.join(scopePaths.rootDir, skillsPath, '1mcp-cli', 'SKILL.md');
+        results.push(
+          ...(await writeTargetSetupFiles(managedDocPath, hookPath, startupPath, renderManagedDocContent(skillPath), {
+            target,
+            scope: scopePaths.scope,
+          })),
+        );
+      }
+      const preparation = await installPreparationSkill(scopePaths.rootDir, skillsPath);
+      results.push({ ...preparation, kind: 'skill', target, scope: scopePaths.scope });
       return results;
     }),
   );

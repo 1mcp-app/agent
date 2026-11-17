@@ -44,6 +44,12 @@ Older runtimes without the instruction endpoint retain the legacy discovery beha
 
 In practice, `instructions` is what replaces a large direct-MCP starting surface in the agent loop. Instead of expecting the agent to carry every available tool and schema up front, 1MCP gives it a compact playbook plus the current inventory, then tells it to narrow further with `inspect`.
 
+## Compact overview
+
+`1mcp instructions --compact` requests a built-in server overview without the detailed playbook or server manuals. Bootstrap uses this mode automatically. The overview preserves availability notes, project-selection warnings, and template-fallback diagnostics. It does not establish readiness or replace `1mcp instructions <server>` before tool use.
+
+Bare `1mcp instructions` still prints full guidance and works without an installed skill. Custom CLI templates remain intact even with `--compact`; older runtimes without compact delivery and the legacy compatibility path also return full output. `--compact` cannot be combined with a server name.
+
 ## One Server's Instructions
 
 ```bash

@@ -72,7 +72,11 @@ description: 为 Codex 或 Claude 安装 1MCP CLI 模式的引导文档和 hooks
 - Repo hooks：`<repo>/.claude/settings.json`
 - Repo 启动引用：`<repo>/CLAUDE.md`
 
-## 准备配置技能
+## 安装的技能
+
+`1mcp-cli` 用于日常工具发现与调用，仅在相关操作需要时读取所有权、准备操作和恢复参考文件。它与下表中的 `1mcp-preparation-setup` 安装在同一技能父目录；准备配置技能继续专门负责配方配置。
+
+### 准备配置技能
 
 每次运行 `cli-setup` 都会为选定客户端和范围安装准备配置技能：
 
@@ -87,7 +91,7 @@ Codex 在两种作用域下均使用共享的 `.agents/skills` 目录，其他�
 
 已安装的 npm 包或独立二进制均可离线安装该技能。安装不会启用准备、安装后端依赖或修改 `mcp.json`。启用与验证流程见[后端准备](/zh/guide/backend-preparation)。
 
-再次运行 `cli-setup` 可更新技能。输出区分 `installed`、`updated`、`unchanged` 和 `conflict`。技能目录内的 `.1mcp-managed.json` 记录受管理文件的哈希。未被修改的受管理文件可更新；本地修改、已删除的受管理文件、来源未知的同名安装和符号链接目标会被保留并报告冲突，其他设置文件仍会完成。解决冲突前请单独保存自定义技能，将冲突技能目录移出安装位置后重新运行设置。无关文件会被保留。
+再次运行 `cli-setup` 可更新技能。输出区分 `installed`、`updated`、`unchanged` 和 `conflict`。技能目录内的 `.1mcp-managed.json` 记录受管理文件的哈希。未被修改的受管理文件可更新；本地修改、已删除的受管理文件、来源未知的同名安装和符号链接目标会被保留并报告冲突，`1mcp-cli` 冲突时，该目标已有的受管理指引、启动引用和钩子保持不变，准备配置技能仍独立处理。准备配置技能冲突不会阻止使用指引的安装。解决冲突前请单独保存自定义技能，将冲突技能目录移出安装位置后重新运行设置。无关文件会被保留。
 
 安装锁防止多个安装进程同时写入。更新中断后，日志支持续传，不会将安装程序已经写入的内容误判为本地修改。若日志中的新增文件缺失，安装器无法区分写入中断和用户删除，因此会保留文件缺失状态并报告冲突。如果终止的进程在技能旁留下 `.install-lock` 目录，请先确认没有安装程序运行，再移走该锁并重新执行设置。不要移除仍在运行的安装程序的锁。
 
@@ -119,7 +123,7 @@ Codex 在两种作用域下均使用共享的 `.agents/skills` 目录，其他�
 
 受管理的启动文档会告诉客户端：
 
-1. 如果当前会话尚未通过 hooks 注入最新内容，就先执行 `1mcp instructions`
+1. 调用工具前阅读 `1mcp-cli`；若技能不可用，执行不带 `--compact` 的 `1mcp instructions` 阅读完整指引
 2. 不知道提供方或工具时，可先执行 `1mcp inspect --search <query>`（也可指定服务器）；已知目标时跳过发现步骤
 3. 缺少服务器指令时执行 `1mcp instructions <server>`，并阅读适用的服务器指令
 4. 工具参数结构未知时执行 `1mcp inspect <server>/<tool>`
@@ -131,11 +135,11 @@ Codex 在两种作用域下均使用共享的 `.agents/skills` 目录，其他�
 
 ## Worker 引导与项目分配
 
-`bootstrap` 从 stdin 读取客户端钩子 JSON，为指定事件输出 `hookSpecificOutput.additionalContext`。[Codex](https://learn.chatgpt.com/docs/hooks) 和 [Claude](https://code.claude.com/docs/en/hooks) 均支持该格式。stdin 上限为 64 KiB，等待期限为一秒；运行时指令获取期限为五秒。成功获取的指令会完整交付，不再设置子进程输出大小上限或上下文大小截断。输入无效或运行时失败时仍交付通用指引并报告覆盖缺口，不声称已经交付完整项目指令。
+`bootstrap` 从 stdin 读取客户端钩子 JSON，为指定事件输出 `hookSpecificOutput.additionalContext`。[Codex](https://learn.chatgpt.com/docs/hooks) 和 [Claude](https://code.claude.com/docs/en/hooks) 均支持该格式。stdin 上限为 64 KiB，等待期限为一秒；运行时指令获取期限为五秒。成功获取的指令会完整交付，不再设置子进程输出大小上限或上下文大小截断。输入无效或运行时失败时仍交付技能入口和完整指引回退方式，并报告覆盖缺口，不声称已经交付完整项目指令。
 
-当渲染后的运行时指令超过 9,000 字符（按 JavaScript 字符串长度计算）时，bootstrap 会附加一条建议，要求 agent 简短告知用户，并推荐使用 1MCP preset 在未来会话中选择更少的相关 MCP 服务器，例如 `1mcp instructions --preset <name>`。该阈值不包含静态指引和序列化后的项目分配。所有指令和有效项目分配均完整保留；agent 继续当前任务，不自动修改配置。指令长度小于或等于阈值时不附加建议。
+Bootstrap 请求 `instructions --compact`。使用内置模板时，仅交付服务器概览和会话上下文，不再重复完整操作指引和所有服务器手册。缺少当前服务器指令时，先阅读 `1mcp instructions <server>` 再调用工具。自定义 CLI 模板和旧运行时仍完整输出，不截断内容，也不附加长度提醒。
 
-`SessionStart` 可获取普通会话的运行时指令。`SubagentStart` 没有明确分配时，只交付 inspect-before-run 指引并报告项目选择未解决；不会用钩子 cwd 或父会话身份选择父 checkout。客户端官方钩子 schema 没有 worker 项目分配字段。
+`SessionStart` 可获取普通会话的运行时指令。`SubagentStart` 没有明确分配时，只交付技能入口指引并报告项目选择未解决；不会用钩子 cwd 或父会话身份选择父 checkout。客户端官方钩子 schema 没有 worker 项目分配字段。
 
 Bootstrap 从显式 CLI 参数解析选项，不使用继承的 `ONE_MCP_*` 选项。获取指令的子进程去除继承的 `ONE_MCP_PROJECT` 和 `ONE_MCP_PROJECT_SET`，保留其它环境传递。父任务的环境目标参数不会给未分配的 worker 自动指定目标。
 

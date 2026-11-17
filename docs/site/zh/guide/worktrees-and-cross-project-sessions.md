@@ -68,13 +68,13 @@ Linux/macOS 的默认文件为 `~/.config/1mcp/mcp.json`，Windows 为 `%APPDATA
 
 这些命令安装全局 bootstrap 指引和钩子。仓库级配置见 [CLI setup](/zh/commands/cli-setup)。Codex 用户还需要应用 setup 输出的钩子和沙箱配置片段。在客户端启用并信任这些钩子，然后启动新会话。此流程使用 [CLI 模式](/zh/guide/integrations/cli-mode)，请移除同一客户端作用域中重复的直连 1MCP MCP 配置。
 
-确认启动时收到 1MCP 操作指引并建立会话所有权。仅存在钩子文件不能证明已经执行。项目相关调用前应解决报告的所有权或分配缺口；不要自行构造凭证文件，也不要复制父会话凭证。
+确认启动时收到 1MCP 概览并建立会话所有权。仅存在钩子文件不能证明已经执行。项目相关调用前应解决报告的所有权或分配缺口；不要自行构造凭证文件，也不要复制父会话凭证。
 
 下方命令假设使用已验证钩子的受支持 Codex 会话。1MCP 自动查找该会话的所有者和分配项目，正常调用无需 `--project-owner` 或 `--project`。跨项目示例保留目标参数，因为它们明确查询其他检出目录；单次覆盖不会改变已分配默认目标。
 
 ### `bootstrap` 与 `instructions`：应该运行哪个？
 
-客户端钩子运行 `bootstrap`，创建调用方的所有者凭证，并通过 `instructions` 获取运行时指引。智能体收到当前目标的指引后，继续执行 `inspect` 和 `run`；仅在缺少指引或需要刷新时运行 `instructions`。缺少凭证时应修复钩子交付，`instructions` 不会创建凭证。生命周期事件和手动 bootstrap 重试见 [CLI setup](/zh/commands/cli-setup)。
+客户端钩子运行 `bootstrap`，创建调用方的所有者凭证，并通过 `instructions --compact` 获取服务器概览。智能体阅读已安装的 `1mcp-cli` 技能和适用的 `instructions <server>` 后，再执行 `inspect` 和 `run`。若技能不可用，先执行不带 `--compact` 的 `instructions` 阅读完整指引。精简输出不含服务器手册；自定义模板和旧运行时仍可能交付完整内容。缺少凭证时应修复钩子交付，`instructions` 不会创建凭证。生命周期事件和手动 bootstrap 重试见 [CLI setup](/zh/commands/cli-setup)。
 
 ### 什么时候需要 `--project-owner`？
 

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   assembleInstructionDetail,
   collectInstructionDetails,
+  renderCompactInstructions,
   renderManagedDocContent,
   renderStartupDocManagedBlock,
   renderStartupDocManagedBlockForClient,
@@ -14,6 +15,43 @@ import {
 import { DEFAULT_CLI_INSTRUCTION_TEMPLATE } from './templateTypes.js';
 
 describe('instructionsDistribution', () => {
+  it('keeps compact bootstrap below 40% of the previous full CLI payload', () => {
+    const servers = ['ready', 'loading', 'unavailable'].map((server, index) => ({
+      server,
+      type: index === 2 ? 'template' : 'external',
+      status: ['connected', 'loading', 'disconnected'][index],
+      available: index === 0,
+      loadTracked: index !== 2,
+      toolCount: 0,
+      toolCountKnown: false,
+      hasInstructions: index === 0,
+    }));
+    const details = servers.map((server) => ({
+      ...server,
+      instructions: server.available ? 'READ_SERVER_MANUAL' : undefined,
+      note: server.available ? undefined : 'inspect the selected server before use',
+    }));
+    const payload = { servers, details };
+    const compact = renderCompactInstructions(payload);
+    expect(compact).not.toContain('READ_SERVER_MANUAL');
+    expect(compact).toContain('tools=unknown');
+    expect(compact).toContain('status=loading');
+    expect(compact).toContain('inspect the selected server before use');
+    expect(compact.split('ready |')).toHaveLength(2);
+    // The old bootstrap also prefixed the full managed guide, so this is a stricter comparison.
+    expect((renderManagedDocContent() + compact).length).toBeLessThan(formatInstructionsOutput(payload).length * 0.4);
+  });
+
+  it('explains an empty compact server set without inventing availability', () => {
+    expect(renderCompactInstructions({ servers: [], details: [] })).toContain('No servers visible');
+    const output = renderCompactInstructions({
+      servers: [{ server: 'unknown', toolCount: 0, hasInstructions: false }],
+      details: [],
+    });
+    expect(output).toContain('available=unknown');
+    expect(output).toContain('instructions=no');
+  });
+
   it('eagerly inspects template servers even when unavailable', () => {
     expect(
       shouldEagerlyInspectServer({
@@ -256,16 +294,24 @@ describe('instructionsDistribution', () => {
     });
   });
 
+  it('preserves spaces in the installed skill reference', () => {
+    expect(renderManagedDocContent('/home/Agent User/.agents/skills/1mcp-cli/SKILL.md')).toContain(
+      '[1mcp-cli](</home/Agent User/.agents/skills/1mcp-cli/SKILL.md>)',
+    );
+  });
+
   it('renders managed doc content for startup bootstrapping', () => {
     const content = renderManagedDocContent();
 
-    expect(content).toContain('If this session already received the current 1MCP instructions content from hooks');
-    expect(content).toContain('Otherwise, run `1mcp instructions` before using any 1MCP-managed MCP servers.');
-    expect(content).toContain('Run `1mcp instructions <server>` when its instructions are missing');
+    expect(content.length).toBeLessThan(1500);
+    expect(content).toContain('`1mcp-cli` skill');
+    expect(content).toContain('without --compact');
+    expect(content).toContain('Compact hook output is an overview, not server instructions');
+    expect(content).not.toContain('## Backend preparation');
   });
 
   it('keeps the managed reference and hook-delivered playbook search workflow consistent', () => {
-    for (const content of [renderManagedDocContent(), DEFAULT_CLI_INSTRUCTION_TEMPLATE]) {
+    for (const content of [DEFAULT_CLI_INSTRUCTION_TEMPLATE]) {
       expect(content).toContain('1mcp inspect --search <query>');
       expect(content).toContain('1mcp inspect <server> --search <query>');
       expect(content).toContain('case-insensitive literal substring');
@@ -286,11 +332,7 @@ describe('instructionsDistribution', () => {
   });
 
   it('aligns installed and runtime playbooks with supported session defaults and recovery', () => {
-    for (const content of [
-      renderManagedDocContent(),
-      DEFAULT_CLI_INSTRUCTION_TEMPLATE,
-      formatInstructionsOutput({ servers: [], details: [] }),
-    ]) {
+    for (const content of [DEFAULT_CLI_INSTRUCTION_TEMPLATE, formatInstructionsOutput({ servers: [], details: [] })]) {
       expect(content).toContain('Normal calls omit --project-owner and --project.');
       expect(content).toContain('CODEX_THREAD_ID (current agent) locates an exact private hook-written thread record');
       expect(content).toContain('A per-call --project or --project-set override never changes that default.');
