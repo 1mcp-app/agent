@@ -24,6 +24,7 @@ import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
 import { normalizeEvent } from '@src/observability/events/normalize.js';
 import { AuthProviderTransport } from '@src/sdk/legacy/client/runtime/legacyTransport.js';
+import { BackendRequestError } from '@src/transport/backendRequestFailure.js';
 import { SseWireLimitError } from '@src/transport/sseWireLimit.js';
 
 import { afterEach, beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
@@ -326,19 +327,43 @@ describe('ConnectionHandler', () => {
       expect(mockTransport.close).not.toHaveBeenCalled();
     });
 
-    it.each([
-      ['native fetch', new TypeError('fetch failed')],
-      ['OAuth-aware fetch', new Error(oauthDiagnosticMessage('network_failure'))],
-    ])('retries a negotiation probe that could not reach the backend (%s)', async (_label, cause) => {
+    const probeFailure = (cause: unknown) =>
+      new SdkError(SdkErrorCode.EraNegotiationFailed, 'Version negotiation probe failed', { cause }, { cause });
+    const probeHttpFailure = (status: number) =>
+      new SdkHttpError(SdkErrorCode.EraNegotiationFailed, `the server answered the probe with HTTP ${status}`, {
+        status,
+        statusText: 'fixture',
+        text: '',
+      });
+    const withCode = (code: string) => Object.assign(new Error('fixture network failure'), { code });
+
+    it.each<[string, SdkError]>([
+      [
+        'connection refused (native fetch)',
+        probeFailure(new TypeError('fetch failed', { cause: withCode('ECONNREFUSED') })),
+      ],
+      [
+        'connection reset (native fetch)',
+        probeFailure(new TypeError('fetch failed', { cause: withCode('ECONNRESET') })),
+      ],
+      [
+        'temporary DNS failure (native fetch)',
+        probeFailure(new TypeError('fetch failed', { cause: withCode('EAI_AGAIN') })),
+      ],
+      [
+        'connect timeout (native fetch)',
+        probeFailure(new TypeError('fetch failed', { cause: withCode('UND_ERR_CONNECT_TIMEOUT') })),
+      ],
+      ['connection refused (backend fetch)', probeFailure(new BackendRequestError('connection_refused'))],
+      ['timeout (backend fetch)', probeFailure(new BackendRequestError('timeout'))],
+      ...[408, 429].map((status): [string, SdkError] => [
+        `HTTP ${status} (backend fetch)`,
+        probeFailure(new BackendRequestError('http_status', status)),
+      ]),
+      ...[500, 502, 503, 504].map((status): [string, SdkError] => [`HTTP ${status}`, probeHttpFailure(status)]),
+    ])('retries a negotiation probe that failed transiently: %s', async (_label, negotiationError) => {
       (mockClient.connect as unknown as MockInstance)
-        .mockRejectedValueOnce(
-          new SdkError(
-            SdkErrorCode.EraNegotiationFailed,
-            `Version negotiation probe failed: ${cause.message}`,
-            { cause },
-            { cause },
-          ),
-        )
+        .mockRejectedValueOnce(negotiationError)
         .mockResolvedValueOnce(undefined);
       (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
         name: 'test-server',
@@ -353,24 +378,32 @@ describe('ConnectionHandler', () => {
       expect(mockClient.connect).toHaveBeenCalledTimes(2);
     });
 
-    it.each([
+    it('ends exhausted transient probe failures as retryable so background retry can recover them', async () => {
+      (mockClient.connect as unknown as MockInstance).mockRejectedValue(
+        probeFailure(new BackendRequestError('connection_refused')),
+      );
+
+      const connecting = connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'modern-client');
+      const outcome = expect(connecting).rejects.toMatchObject({ name: 'ClientConnectionError' });
+      await vi.runAllTimersAsync();
+      await outcome;
+      expect(mockClient.connect).toHaveBeenCalledTimes(CONNECTION_RETRY.MAX_ATTEMPTS);
+    });
+
+    it.each<[string, SdkError]>([
+      ['an unusable reply', probeFailure(new SyntaxError('Unexpected token'))],
       [
-        'an unusable reply',
-        new SdkError(
-          SdkErrorCode.EraNegotiationFailed,
-          'Version negotiation probe failed: the server answered with an unusable reply',
-          { cause: new SyntaxError('Unexpected token') },
-          { cause: new SyntaxError('Unexpected token') },
-        ),
+        'a certificate rejection (native fetch)',
+        probeFailure(new TypeError('fetch failed', { cause: withCode('DEPTH_ZERO_SELF_SIGNED_CERT') })),
       ],
-      [
-        'an HTTP error reply',
-        new SdkHttpError(SdkErrorCode.EraNegotiationFailed, 'the server answered the probe with HTTP 500', {
-          status: 500,
-          statusText: 'Internal Server Error',
-          text: '',
-        }),
-      ],
+      ['a certificate rejection (backend fetch)', probeFailure(new BackendRequestError('tls'))],
+      ['a cancelled request', probeFailure(new BackendRequestError('aborted'))],
+      ['a permanent DNS failure', probeFailure(new BackendRequestError('dns_not_found'))],
+      ['an unrecognized network failure', probeFailure(new TypeError('fetch failed'))],
+      ['a generic OAuth network diagnostic', probeFailure(new Error(oauthDiagnosticMessage('network_failure')))],
+      ['HTTP 501', probeHttpFailure(501)],
+      ['HTTP 505', probeHttpFailure(505)],
+      ['a negotiation failure without a cause', new SdkError(SdkErrorCode.EraNegotiationFailed, 'no modern evidence')],
     ])('does not retry a negotiation probe that got %s', async (_label, negotiationError) => {
       (mockClient.connect as unknown as MockInstance).mockRejectedValue(negotiationError);
       const recreate = vi.fn();
@@ -379,6 +412,7 @@ describe('ConnectionHandler', () => {
         connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'modern-client', undefined, recreate),
       ).rejects.toMatchObject({ name: 'NonRetryableClientConnectionError' });
 
+      expect(mockClient.connect).toHaveBeenCalledTimes(1);
       expect(recreate).not.toHaveBeenCalled();
     });
 

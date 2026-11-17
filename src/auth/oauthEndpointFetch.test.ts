@@ -3,6 +3,7 @@ import http from 'node:http';
 import https from 'node:https';
 
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
+import { BackendRequestError } from '@src/transport/backendRequestFailure.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -335,4 +336,82 @@ describe('OAuth network boundary', () => {
     await expect(guarded(base + '/mcp')(base + '/metadata')).rejects.toThrow(/OAuth/);
     expect(Date.now() - start).toBeLessThan(12_000);
   }, 15_000);
+});
+
+describe('backend (resource) request failures', () => {
+  async function closedPort() {
+    const base = await endpoint((_req, res) => res.end());
+    await close.pop()!();
+    return base;
+  }
+  const probe = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'server/discover', params: {} });
+
+  it('reports a refused backend connection as a transient backend failure, not an OAuth one', async () => {
+    const base = await closedPort();
+    const onDiagnostic = vi.fn();
+    const onFailure = vi.fn();
+    const failure = await guarded(base + '/mcp?token=sentinel', { onDiagnostic, onFailure })(
+      base + '/mcp?token=sentinel',
+      { method: 'POST', body: probe },
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(BackendRequestError);
+    expect(failure).toMatchObject({ category: 'connection_refused', transient: true });
+    const error = failure as Error;
+    expect(error.message).not.toMatch(/OAuth|sentinel|127\.0\.0\.1/);
+    expect(error.cause).toBeUndefined();
+    expect(JSON.stringify(Object.entries(error))).not.toMatch(/sentinel|127\.0\.0\.1/);
+    expect(onDiagnostic).not.toHaveBeenCalled();
+    expect(writeLocalDiagnostic).not.toHaveBeenCalledWith('warn', 'oauth.endpoint.failed', expect.anything());
+    expect(onFailure).toHaveBeenCalledWith(true);
+  });
+
+  it('keeps OAuth endpoint network failures identifiable as OAuth failures', async () => {
+    const base = await closedPort();
+    await expect(guarded(base + '/mcp')(base + '/metadata')).rejects.toThrow(
+      'OAuth network: network_failure. Check provider reachability and DNS.',
+    );
+  });
+
+  it('classifies a temporary DNS failure of the backend host as transient', async () => {
+    vi.mocked(dns.lookup).mockRejectedValue(Object.assign(new Error('getaddrinfo EAI_AGAIN'), { code: 'EAI_AGAIN' }));
+    await expect(
+      guarded('http://backend.internal/mcp')('http://backend.internal/mcp', { method: 'POST', body: probe }),
+    ).rejects.toMatchObject({ category: 'dns_temporary', transient: true });
+  });
+
+  it('classifies a cancelled backend request as aborted, which is not retryable', async () => {
+    const base = await endpoint(() => undefined);
+    const controller = new AbortController();
+    const pending = guarded(base + '/mcp')(base + '/mcp', { method: 'POST', body: probe, signal: controller.signal });
+    setTimeout(() => controller.abort(), 20);
+    await expect(pending).rejects.toMatchObject({ category: 'aborted', transient: false });
+  });
+
+  it.each([408, 429])(
+    'turns an HTTP %i probe reply into a transient failure before the SDK reads it',
+    async (status) => {
+      const base = await endpoint((_req, res) => {
+        res.statusCode = status;
+        res.end('slow down');
+      });
+      await expect(guarded(base + '/mcp')(base + '/mcp', { method: 'POST', body: probe })).rejects.toMatchObject({
+        category: 'http_status',
+        httpStatus: status,
+        transient: true,
+      });
+    },
+  );
+
+  it('passes an HTTP 429 reply to ordinary backend requests through unchanged', async () => {
+    const base = await endpoint((_req, res) => {
+      res.statusCode = 429;
+      res.end('slow down');
+    });
+    const response = await guarded(base + '/mcp')(base + '/mcp', {
+      method: 'POST',
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: {} }),
+    });
+    expect(response.status).toBe(429);
+  });
 });
