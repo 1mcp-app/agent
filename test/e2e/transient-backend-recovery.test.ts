@@ -61,6 +61,16 @@ async function startLateBackend(port: number): Promise<void> {
   );
 }
 
+/** The loading manager marks a backend `failed` only after its foreground retries are exhausted. */
+async function loadingState(origin: string, server: string): Promise<string | undefined> {
+  try {
+    const response = await fetch(`${origin}/health/mcp/${server}`, { signal: AbortSignal.timeout(500) });
+    return ((await response.json()) as { state?: string }).state;
+  } catch {
+    return undefined;
+  }
+}
+
 async function health(origin: string): Promise<{ healthy: number; unhealthy: number } | undefined> {
   try {
     const response = await fetch(`${origin}/health`, { signal: AbortSignal.timeout(500) });
@@ -147,8 +157,14 @@ describe('backend that is not listening when the runtime starts', () => {
     const backendPort = await freePort();
     const origin = await startRuntime(backendPort, true);
 
-    // Foreground connection attempts (1 s and 2 s backoff) exhaust against the closed port.
-    await delay(4500);
+    // Start the backend only once foreground attempts are exhausted, so recovery must come from background retry.
+    expect(
+      await until(
+        () => loadingState(origin, 'late'),
+        (state) => state === 'failed',
+        20_000,
+      ),
+    ).toBe('failed');
     expect(await health(origin)).toMatchObject({ healthy: 0, unhealthy: 1 });
 
     await startLateBackend(backendPort);
@@ -175,7 +191,13 @@ describe('backend that is not listening when the runtime starts', () => {
     const backendPort = await freePort();
     const origin = await startRuntime(backendPort, false);
 
-    await delay(4500);
+    expect(
+      await until(
+        () => loadingState(origin, 'late'),
+        (state) => state === 'failed',
+        20_000,
+      ),
+    ).toBe('failed');
     await startLateBackend(backendPort);
     // Several background intervals would have elapsed if retry were enabled.
     await delay(3500);

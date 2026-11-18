@@ -114,6 +114,7 @@ export function createOAuthEndpointFetch(options: {
     // failures there get a structured category instead of an OAuth diagnostic.
     let transportPhase = false;
     let cancelled = () => false;
+    let deadlineExpired = () => false;
     const report = () => {
       const message = oauthDiagnosticMessage(reason, httpStatus);
       try {
@@ -145,6 +146,7 @@ export function createOAuthEndpointFetch(options: {
       const signal = init?.signal ?? request?.signal;
       const boundedSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
       cancelled = () => signal?.aborted === true;
+      deadlineExpired = () => deadline.aborted;
       const inputInit = request
         ? {
             method: request.method,
@@ -334,7 +336,11 @@ export function createOAuthEndpointFetch(options: {
         // Backend traffic is not OAuth traffic: keep only a bounded category, never the raw chain.
         options.onFailure(resourceRequest);
         if (error instanceof BackendRequestError) throw error;
-        throw new BackendRequestError(cancelled() ? 'aborted' : classifyBackendFailure(error));
+        const category = classifyBackendFailure(error);
+        // The internal deadline bounds a hung DNS lookup; its rejection carries no error code.
+        throw new BackendRequestError(
+          cancelled() ? 'aborted' : category === 'unknown' && deadlineExpired() ? 'timeout' : category,
+        );
       }
       const retained = error instanceof Error ? readOAuthDiagnostic(error.message) : undefined;
       const message = retained ? oauthDiagnosticMessage(retained.reason, retained.httpStatus) : report();

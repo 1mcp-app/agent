@@ -380,6 +380,18 @@ describe('backend (resource) request failures', () => {
     ).rejects.toMatchObject({ category: 'dns_temporary', transient: true });
   });
 
+  it('classifies a backend DNS lookup that outlives the fetch deadline as a timeout', async () => {
+    vi.mocked(dns.lookup).mockReturnValue(new Promise(() => undefined) as never);
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException('deadline', 'TimeoutError')), 20);
+      return controller.signal;
+    });
+    await expect(
+      guarded('http://backend.internal/mcp')('http://backend.internal/mcp', { method: 'POST', body: probe }),
+    ).rejects.toMatchObject({ category: 'timeout', transient: true });
+  });
+
   it('classifies a cancelled backend request as aborted, which is not retryable', async () => {
     const base = await endpoint(() => undefined);
     const controller = new AbortController();
