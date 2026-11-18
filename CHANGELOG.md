@@ -5,9 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.40.0-beta.3] - 2026-11-12
+## [0.40.0] - 2026-11-18
 
 ### 🚀 Features
+- Load usage guidance through skill and compact bootstrap by @xizhibei in [#761](https://github.com/1mcp-app/agent/pull/761)
+- Update backend preparation documentation and CLI usage guidelines by @xizhibei
+- Enhance glossary and ADRs with new concepts and definitions by @xizhibei
+- Make the inbound request body limit configurable by @manooog in [#759](https://github.com/1mcp-app/agent/pull/759)
 - Spill oversized results to a configurable directory by @xizhibei in [#725](https://github.com/1mcp-app/agent/pull/725)
 - Implement Product Usage Telemetry by @xizhibei in [#705](https://github.com/1mcp-app/agent/pull/705)
 - Install preparation setup skill by @xizhibei in [#671](https://github.com/1mcp-app/agent/pull/671)
@@ -21,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bind project selections to individual calls by @xizhibei in [#636](https://github.com/1mcp-app/agent/pull/636)
 
 ### 🐛 Bug Fixes
+- Align jsdom parser stream dependency by @xizhibei in [#755](https://github.com/1mcp-app/agent/pull/755)
 - Require operator authority for token issuance by @xizhibei in [#754](https://github.com/1mcp-app/agent/pull/754)
 - Add opt-in legacy-only inbound compatibility by @xizhibei in [#751](https://github.com/1mcp-app/agent/pull/751)
 - Reclaim idle sessions and expose admission capacity by @xizhibei in [#752](https://github.com/1mcp-app/agent/pull/752)
@@ -59,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Retire MCP migration evidence gates by @xizhibei in [#699](https://github.com/1mcp-app/agent/pull/699)
 
 ### 📚 Documentation
+- Turn development notes into a contributor handbook by @xizhibei
 - Align bilingual guides, navigation, and installed CLI examples by @xizhibei in [#673](https://github.com/1mcp-app/agent/pull/673)
 - Refresh agent guidance and architecture decisions by @xizhibei
 - Guide worktrees and cross-project agent sessions by @xizhibei in [#668](https://github.com/1mcp-app/agent/pull/668)
@@ -71,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Simplify validation and shorten conformance checks by @xizhibei in [#674](https://github.com/1mcp-app/agent/pull/674)
 
 ## New Contributors
+* @manooog made their first contribution in [#759](https://github.com/1mcp-app/agent/pull/759)
 * @sarankumar1325 made their first contribution in [#722](https://github.com/1mcp-app/agent/pull/722)
 * @tanakaisworking made their first contribution in [#654](https://github.com/1mcp-app/agent/pull/654)
 
@@ -1336,7 +1343,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[0.40.0-beta.3]: https://github.com/1mcp-app/agent/compare/v0.39.2..v0.40.0-beta.3
+[0.40.0]: https://github.com/1mcp-app/agent/compare/v0.39.2..v0.40.0
 [0.39.2]: https://github.com/1mcp-app/agent/compare/v0.39.1..v0.39.2
 [0.39.1]: https://github.com/1mcp-app/agent/compare/v0.39.0..v0.39.1
 [0.39.0]: https://github.com/1mcp-app/agent/compare/v0.38.2..v0.39.0
