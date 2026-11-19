@@ -19,6 +19,7 @@ function ghApi(endpoint) {
 async function npmReadback(version, timeoutMs = 30000) {
   const response = await fetch(`https://registry.npmjs.org/@1mcp%2fagent/${encodeURIComponent(version)}`, {
     signal: AbortSignal.timeout(timeoutMs),
+    cache: 'no-store',
   });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`npm readback ambiguous: HTTP ${response.status}`);

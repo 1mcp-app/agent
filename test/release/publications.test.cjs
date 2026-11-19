@@ -272,7 +272,10 @@ test('malformed HTTP 200 registry metadata is never treated as missing', async (
   for (const metadata of [null, false, 0, '', []]) {
     const f = fixture(t);
     delete f.options.npmReadback;
-    t.mock.method(globalThis, 'fetch', async () => ({ status: 200, ok: true, json: async () => metadata }));
+    t.mock.method(globalThis, 'fetch', async (_url, options) => {
+      assert.equal(options.cache, 'no-store');
+      return { status: 200, ok: true, json: async () => metadata };
+    });
     f.options.waitForNpmReadback = async () => assert.fail('Malformed metadata must not be polled');
     await assert.rejects(main('versions', f.options), /malformed registry metadata/);
     assert.deepEqual(f.writes, []);
