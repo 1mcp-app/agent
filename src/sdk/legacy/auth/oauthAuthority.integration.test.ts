@@ -514,7 +514,8 @@ for (const legacy of [true, false])
       const f = await fixture(legacy);
       await f.authorize();
       f.behavior.failConnection = true;
-      await expect(f.provider.fetch(f.base + '/mcp')).rejects.toThrow(/OAuth/);
+      // A backend (resource) failure is reported as a backend failure, not as an OAuth one.
+      await expect(f.provider.fetch(f.base + '/mcp')).rejects.toThrow(/^Backend request failed: connection_/);
       f.behavior.failConnection = false;
       expect((await f.provider.fetch(f.base + '/mcp')).status).toBe(404);
     });
