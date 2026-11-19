@@ -525,14 +525,7 @@
           },
           "disabled": {
             "description": "Disable this server. Can be a boolean value or a template string that evaluates to a boolean (e.g., \"{?project.environment=production}\")",
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "string"
-              }
-            ]
+            "type": ["boolean", "string"]
           },
           "disabledTools": {
             "description": "Hide specific tools from this server without disabling the entire server",
@@ -1157,14 +1150,7 @@
           },
           "disabled": {
             "description": "Disable this server. Can be a boolean value or a template string that evaluates to a boolean (e.g., \"{?project.environment=production}\")",
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "string"
-              }
-            ]
+            "type": ["boolean", "string"]
           },
           "disabledTools": {
             "description": "Hide specific tools from this server without disabling the entire server",
