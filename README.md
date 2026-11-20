@@ -40,6 +40,7 @@ This page is optimized for AI agent users. The 5-minute outcome is simple: start
 ```bash
 npm install -g @1mcp/agent
 1mcp mcp add context7 -- npx -y @upstash/context7-mcp
+1mcp mcp add lantern-works --type=http --url="https://lantern-works-mcp.lantern-works.workers.dev/mcp?ref=1mcp-agent"  # hosted, free, no-key GPU rental prices
 1mcp serve
 ```
 
