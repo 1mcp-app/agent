@@ -216,6 +216,7 @@ services:
       - ONE_MCP_HOST=0.0.0.0
       - ONE_MCP_PORT=3050
       - ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050
+      - ONE_MCP_ALLOW_UNAUTHENTICATED_NETWORK=true
       - ONE_MCP_LOG_LEVEL=info
       - ONE_MCP_CONFIG=/config/mcp.json
       - ONE_MCP_CONFIG_DIR=/config
@@ -233,7 +234,7 @@ docker compose up -d
 
 Two notes on the 0.39 container image: it ships runtime files inside `/usr/src/app/config`, so mount your config directory at `/config` instead of following the older `/usr/src/app/config` examples — mounting over that path prevents startup; and the runtimes gate unauthenticated HTTP on a non-loopback bind, which is why the examples run with `--allow-unauthenticated-network` while keeping the loopback-only port publishing above.
 
-These examples are reachable only from the Docker host. Before publishing 1MCP on another interface, enable authentication in `1mcp-config/config.toml`, set `ONE_MCP_EXTERNAL_URL` to the public HTTPS URL, and follow the [Authentication guide](/guide/advanced/authentication). Binding a runtime beyond loopback without authentication exposes its MCP capabilities to the network.
+These examples publish the host port on the loopback interface only, but that does not restrict access to the Docker host: containers attached to the same Docker bridge can reach the unauthenticated listener directly via the container IP. The examples assume trusted network peers; on a shared network with untrusted containers, either enable authentication in `1mcp-config/config.toml`, set `ONE_MCP_EXTERNAL_URL` to the public HTTPS URL, and follow the [Authentication guide](/guide/advanced/authentication), or attach the container to an isolated network. Publishing a runtime beyond the Docker bridge without authentication exposes its MCP capabilities to the network.
 
 #### Available Tags
 
