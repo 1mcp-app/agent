@@ -48,6 +48,22 @@ describe.each([
   addFormats.default(validator);
   const validate = validator.compile(schema);
 
+  it('matches runtime Backend Sleep scope and timeout validation', () => {
+    for (const [source, backend, expected] of [
+      ['mcpServers', { command: 'backend', sleep: { enabled: true } }, true],
+      ['mcpServers', { command: 'backend', sleep: { enabled: false, idleTimeoutMs: 2147483647 } }, true],
+      ['mcpServers', { command: 'backend', sleep: { enabled: true, idleTimeoutMs: 0 } }, false],
+      ['mcpServers', { command: 'backend', sleep: { enabled: true, idleTimeoutMs: 2147483648 } }, false],
+      ['mcpServers', { type: 'http', url: 'https://example.com', sleep: { enabled: true } }, false],
+      ['mcpServers', { sleep: { enabled: true } }, false],
+      ['mcpTemplates', { command: 'backend', sleep: { enabled: true } }, false],
+    ] as const) {
+      const config = { mcpServers: {}, [source]: { backend } };
+      expect(validate(config), JSON.stringify(config)).toBe(expected);
+      expect(mcpServerConfigSchema.safeParse(config).success).toBe(expected);
+    }
+  });
+
   it('publishes the independent metadata and network opt-ins with runtime-equivalent validation', () => {
     for (const oauth of [
       { insecureAllowIncompleteMetadata: true, privateNetworkOrigins: ['https://private.example'] },
@@ -349,4 +365,47 @@ describe('named preparation selection', () => {
       }).success,
     ).toBe(true);
   });
+});
+
+describe('Backend Sleep configuration', () => {
+  it('preserves explicit per-server opt-in and leaves ordinary servers unchanged', () => {
+    const config = mcpServerConfigSchema.parse({
+      mcpServers: {
+        sleeper: { command: 'backend', sleep: { enabled: true, idleTimeoutMs: 300000 } },
+        ordinary: { command: 'backend' },
+      },
+    });
+    expect(config.mcpServers.sleeper).toMatchObject({ sleep: { enabled: true, idleTimeoutMs: 300000 } });
+    expect(config.mcpServers.ordinary).not.toHaveProperty('sleep');
+  });
+});
+
+it.each([
+  { mcpServers: { backend: { type: 'http', url: 'https://example.com/mcp', sleep: { enabled: true } } } },
+  { mcpServers: { backend: { type: 'sse', url: 'https://example.com/sse', sleep: { enabled: false } } } },
+  { mcpServers: { backend: { url: 'https://example.com/mcp', sleep: { enabled: true } } } },
+  { mcpServers: { backend: { sleep: { enabled: true } } } },
+  { mcpServers: {}, mcpTemplates: { backend: { command: 'backend', sleep: { enabled: true } } } },
+])('rejects Backend Sleep outside static stdio definitions', (config) => {
+  expect(mcpServerConfigSchema.safeParse(config).success).toBe(false);
+});
+
+it.each([0, -1, 1.5, 2147483648, '300000', null])('rejects invalid Backend Sleep timeout %s', (idleTimeoutMs) => {
+  expect(
+    mcpServerConfigSchema.safeParse({
+      mcpServers: {
+        backend: { command: 'backend', sleep: { enabled: true, idleTimeoutMs } },
+      },
+    }).success,
+  ).toBe(false);
+});
+
+it.each([1, 2147483647, undefined])('accepts supported Backend Sleep timeout %s', (idleTimeoutMs) => {
+  expect(
+    mcpServerConfigSchema.safeParse({
+      mcpServers: {
+        backend: { type: 'stdio', command: 'backend', sleep: { enabled: false, idleTimeoutMs } },
+      },
+    }).success,
+  ).toBe(true);
 });

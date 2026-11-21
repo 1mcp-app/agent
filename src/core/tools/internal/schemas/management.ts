@@ -146,7 +146,17 @@ export const McpStatusOutputSchema = z.object({
         name: z.string().describe('Server name'),
         targetType: z.enum(['static', 'template']).describe('Configured target type'),
         status: z
-          .enum(['enabled', 'disabled', 'connected', 'disconnected', 'restarting', 'crash-loop', 'error', 'unknown'])
+          .enum([
+            'enabled',
+            'disabled',
+            'connected',
+            'disconnected',
+            'restarting',
+            'crash-loop',
+            'sleeping',
+            'error',
+            'unknown',
+          ])
           .describe('Current configured target status'),
         transport: z.enum(['stdio', 'sse', 'http', 'streamableHttp']).describe('Transport type'),
         uptime: z.string().optional().describe('Server uptime'),

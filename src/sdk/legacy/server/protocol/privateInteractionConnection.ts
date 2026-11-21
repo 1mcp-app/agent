@@ -8,6 +8,7 @@ import {
   acquireRuntimeCapabilityCatalog,
   isIssuedRuntimeResourceEntry,
 } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
+import { BackendSleepAdapter, prepareBackendOperation } from '@src/core/server/backendSleepAdapter.js';
 import { ClientStatus, type InboundConnection, type OutboundConnection } from '@src/core/types/index.js';
 import { captureJson } from '@src/core/validation/schemaPolicy.js';
 import { hasInteractionCapability } from '@src/gateway/interactions/interactionCapabilities.js';
@@ -49,6 +50,10 @@ export async function withPrivateInteractionConnection<T>(
     if (!isIssuedRuntimeResourceEntry(entry)) throw new McpError(-32000, 'interaction_lost');
     if (!assertCurrent) throw new McpError(-32000, 'interaction_lost');
   }
+  const releaseBackend =
+    source.adapter instanceof BackendSleepAdapter
+      ? await prepareBackendOperation(source.adapter, extra.signal)
+      : () => undefined;
   const adapter = source.adapter;
   const observed = new Map([[entry.route.connectionKey, source]]);
   registerCapabilityPaginationNotifications(observed, source);
@@ -64,6 +69,7 @@ export async function withPrivateInteractionConnection<T>(
     assertCurrent?.();
   };
   try {
+    assertCurrent?.();
     if (issuedResourceRead) assertProviderCurrent();
     return await withSelectedInteractionConnection(
       source,
@@ -75,6 +81,7 @@ export async function withPrivateInteractionConnection<T>(
       issuedResourceRead,
     );
   } finally {
+    releaseBackend();
     unregisterCapabilityPaginationConnections(observed);
   }
 }

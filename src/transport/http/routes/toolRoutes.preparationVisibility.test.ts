@@ -115,7 +115,6 @@ describe('project-bound preparation invocation visibility', () => {
     await createToolInvocationsHandler(f.serverManager as never)(
       { body: { tool: 'backend/lookup' }, headers: { 'mcp-session-id': 'owner' } } as unknown as Request,
       f.res as unknown as Response,
-      () => undefined,
     );
     expect(f.res.statusCode).toBe(404);
     expect(f.res.body).toEqual({ error: 'Server not found: backend' });
@@ -126,7 +125,6 @@ describe('project-bound preparation invocation visibility', () => {
     await createToolInvocationsHandler(f.serverManager as never)(
       { body: { tool: 'backend/lookup' }, headers: { 'mcp-session-id': 'owner' } } as unknown as Request,
       f.res as unknown as Response,
-      () => undefined,
     );
     expect(f.res.statusCode).toBe(404);
     expect(f.res.body).toEqual({

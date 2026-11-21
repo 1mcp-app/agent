@@ -1,4 +1,4 @@
-import { ClientStatus } from '@src/core/types/client.js';
+import { isBackendDiscoverable } from '@src/core/types/client.js';
 import { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
 import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
@@ -35,7 +35,7 @@ export class FilteringService {
     // Only include connected clients in filtering
     const connectedClients = new Map<string, OutboundConnection>();
     for (const [name, connection] of connections) {
-      if (connection.status === ClientStatus.Connected) {
+      if (isBackendDiscoverable(connection)) {
         connectedClients.set(name, connection);
       }
     }
@@ -153,7 +153,7 @@ export class FilteringService {
 
       const filtered = new Map<string, OutboundConnection>();
       for (const [name, connection] of connections.entries()) {
-        if (connection.status !== ClientStatus.Connected) {
+        if (!isBackendDiscoverable(connection)) {
           continue;
         }
         const clientTags = connection.tags;

@@ -16,11 +16,12 @@ import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { type ServerAdapter, ServerType } from '@src/core/server/adapters/types.js';
+import { acquireBackendDispatch, prepareBackendOperation } from '@src/core/server/backendSleepAdapter.js';
 import { createConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { runtimeAdmission, RuntimeDrainingError } from '@src/core/server/runtimeDrain.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import { isBackendDiscoverable, type OutboundConnection } from '@src/core/types/client.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaPolicy.js';
 import { schemaInputErrorResult } from '@src/core/validation/toolSchemaBoundary.js';
 import { isProjectBackendVisible } from '@src/domains/project-selection/projectPolicy.js';
@@ -39,7 +40,7 @@ import {
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
-import { Request, RequestHandler, Response } from 'express';
+import { Request, Response } from 'express';
 import { z } from 'zod';
 
 import {
@@ -128,7 +129,7 @@ async function createFallbackCapabilityCatalog(
   const degradedServers: string[] = [];
 
   for (const [connectionKey, conn] of clients) {
-    if (conn.status !== ClientStatus.Connected) continue;
+    if (!isBackendDiscoverable(conn)) continue;
     try {
       const logicalServerName =
         conn.name || (connectionKey.includes(':') ? connectionKey.split(':')[0] : connectionKey);
@@ -191,7 +192,7 @@ function recoveryRefreshCallback(orchestrator: {
   return undefined;
 }
 
-export function createToolsHandler(serverManager: ServerManager): RequestHandler {
+export function createToolsHandler(serverManager: ServerManager) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
       const server = typeof req.query.server === 'string' ? req.query.server : undefined;
@@ -246,7 +247,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
             cursor,
           },
           visibility,
-          !cursor && (await catalog.requiresToolListingRecovery(visibility)) ? { refreshIntent: 'force' } : {},
+          !cursor && (await catalog.requiresToolListingRecovery(visibility)) ? { refreshIntent: 'ifStale' } : {},
         );
         if (catalogResult.tools.length > 0 || catalogResult.totalCount > 0 || catalogResult._meta) {
           res.json({
@@ -296,7 +297,7 @@ const toolInvocationBodySchema = z.object({
   args: z.record(z.string(), z.unknown()).optional(),
 });
 
-export function createToolInvocationsHandler(serverManager: ServerManager): RequestHandler {
+export function createToolInvocationsHandler(serverManager: ServerManager) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
       return await runtimeAdmission.run(async () => {
@@ -311,6 +312,8 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
 
   async function invoke(req: Request, res: Response): Promise<void> {
     const controller = new AbortController();
+    let releaseBackend: (() => void) | undefined;
+    let releaseDispatch: (() => void) | undefined;
     const abort = () => controller.abort();
     req.once?.('aborted', abort);
     res.once?.('close', abort);
@@ -377,6 +380,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       }
 
       const auth = getAuthInfo(res);
+      const revalidateAuthentication = () => revalidatePreparationAuthentication(auth, () => revalidateAuthInfo(auth));
       const rawOwner = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
       const ownerSessionId = Array.isArray(rawOwner) ? rawOwner[0] : rawOwner;
       let preparation;
@@ -389,7 +393,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           authentication: auth
             ? [auth.clientId, auth.token, [...auth.grantedScopes].sort(), [...auth.grantedTags].sort()]
             : undefined,
-          revalidateAuth: () => revalidatePreparationAuthentication(auth, () => revalidateAuthInfo(auth)),
+          revalidateAuth: revalidateAuthentication,
           request: { name: target.qualifiedName, arguments: toolArgs },
           signal: controller.signal,
         });
@@ -409,6 +413,29 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         res.status(401).json({ error: 'Preparation authorization changed' });
         return;
       }
+
+      const beforeDispatch = async (connection?: OutboundConnection) => {
+        const decision = preparation.kind === 'ready' ? await preparation.beforeDispatch() : true;
+        if (decision === false) return false;
+        if (typeof decision === 'object' && 'result' in decision) return decision;
+        if (!(await revalidateAuthentication())) return false;
+        return {
+          assertCurrent: () => {
+            if (bindingCurrent && !bindingCurrent()) return false;
+            const currentVisibility = getCapabilityVisibilityFromRequest(serverManager, res, requestSessionId);
+            if (currentVisibility) {
+              const clients = serverManager.getClients();
+              const visible = Array.from(currentVisibility.serverCandidates).some(([key, name]) => {
+                if (name !== target.serverName) return false;
+                return !connection || clients.get(key) === connection;
+              });
+              if (!visible) return false;
+            }
+            if (typeof decision === 'object') return decision.assertCurrent();
+            return true;
+          },
+        };
+      };
 
       if (!lazyOrchestrator) {
         if (visibleServerNames && !visibleServerNames.has(target.serverName)) {
@@ -431,11 +458,17 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           (allowGenericFallback ? resolveConnectionByServerName(filteredConnections, target.serverName) : undefined) ??
           (allowGenericFallback ? serverManager.getClient(target.serverName) : undefined)) as
           OutboundConnection | undefined;
-        if (!connection || connection.status !== ClientStatus.Connected) {
+        if (!connection || !isBackendDiscoverable(connection)) {
           res.status(503).json({ error: `Server not connected: ${target.serverName}` });
           return;
         }
         try {
+          releaseBackend = await prepareBackendOperation(connection.adapter, controller.signal);
+          releaseDispatch = await acquireBackendDispatch(connection.adapter, controller.signal);
+          if (!(await revalidateAuthentication())) {
+            res.status(401).json({ error: 'Tool authorization changed' });
+            return;
+          }
           const catalogConnections = Array.from(allConnections.values()).includes(connection)
             ? allConnections
             : new Map([[`\0app.1mcp/resolved/${target.serverName}`, connection]]);
@@ -467,17 +500,20 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
             return;
           }
           validateOutput.assertCurrent();
-          if (preparation.kind === 'ready') {
-            const decision = await preparation.beforeDispatch();
-            if (decision === false) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
-            if (typeof decision === 'object' && 'result' in decision) {
-              res.json({ result: decision.result, server: target.serverName, tool: target.toolName });
-              return;
-            }
-            if (typeof decision === 'object' && 'assertCurrent' in decision && !decision.assertCurrent())
-              throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+          const decision = await beforeDispatch(connection);
+          if (decision === false) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
+          if (typeof decision === 'object' && 'result' in decision) {
+            res.json({ result: decision.result, server: target.serverName, tool: target.toolName });
+            return;
           }
+          if (typeof decision === 'object' && 'assertCurrent' in decision && !decision.assertCurrent())
+            throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
           validateOutput.assertCurrent();
+          const finalDisabled = getDisabledToolInvocationError(target.serverName, target.toolName);
+          if (finalDisabled) {
+            res.status(404).json({ error: finalDisabled });
+            return;
+          }
           if (resolved.connection.adapter !== adapter || !snapshot.isCurrent() || controller.signal.aborted)
             throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
           if (bindingCurrent && !bindingCurrent()) throw new SchemaBoundaryError('schema_evaluation_unavailable', true);
@@ -545,6 +581,20 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
             visibility?.filterSelection,
           ),
         };
+        const selectedConnections = new Map(
+          Array.from(connections).filter(([key]) => selectedVisibility.serverCandidates.has(key)),
+        );
+        const connection = createConnectionResolver(
+          selectedConnections,
+          getTemplateHashProvider(serverManager),
+        ).resolve(target.serverName, requestSessionId);
+        if (connection && isBackendDiscoverable(connection)) {
+          releaseBackend = await prepareBackendOperation(connection.adapter, controller.signal);
+        }
+        if (!(await revalidateAuthentication())) {
+          res.status(401).json({ error: 'Tool authorization changed' });
+          return;
+        }
         let snapshot: Awaited<ReturnType<typeof acquireRuntimeCapabilityCatalog>>;
         try {
           snapshot = await acquireRuntimeCapabilityCatalog(connections, selectedVisibility, {
@@ -562,14 +612,9 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           res.status(503).json({ error: `Tool inventory not available: ${target.serverName}` });
           return;
         }
-        if (selectedVisibility.serverCandidates.size > 0) {
-          const connected = Array.from(selectedVisibility.serverCandidates.keys()).some(
-            (key) => connections.get(key)?.status === ClientStatus.Connected,
-          );
-          if (!connected) {
-            res.status(503).json({ error: `Server not connected: ${target.serverName}` });
-            return;
-          }
+        if (selectedVisibility.serverCandidates.size > 0 && (!connection || !isBackendDiscoverable(connection))) {
+          res.status(503).json({ error: `Server not connected: ${target.serverName}` });
+          return;
         }
         const toolRegistry = ToolRegistry.fromCapabilitySnapshot(snapshot);
         const catalog = new CapabilityCatalog({
@@ -579,18 +624,13 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           getServerConfigs,
           templateHashProvider: getTemplateHashProvider(serverManager),
         });
-        let beforeDispatch = preparation.kind === 'ready' ? preparation.beforeDispatch : undefined;
-        if (!beforeDispatch && bindingCurrent) {
-          const assertCurrent = bindingCurrent;
-          beforeDispatch = async () => ({ assertCurrent });
-        }
         const catalogResult = await catalog.invokeVisibleTool(
           { server: target.serverName, toolName: target.toolName, args: toolArgs },
           selectedVisibility,
           {
             toolRegistry,
             signal: controller.signal,
-            beforeDispatch,
+            beforeDispatch: () => beforeDispatch(connection),
           },
         );
         if (!catalogResult.error) {
@@ -623,24 +663,14 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       }
 
       const metaArguments = { server: target.serverName, toolName: target.toolName, args: toolArgs };
-      let result: ToolInvokeOutput;
-      if (preparation.kind === 'ready') {
-        result = (await lazyOrchestrator.callMetaTool(
-          'tool_invoke',
-          metaArguments,
-          visibility,
-          controller.signal,
-          undefined,
-          preparation.beforeDispatch,
-        )) as ToolInvokeOutput;
-      } else {
-        result = (await lazyOrchestrator.callMetaTool(
-          'tool_invoke',
-          metaArguments,
-          visibility,
-          controller.signal,
-        )) as ToolInvokeOutput;
-      }
+      const result = (await lazyOrchestrator.callMetaTool(
+        'tool_invoke',
+        metaArguments,
+        visibility,
+        controller.signal,
+        undefined,
+        beforeDispatch,
+      )) as ToolInvokeOutput;
 
       if (result.error) {
         let status: number;
@@ -666,6 +696,8 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       logger.error('toolRoutes.api.tool.invocations.handler.error.398a77aa', { error: _error });
       res.status(500).json({ error: 'Internal server error' });
     } finally {
+      releaseDispatch?.();
+      releaseBackend?.();
       req.off?.('aborted', abort);
       res.off?.('close', abort);
     }

@@ -3,7 +3,8 @@ import { EventEmitter } from 'events';
 import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
-import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+import { isBackendDiscoverable } from '@src/core/types/client.js';
+import { OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 
@@ -210,7 +211,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     const snapshot = this.registrySnapshot;
     if (!snapshot?.isCurrent()) return true;
     for (const [key, connection] of this.outboundConnections) {
-      if (connection.status === ClientStatus.Connected && !snapshot.connections.has(key)) return true;
+      if (isBackendDiscoverable(connection) && !snapshot.connections.has(key)) return true;
     }
     if (!snapshot.hasFailedSources('tools')) return false;
     return Date.now() - this.registryBuiltAt >= FAILED_SOURCE_RETRY_MS;
@@ -283,7 +284,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   private async loadSchemaFromServer(server: string, toolName: string, signal?: AbortSignal): Promise<Tool> {
     // Use ConnectionResolver to find the connection (handles template servers with hash-suffixed keys)
     const result = this.connectionResolver.findByServerName(server);
-    if (!result || result.connection.status !== ClientStatus.Connected) {
+    if (!result || !isBackendDiscoverable(result.connection)) {
       throw new Error(`Server not connected: ${server}`);
     }
 

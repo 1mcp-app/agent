@@ -114,7 +114,7 @@ describe('MetaToolProvider', () => {
     );
     const first = await provider.callMetaTool('tool_list', { limit: 1 });
     expect(first).toMatchObject({ _meta: meta, hasMore: true });
-    expect(refresh).toHaveBeenCalledWith({ intent: 'force', reason: 'list' });
+    expect(refresh).toHaveBeenCalledWith({ intent: 'ifStale', reason: 'list' });
     recover = true;
     const restarted = await provider.callMetaTool('tool_list', {});
     expect(restarted).toMatchObject({

@@ -1,6 +1,7 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -41,6 +42,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
   let manager: ServerManager;
   let load: ReturnType<typeof vi.spyOn>;
   let clients = new Map();
+  const listeners: Server[] = [];
   const instructions = {
     hasInstructions: () => false,
     getServerInstructions: () => undefined,
@@ -84,10 +86,30 @@ describe('HTTP project binding lifetime and inspect admission', () => {
   });
 
   afterEach(async () => {
+    for (const listener of listeners.splice(0)) {
+      await new Promise<void>((resolve, reject) => {
+        listener.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    }
     vi.restoreAllMocks();
     await templates.shutdown();
     await rm(directory, { recursive: true, force: true });
   });
+
+  async function listen(app: express.Express) {
+    // Supertest connects to IPv4; an unspecified IPv6 listener can share its
+    // port with another IPv4 listener on macOS and send requests elsewhere.
+    const listener = createServer(app);
+    listeners.push(listener);
+    await new Promise<void>((resolve, reject) => {
+      listener.once('error', reject);
+      listener.listen(0, '127.0.0.1', resolve);
+    });
+    return listener;
+  }
 
   function context() {
     return { project: { path: directory }, user: {}, environment: {}, sessionId: 'session-a' };
@@ -196,7 +218,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
       instance.use((_error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
         res.status(500).json({ error: _error.message });
       });
-      const response = await request(instance)
+      const response = await request(await listen(instance))
         .post('/mcp')
         .set('MCP-Protocol-Version', protocolVersion)
         .set(protocolVersion === '2026-07-28' ? { 'Mcp-Method': 'tools/call', 'Mcp-Name': 'checkout_source' } : {})
@@ -241,7 +263,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
     clients.set('backend', connection);
     const instance = express();
     instance.get('/inspect', route === 'inspect' ? createInspectHandler(manager) : createServersHandler(manager));
-    const response = await request(instance)
+    const response = await request(await listen(instance))
       .get('/inspect')
       .query({ context: Buffer.from(JSON.stringify(context())).toString('base64url') });
     expect(response.status, JSON.stringify(response.body)).toBe(500);
@@ -329,13 +351,13 @@ describe('HTTP project binding lifetime and inspect admission', () => {
     });
     const instance = express();
     instance.get('/inspect', createInspectHandler(manager));
-    const selected = await request(instance)
+    const selected = await request(await listen(instance))
       .get('/inspect')
       .query({ context: Buffer.from(JSON.stringify(context())).toString('base64url') });
     expect(selected.status).toBe(200);
     expect(selected.body.servers.map((entry: { server: string }) => entry.server)).toEqual(['allowed', 'docs']);
     expect(denied.adapter.request).not.toHaveBeenCalled();
-    const contextless = await request(instance).get('/inspect');
+    const contextless = await request(await listen(instance)).get('/inspect');
     expect(contextless.status).toBe(200);
     expect(contextless.body.servers.map((entry: { server: string }) => entry.server)).toEqual(['docs']);
     expect(denied.adapter.request).not.toHaveBeenCalled();
@@ -382,7 +404,7 @@ describe('HTTP project binding lifetime and inspect admission', () => {
     });
     const instance = express();
     instance.get('/inspect', createInspectHandler(manager));
-    const response = await request(instance)
+    const response = await request(await listen(instance))
       .get('/inspect')
       .query({ context: Buffer.from(JSON.stringify(context())).toString('base64url') });
     expect(response.status).toBe(200);
@@ -431,7 +453,9 @@ describe('HTTP project binding lifetime and inspect admission', () => {
       const app = express();
       app.use(express.json());
       app.post('/invoke', createToolInvocationsHandler(manager));
-      let invocation = request(app).post('/invoke').set('mcp-session-id', 'session-a');
+      let invocation = request(await listen(app))
+        .post('/invoke')
+        .set('mcp-session-id', 'session-a');
       if (mode !== 'header-only')
         invocation = invocation.query({ context: Buffer.from(JSON.stringify(context())).toString('base64url') });
       const response = await invocation.send({ tool: 'shared/call', args: {} });

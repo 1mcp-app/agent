@@ -53,6 +53,15 @@ export function createHealthRoutes(
     );
   };
 
+  const getBackendSleep = () =>
+    healthService.serializeBackendSleep(
+      Object.fromEntries(
+        Array.from(ClientManager.current?.getClients?.()?.entries() ?? [])
+          .filter(([, connection]) => connection.sleep)
+          .map(([name, connection]) => [name, connection.sleep!] as const),
+      ),
+    );
+
   // Rate limiter for health endpoints - more permissive than OAuth endpoints
   const createHealthLimiter = () => {
     return rateLimit({
@@ -284,6 +293,7 @@ export function createHealthRoutes(
           details: serverDetails,
         },
         backendSupervision: healthService.serializeBackendSupervision(backendSupervision),
+        backendSleep: getBackendSleep(),
         degraded: Object.values(backendSupervision).some(
           (snapshot) => snapshot?.state === 'restarting' || snapshot?.state === 'crash-loop',
         ),
@@ -323,6 +333,20 @@ export function createHealthRoutes(
       const serverName = req.params.serverName;
       const backendSupervision = getBackendSupervision();
       const supervision = backendSupervision[serverName];
+      const sleepState = ClientManager.current?.getClients?.()?.get(serverName)?.sleep?.state;
+      if (sleepState) {
+        const state = sleepState === 'awake' ? (supervision?.state ?? sleepState) : sleepState;
+        const unavailable = ['wake-failed', 'release-failed', 'stopped', 'restarting', 'crash-loop'].includes(state);
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('X-Server-State', state);
+        res.status(unavailable ? 503 : 200).json({
+          name: serverName,
+          state,
+          sleep: getBackendSleep()[serverName],
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
       if (supervision) {
         const serialized = healthService.serializeBackendSupervision({ [serverName]: supervision });
         res.setHeader('Content-Type', 'application/json');

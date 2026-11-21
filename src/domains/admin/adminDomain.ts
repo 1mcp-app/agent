@@ -1,4 +1,5 @@
 import type { OAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
+import type { BackendSleepSnapshot } from '@src/core/server/backendSleep.js';
 import type { TemplateDefinitionRuntimeImpact } from '@src/core/server/templateServerManager.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import type { ConfigChangeService } from '@src/domains/config-change/configChange.js';
@@ -50,6 +51,7 @@ export interface AdminDomainOptions {
     config: MCPServerParams;
     model?: string;
   }) => Promise<ConfiguredToolInventory>;
+  getBackendSleep?: (serverName: string) => BackendSleepSnapshot | undefined;
   getTemplateActiveInstanceCount?: (templateName: string) => number;
   getTemplateActiveInstanceIdentities?: (templateName: string) => string[];
   observeTemplateDefinitionRetirement?: (
@@ -102,6 +104,7 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
     ...(options.checkConnectivity ? { checkConnectivity: options.checkConnectivity } : {}),
     ...(options.readToolInventory ? { readToolInventory: options.readToolInventory } : {}),
     ...(options.refreshToolInventory ? { refreshToolInventory: options.refreshToolInventory } : {}),
+    ...(options.getBackendSleep ? { getBackendSleep: options.getBackendSleep } : {}),
     ...(options.getTemplateActiveInstanceCount
       ? { getTemplateActiveInstanceCount: options.getTemplateActiveInstanceCount }
       : {}),

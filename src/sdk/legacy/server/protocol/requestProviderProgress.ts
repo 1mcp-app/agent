@@ -4,6 +4,7 @@ import {
   unregisterCapabilityPaginationConnections,
 } from '@src/core/capabilities/capabilityPagination.js';
 import type { CatalogEntry } from '@src/core/capabilities/catalogGeneration.js';
+import { acquireBackendDispatch, prepareBackendOperation } from '@src/core/server/backendSleepAdapter.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/index.js';
 import { withRequestProgress } from '@src/sdk/contracts/requestProgress.js';
 import type { LegacyOutboundConnections } from '@src/sdk/legacy/client/runtime/legacyOutboundConnection.js';
@@ -20,12 +21,16 @@ export async function withProviderRequestProgress<T>(
   operation: () => Promise<T>,
   assertCurrent?: () => void,
 ): Promise<T> {
+  const releaseBackend = await prepareBackendOperation(source.adapter, extra.signal);
+  let releaseDispatch: (() => void) | undefined;
   const adapter = source.adapter;
   const observed = new Map([[entry.route.connectionKey, source]]);
   registerCapabilityPaginationNotifications(observed, source);
   const kinds = entry.route.kind === 'resources' ? (['resources', 'resourceTemplates'] as const) : [entry.route.kind];
   const generations = kinds.map((kind) => getCapabilityPaginationGeneration(observed, kind));
   try {
+    releaseDispatch = await acquireBackendDispatch(source.adapter, extra.signal);
+    assertCurrent?.();
     return await withRequestProgress(
       token,
       (notification) => extra.sendNotification(notification),
@@ -41,6 +46,8 @@ export async function withProviderRequestProgress<T>(
       },
     );
   } finally {
+    releaseDispatch?.();
+    releaseBackend();
     unregisterCapabilityPaginationConnections(observed);
   }
 }
