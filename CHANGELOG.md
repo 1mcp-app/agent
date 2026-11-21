@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.1] - 2026-11-21
+
+### 🐛 Bug Fixes
+- Select recovery evidence for the current attempt by @xizhibei in [#768](https://github.com/1mcp-app/agent/pull/768)
+- Retry HTTP backends that are not reachable yet by @sepehrasgarian in [#760](https://github.com/1mcp-app/agent/pull/760)
+
+### 📚 Documentation
+- Correct Docker config mount and unauthenticated-network gate in examples by @manooog in [#767](https://github.com/1mcp-app/agent/pull/767)
+
+## New Contributors
+* @sepehrasgarian made their first contribution in [#760](https://github.com/1mcp-app/agent/pull/760)
+
 ## [0.40.0] - 2026-11-18
 
 ### 🚀 Features
@@ -1343,6 +1355,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.40.1]: https://github.com/1mcp-app/agent/compare/v0.40.0..v0.40.1
 [0.40.0]: https://github.com/1mcp-app/agent/compare/v0.39.2..v0.40.0
 [0.39.2]: https://github.com/1mcp-app/agent/compare/v0.39.1..v0.39.2
 [0.39.1]: https://github.com/1mcp-app/agent/compare/v0.39.0..v0.39.1
