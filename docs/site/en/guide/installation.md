@@ -172,18 +172,22 @@ docker run -p 127.0.0.1:3050:3050 \
   -e ONE_MCP_HOST=0.0.0.0 \
   -e ONE_MCP_PORT=3050 \
   -e ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050 \
-  -e ONE_MCP_CONFIG=/usr/src/app/config/mcp.json \
-  -v "$(pwd)/1mcp-config:/usr/src/app/config" \
-  ghcr.io/1mcp-app/agent:latest
+  -e ONE_MCP_CONFIG=/config/mcp.json \
+  -e ONE_MCP_CONFIG_DIR=/config \
+  -v "$(pwd)/1mcp-config:/config" \
+  ghcr.io/1mcp-app/agent:latest \
+  sh -c 'exec node index.js serve --allow-unauthenticated-network'
 
 # Pull and run (lite image) with proper networking
 docker run -p 127.0.0.1:3050:3050 \
   -e ONE_MCP_HOST=0.0.0.0 \
   -e ONE_MCP_PORT=3050 \
   -e ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050 \
-  -e ONE_MCP_CONFIG=/usr/src/app/config/mcp.json \
-  -v "$(pwd)/1mcp-config:/usr/src/app/config" \
-  ghcr.io/1mcp-app/agent:lite
+  -e ONE_MCP_CONFIG=/config/mcp.json \
+  -e ONE_MCP_CONFIG_DIR=/config \
+  -v "$(pwd)/1mcp-config:/config" \
+  ghcr.io/1mcp-app/agent:lite \
+  sh -c 'exec node index.js serve --allow-unauthenticated-network'
 
 # For users in China - faster package installation
 docker run -p 127.0.0.1:3050:3050 \
@@ -193,9 +197,11 @@ docker run -p 127.0.0.1:3050:3050 \
   -e npm_config_registry=https://registry.npmmirror.com \
   -e UV_INDEX=http://mirrors.aliyun.com/pypi/simple \
   -e UV_DEFAULT_INDEX=http://mirrors.aliyun.com/pypi/simple \
-  -e ONE_MCP_CONFIG=/usr/src/app/config/mcp.json \
-  -v "$(pwd)/1mcp-config:/usr/src/app/config" \
-  ghcr.io/1mcp-app/agent:latest
+  -e ONE_MCP_CONFIG=/config/mcp.json \
+  -e ONE_MCP_CONFIG_DIR=/config \
+  -v "$(pwd)/1mcp-config:/config" \
+  ghcr.io/1mcp-app/agent:latest \
+  sh -c 'exec node index.js serve --allow-unauthenticated-network'
 
 # With docker-compose (recommended)
 cat > docker-compose.yml << 'EOF'
@@ -205,13 +211,15 @@ services:
     ports:
       - "127.0.0.1:3050:3050"
     volumes:
-      - ./1mcp-config:/usr/src/app/config
+      - ./1mcp-config:/config
     environment:
       - ONE_MCP_HOST=0.0.0.0
       - ONE_MCP_PORT=3050
       - ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050
+      - ONE_MCP_ALLOW_UNAUTHENTICATED_NETWORK=true
       - ONE_MCP_LOG_LEVEL=info
-      - ONE_MCP_CONFIG=/usr/src/app/config/mcp.json
+      - ONE_MCP_CONFIG=/config/mcp.json
+      - ONE_MCP_CONFIG_DIR=/config
       # Optional: For users in China mainland
       # - npm_config_registry=https://registry.npmmirror.com
       # - UV_INDEX=http://mirrors.aliyun.com/pypi/simple
@@ -224,7 +232,9 @@ EOF
 docker compose up -d
 ```
 
-These examples are reachable only from the Docker host. Before publishing 1MCP on another interface, enable authentication in `1mcp-config/config.toml`, set `ONE_MCP_EXTERNAL_URL` to the public HTTPS URL, and follow the [Authentication guide](/guide/advanced/authentication). Binding a runtime beyond loopback without authentication exposes its MCP capabilities to the network.
+Two notes on the 0.39 container image: it ships runtime files inside `/usr/src/app/config`, so mount your config directory at `/config` instead of following the older `/usr/src/app/config` examples — mounting over that path prevents startup; and the runtimes gate unauthenticated HTTP on a non-loopback bind, which is why the examples run with `--allow-unauthenticated-network` while keeping the loopback-only port publishing above.
+
+These examples publish the host port on the loopback interface only, but that does not restrict access to the Docker host: containers attached to the same Docker bridge can reach the unauthenticated listener directly via the container IP. The examples assume trusted network peers; on a shared network with untrusted containers, either enable authentication in `1mcp-config/config.toml`, set `ONE_MCP_EXTERNAL_URL` to the public HTTPS URL, and follow the [Authentication guide](/guide/advanced/authentication), or attach the container to an isolated network. Publishing a runtime beyond the Docker bridge without authentication exposes its MCP capabilities to the network.
 
 #### Available Tags
 
