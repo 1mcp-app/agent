@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.40.1] - 2026-11-21
+## [0.40.1] - 2026-11-22
 
 ### 🐛 Bug Fixes
 - Select recovery evidence for the current attempt by @xizhibei in [#768](https://github.com/1mcp-app/agent/pull/768)
@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📚 Documentation
 - Correct Docker config mount and unauthenticated-network gate in examples by @manooog in [#767](https://github.com/1mcp-app/agent/pull/767)
+
+### 🧪 Testing
+- Align Docker onboarding checks with the config mount by @xizhibei in [#771](https://github.com/1mcp-app/agent/pull/771)
 
 ## New Contributors
 * @sepehrasgarian made their first contribution in [#760](https://github.com/1mcp-app/agent/pull/760)
