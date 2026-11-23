@@ -7,6 +7,7 @@ import { ErrorCode } from '@src/sdk/legacy/types.js';
 import { LoggingSSEServerTransport } from '@src/transport/http/loggingSseTransport.js';
 import {
   getPresetName,
+  getRequestTagGrant,
   getTagExpression,
   getTagFilterMode,
   getTagQuery,
@@ -44,6 +45,7 @@ export function setupSseRoutes(
 
       // Connect the transport using the server manager
       await serverManager.connectTransport(transport, transport.sessionId, {
+        grantedTags: getRequestTagGrant(res),
         tags,
         tagExpression,
         tagFilterMode,

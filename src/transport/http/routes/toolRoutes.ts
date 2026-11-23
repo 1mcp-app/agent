@@ -55,20 +55,23 @@ function getServerConfigs() {
   return getConfiguredServerTargets();
 }
 
+function hasBackendFilter(config: ReturnType<typeof buildFilterConfig>): boolean {
+  return config.grantedTags !== undefined || config.tagFilterMode !== 'none' || Boolean(config.tags?.length);
+}
+
 function getCapabilityVisibilityFromRequest(
   serverManager: ServerManager,
   res: Response,
   sessionId?: string,
 ): CapabilityVisibility | undefined {
   const filterConfig = buildFilterConfig(res);
-  const hasFilterSelection =
-    filterConfig.tagFilterMode !== 'none' || (filterConfig.tags !== undefined && filterConfig.tags.length > 0);
+  const hasFilterSelection = hasBackendFilter(filterConfig);
   if (!hasFilterSelection && !sessionId) {
     return undefined;
   }
   const getClients = (serverManager as { getClients?: () => ReturnType<ServerManager['getClients']> }).getClients;
   if (typeof getClients !== 'function') {
-    return sessionId ? createCapabilityVisibility([], sessionId) : undefined;
+    return createCapabilityVisibility([], sessionId);
   }
   const allConnections = getClients.call(serverManager);
   const sessionScoped = createConnectionResolver(
@@ -357,8 +360,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       const visibility = getCapabilityVisibilityFromRequest(serverManager, res, requestSessionId);
       const visibleServerNames = visibility ? getCapabilityVisibleServerNames(visibility) : undefined;
       const filterConfig = buildFilterConfig(res);
-      const hasFilterSelection =
-        filterConfig.tagFilterMode !== 'none' || (filterConfig.tags !== undefined && filterConfig.tags.length > 0);
+      const hasFilterSelection = hasBackendFilter(filterConfig);
 
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 

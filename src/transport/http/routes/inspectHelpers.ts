@@ -1,6 +1,7 @@
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { buildCatalogGeneration, readPublicCapabilityRoute } from '@src/core/capabilities/catalogGeneration.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
+import { tagGrantAllows } from '@src/core/filtering/tagGrant.js';
 import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import { InboundConnectionConfig } from '@src/core/types/index.js';
@@ -9,6 +10,7 @@ import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import type { Tool } from '@src/sdk/contracts/index.js';
 import {
   getPresetName,
+  getRequestTagGrant,
   getTagExpression,
   getTagFilterMode,
   getTagQuery,
@@ -86,6 +88,7 @@ export function buildFilterConfig(res: Response): InboundConnectionConfig {
   if (tagFilterMode === 'none' && validatedTags.length > 0) {
     return {
       projectFilterMode: tagFilterMode,
+      grantedTags: getRequestTagGrant(res),
       tags: validatedTags,
       tagExpression: undefined,
       tagQuery: undefined,
@@ -96,6 +99,7 @@ export function buildFilterConfig(res: Response): InboundConnectionConfig {
 
   return {
     projectFilterMode: tagFilterMode,
+    grantedTags: getRequestTagGrant(res),
     tags: validatedTags,
     tagExpression: getTagExpression(res),
     tagQuery: getTagQuery(res),
@@ -243,6 +247,7 @@ function normalizeAdapterStatus(status: string | undefined): ClientServerStatus 
 
 export function matchesFilterConfig(tags: string[] | undefined, filterConfig: InboundConnectionConfig): boolean {
   const serverTags = tags ?? [];
+  if (!tagGrantAllows(filterConfig.grantedTags)(serverTags)) return false;
 
   if (!filterConfig.tagFilterMode || filterConfig.tagFilterMode === 'none') {
     return true;

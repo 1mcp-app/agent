@@ -131,6 +131,7 @@ export function resolveCapabilityVisibility(
     ),
     sessionId,
     {
+      grantedTags: inboundConn.grantedTags,
       tagFilterMode: inboundConn.tagFilterMode,
       tags: inboundConn.tags,
       tagExpression: inboundConn.tagExpression,

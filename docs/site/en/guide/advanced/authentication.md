@@ -70,7 +70,7 @@ When you initiate the authorization flow, you will be prompted to approve or den
 
 ## Tag-Based Scope Validation
 
-The agent supports tag-based scope validation, which allows you to control access to backend services based on their tags. When a client requests an access token, it can specify a set of tags as scopes. The agent will then only allow the client to access services that have all the requested tags.
+The agent supports tag-based scope validation, which allows you to control access to backend services based on their tags. When a client requests an access token, it can specify a set of tags as scopes. A token with granted tags can access services that match at least one of those tags. See the [security reference](/reference/security) for the empty-grant rule.
 
 To enable tag-based scope validation, use the `--enable-scope-validation` flag:
 

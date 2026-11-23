@@ -6,6 +6,8 @@ import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { normalizeTag } from '@src/utils/validation/sanitization.js';
 
+import { tagGrantAllows } from './tagGrant.js';
+
 /**
  * Filter options for template configurations
  */
@@ -40,6 +42,10 @@ export class TemplateFilteringService {
   ): Array<[string, MCPServerParams]> {
     debugIf(() => ({ message: 'templateFilteringService.templatefilteringservice.filtering.templates.2419e4ac' }));
 
+    if (config.grantedTags) {
+      const allows = tagGrantAllows(config.grantedTags);
+      templates = templates.filter(([, template]) => allows(template.tags ?? []));
+    }
     const filterOptions = this.extractFilterOptions(config);
 
     // Check for preset name filtering first (highest priority)

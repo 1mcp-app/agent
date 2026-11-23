@@ -62,6 +62,7 @@ vi.mock('@src/transport/http/middlewares/scopeAuthMiddleware.js', () => ({
     res.locals.validatedTags = ['test'];
     next();
   }),
+  getRequestTagGrant: vi.fn(),
   getValidatedTags: vi.fn((res: any) => {
     return res.locals?.validatedTags || [];
   }),

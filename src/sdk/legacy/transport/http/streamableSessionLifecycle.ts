@@ -21,6 +21,7 @@ import {
 import { logError } from '@src/transport/http/utils/unifiedLogger.js';
 import type { ContextData } from '@src/types/context.js';
 import { withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
+import { scopesToTags } from '@src/utils/validation/scopeValidation.js';
 
 type StreamableTransport = StreamableHTTPServerTransport | RestorableStreamableHTTPServerTransport;
 
@@ -448,7 +449,9 @@ export class StreamableSessionLifecycle {
         await this.serverManager.connectTransport(
           transport,
           sessionId,
-          config,
+          authorizationBinding && AgentConfigManager.getInstance().get('features').scopeValidation
+            ? { ...config, grantedTags: scopesToTags(authorizationBinding.scopes) }
+            : config,
           authorization?.status === 'trusted' ? authorization.context : undefined,
           ...(authority ? [authority] : []),
         );

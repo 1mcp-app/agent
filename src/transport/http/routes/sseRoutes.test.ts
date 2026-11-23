@@ -52,6 +52,7 @@ vi.mock('../middlewares/scopeAuthMiddleware.js', () => ({
     res.locals.validatedTags = ['test'];
     next();
   }),
+  getRequestTagGrant: vi.fn(),
   getValidatedTags: vi.fn((res: any) => {
     return res.locals?.validatedTags || [];
   }),
@@ -168,7 +169,7 @@ describe('SSE Routes', () => {
 
     it('should handle SSE connection successfully', async () => {
       const { LoggingSSEServerTransport } = await import('@src/transport/http/loggingSseTransport.js');
-      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } =
+      const { getRequestTagGrant, getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } =
         await import('../middlewares/scopeAuthMiddleware.js');
 
       // Clear mocks specifically for this test
@@ -183,6 +184,7 @@ describe('SSE Routes', () => {
       vi.mocked(LoggingSSEServerTransport).mockImplementation(function () {
         return mockTransport as any;
       });
+      vi.mocked(getRequestTagGrant).mockReturnValueOnce(['test-tag', 'another']);
       vi.mocked(getValidatedTags).mockReturnValue(['test-tag']);
       vi.mocked(getTagExpression).mockReturnValue(undefined);
       vi.mocked(getTagFilterMode).mockReturnValue('none');
@@ -201,6 +203,7 @@ describe('SSE Routes', () => {
         mockTransport,
         'test-session-123',
         expect.objectContaining({
+          grantedTags: ['test-tag', 'another'],
           tags: ['test-tag'],
           tagExpression: undefined,
           tagFilterMode: 'none',
