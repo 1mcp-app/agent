@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.2] - 2026-11-23
+
+### 🚀 Features
+- Allow opt-in HTTPS root issuer slash compatibility by @xizhibei in [#774](https://github.com/1mcp-app/agent/pull/774)
+
+### 🐛 Bug Fixes
+- Enforce OAuth tag grants during backend selection by @xizhibei in [#773](https://github.com/1mcp-app/agent/pull/773)
+
+
 ## [0.40.1] - 2026-11-22
 
 ### 🐛 Bug Fixes
@@ -1358,6 +1367,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.40.2]: https://github.com/1mcp-app/agent/compare/v0.40.1..v0.40.2
 [0.40.1]: https://github.com/1mcp-app/agent/compare/v0.40.0..v0.40.1
 [0.40.0]: https://github.com/1mcp-app/agent/compare/v0.39.2..v0.40.0
 [0.39.2]: https://github.com/1mcp-app/agent/compare/v0.39.1..v0.39.2
