@@ -204,7 +204,7 @@ importers:
         version: 2.8.0(@opentelemetry/api@1.9.1)
       '@toon-format/toon':
         specifier: ^4.1.0
-        version: 4.1.0
+        version: 4.4.0
       ajv:
         specifier: ^8.17.1
         version: 8.20.0
@@ -1570,8 +1570,8 @@ packages:
     peerDependencies:
       '@testing-library/dom': '>=7.21.4'
 
-  '@toon-format/toon@4.1.0':
-    resolution: {integrity: sha512-dBB3pkEx9QYvHnHR6rtkaBAh+7x4W/oA5ONur4G0fh7Ow69PbPuM7OFxzNRABqyxC0t6SZ3RixiGbCuaFjPDAQ==}
+  '@toon-format/toon@4.4.0':
+    resolution: {integrity: sha512-A6UcsVoWbNdhdLNhJbe6JpRlocmf/DZGG57fur3bd8oQtsjBaKWo2hHbOU2zTuy+byUmLIOyP1xJeitopCZzpQ==}
 
   '@trivago/prettier-plugin-sort-imports@6.0.2':
     resolution: {integrity: sha512-3DgfkukFyC/sE/VuYjaUUWoFfuVjPK55vOFDsxD56XXynFMCZDYFogH2l/hDfOsQAm1myoU/1xByJ3tWqtulXA==}
@@ -5676,7 +5676,7 @@ snapshots:
     dependencies:
       '@testing-library/dom': 10.4.1
 
-  '@toon-format/toon@4.1.0': {}
+  '@toon-format/toon@4.4.0': {}
 
   '@trivago/prettier-plugin-sort-imports@6.0.2(@vue/compiler-sfc@3.5.22)(prettier@3.9.9)(supports-color@5.5.0)':
     dependencies:
