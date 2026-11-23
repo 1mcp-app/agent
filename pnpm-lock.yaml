@@ -427,7 +427,7 @@ importers:
         version: 7.2.2(supports-color@5.5.0)
       tar:
         specifier: ^7.5.22
-        version: 7.5.22
+        version: 7.5.23
       ts-node:
         specifier: ^10.9.2
         version: 10.9.2(@types/node@26.6.6)(typescript@5.9.3)
@@ -4181,8 +4181,8 @@ packages:
   tar-stream@3.2.0:
     resolution: {integrity: sha512-ojzvCvVaNp6aOTFmG7jaRD0meowIAuPc3cMMhSgKiVWws1GyHbGd/xvnyuRKcKlMpt3qvxx6r0hreCNITP9hIg==}
 
-  tar@7.5.22:
-    resolution: {integrity: sha512-MFO/QzvtAOmJbkhOaCTvbGcFN9L9b+JunIsDwaKljSOdcLMea3NJ1k9Usz/rjdfSXTq4dfzfeS7W4p4YOAAHeA==}
+  tar@7.5.23:
+    resolution: {integrity: sha512-lkukzdoGngZHJZXxW4S/E4Fp9ghTDlyZXrQGRNoJ/LXvDKcXUTq2sg5yQe74po7Voea6n/IN09+wE/QvJMiifA==}
     engines: {node: '>=18'}
 
   teex@1.0.1:
@@ -8558,7 +8558,7 @@ snapshots:
       - bare-buffer
       - react-native-b4a
 
-  tar@7.5.22:
+  tar@7.5.23:
     dependencies:
       '@isaacs/fs-minipass': 4.0.1
       chownr: 3.0.0
