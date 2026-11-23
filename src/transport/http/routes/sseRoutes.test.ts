@@ -52,6 +52,7 @@ vi.mock('../middlewares/scopeAuthMiddleware.js', () => ({
     res.locals.validatedTags = ['test'];
     next();
   }),
+  getRequestTagGrant: vi.fn(),
   getValidatedTags: vi.fn((res: any) => {
     return res.locals?.validatedTags || [];
   }),
@@ -168,7 +169,7 @@ describe('SSE Routes', () => {
 
     it('should handle SSE connection successfully', async () => {
       const { LoggingSSEServerTransport } = await import('@src/transport/http/loggingSseTransport.js');
-      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } =
+      const { getRequestTagGrant, getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } =
         await import('../middlewares/scopeAuthMiddleware.js');
 
       // Clear mocks specifically for this test
@@ -183,6 +184,7 @@ describe('SSE Routes', () => {
       vi.mocked(LoggingSSEServerTransport).mockImplementation(function () {
         return mockTransport as any;
       });
+      vi.mocked(getRequestTagGrant).mockReturnValueOnce(['test-tag', 'another']);
       vi.mocked(getValidatedTags).mockReturnValue(['test-tag']);
       vi.mocked(getTagExpression).mockReturnValue(undefined);
       vi.mocked(getTagFilterMode).mockReturnValue('none');
@@ -201,6 +203,7 @@ describe('SSE Routes', () => {
         mockTransport,
         'test-session-123',
         expect.objectContaining({
+          grantedTags: ['test-tag', 'another'],
           tags: ['test-tag'],
           tagExpression: undefined,
           tagFilterMode: 'none',
@@ -380,6 +383,36 @@ describe('SSE Routes', () => {
       await postHandler(mockRequest, mockResponse);
 
       expect(mockTransport.handlePostMessage).toHaveBeenCalledWith(mockRequest, mockResponse, mockRequest.body);
+    });
+
+    it('dispatches only messages admitted under the stream owner', async () => {
+      const bindings = await import('@src/transport/http/streamableSessionAuthorization.js');
+      const { LoggingSSEServerTransport } = await import('@src/transport/http/loggingSseTransport.js');
+      const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
+      const owner = { clientId: 'owner', scopes: ['tag:web', 'tag:files'], resource: 'https://example.org/' };
+      const binding = vi.spyOn(bindings, 'getRequestSessionBinding').mockReturnValue(owner);
+      const transport = { sessionId: 'test-session', handlePostMessage: vi.fn(), onclose: null as (() => void) | null };
+      Object.setPrototypeOf(transport, SSEServerTransport.prototype);
+      vi.mocked(LoggingSSEServerTransport).mockImplementation(function () {
+        return transport as any;
+      });
+      try {
+        await mockRouter.get.mock.calls[0][3](mockRequest, mockResponse);
+        mockServerManager.getTransport.mockReturnValue(transport);
+        mockRequest.query = { sessionId: transport.sessionId };
+        for (const requester of [null, undefined, { ...owner, clientId: 'other' }, { ...owner, scopes: ['tag:web'] }]) {
+          binding.mockReturnValue(requester);
+          await postHandler(mockRequest, mockResponse);
+          expect(mockResponse.status).toHaveBeenLastCalledWith(404);
+          expect(transport.handlePostMessage).not.toHaveBeenCalled();
+        }
+        binding.mockReturnValue({ ...owner, scopes: ['tag:files', 'tag:web'] });
+        await postHandler(mockRequest, mockResponse);
+        expect(transport.handlePostMessage).toHaveBeenCalledOnce();
+      } finally {
+        transport.onclose?.();
+        binding.mockRestore();
+      }
     });
 
     it('should return 400 when sessionId is missing', async () => {

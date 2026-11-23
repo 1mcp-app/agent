@@ -7,6 +7,7 @@ import logger from '@src/logger/logger.js';
 import { withHttpProjectAdmission } from '@src/transport/http/middlewares/projectAdmission.js';
 import {
   getPresetName,
+  getRequestTagGrant,
   getTagExpression,
   getTagFilterMode,
   getTagQuery,
@@ -130,6 +131,7 @@ function wrapResponseForLogging(req: Request, res: Response, sessionId: string |
  */
 function buildConfigFromRequest(res: Response, req: Request, customTemplate?: string) {
   return {
+    grantedTags: getRequestTagGrant(res),
     tags: getValidatedTags(res),
     tagExpression: getTagExpression(res),
     tagFilterMode: getTagFilterMode(res),

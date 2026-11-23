@@ -7,6 +7,8 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import type { ServerCapabilities } from '@src/sdk/contracts/index.js';
 import { normalizeTag } from '@src/utils/validation/sanitization.js';
 
+import { tagGrantAllows } from './tagGrant.js';
+
 /**
  * Type definition for client filter functions
  */
@@ -34,7 +36,9 @@ export class FilteringService {
 
     // Only include connected clients in filtering
     const connectedClients = new Map<string, OutboundConnection>();
+    const allows = tagGrantAllows(config.grantedTags);
     for (const [name, connection] of connections) {
+      if (!allows(connection.tags)) continue;
       if (connection.status === ClientStatus.Connected) {
         connectedClients.set(name, connection);
       }

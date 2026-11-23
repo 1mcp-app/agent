@@ -39,6 +39,8 @@ export interface InboundConnectionConfig extends TemplateConfig {
   readonly bindingId?: string;
   /** Original validated request selector mode, before auth tags narrow visibility. */
   readonly projectFilterMode?: 'simple-or' | 'advanced' | 'preset' | 'none';
+  /** OAuth tag grant when scope validation applies. An empty grant permits untagged backends only on an entirely untagged installation. */
+  readonly grantedTags?: readonly string[];
   readonly tags?: string[];
   readonly tagExpression?: TagExpression;
   readonly tagQuery?: TagQuery;

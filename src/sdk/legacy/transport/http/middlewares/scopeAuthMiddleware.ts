@@ -63,6 +63,12 @@ export interface AuthInfo {
 
 export { revalidateLegacyRequestAuthInfo };
 
+const requestTagGrants = new WeakMap<Response, readonly string[]>();
+
+export function getRequestTagGrant(res: Response): readonly string[] | undefined {
+  return requestTagGrants.get(res);
+}
+
 function normalizedGrant(clientId: string, scopes: string[]): string {
   return JSON.stringify([clientId, [...new Set(scopes)].sort(), [...new Set(scopesToTags(scopes))].sort()]);
 }
@@ -206,6 +212,7 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
       registerRequestAuthRevalidator(authContext, revalidate);
       registerRequestAuthRevalidator(authInfo, revalidate);
       res.locals.auth = authContext;
+      if (scopeValidation) requestTagGrants.set(res, grantedTags);
       bindAuthenticatedSessionRequest(req, {
         clientId: authContext.clientId,
         resource: expectedResource,

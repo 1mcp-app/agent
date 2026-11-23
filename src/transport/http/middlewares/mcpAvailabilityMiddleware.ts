@@ -1,4 +1,5 @@
 import { ConfigManager } from '@src/config/configManager.js';
+import { tagGrantAllows } from '@src/core/filtering/tagGrant.js';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -7,7 +8,7 @@ import { sanitizeOAuthServerList } from '@src/logger/secureLogger.js';
 
 import { NextFunction, Request, Response } from 'express';
 
-import { getValidatedTags } from './scopeAuthMiddleware.js';
+import { getRequestTagGrant, getTagFilterMode, getValidatedTags } from './scopeAuthMiddleware.js';
 
 /**
  * Extended request interface to include MCP loading information
@@ -96,10 +97,17 @@ export function createMcpAvailabilityMiddleware(
       // Filter servers based on requested tags
       // Tags are used to control which MCP servers are available for requests.
       // When tags are specified, only servers that have ALL the requested tags will be included.
-      const allServers = Array.from(allStates.keys());
+      let allServers = Array.from(allStates.keys());
+      const grant = getRequestTagGrant(res);
+      if (grant !== undefined) {
+        const configs = ConfigManager.getInstance().getTransportConfig();
+        const allows = tagGrantAllows(grant);
+        allServers = allServers.filter((name) => configs[name] && allows(configs[name].tags ?? []));
+      }
       let relevantServers: string[];
 
-      if (requestedTags && requestedTags.length > 0) {
+      const useRequestedTags = grant === undefined || getTagFilterMode(res) !== 'none';
+      if (useRequestedTags && requestedTags.length > 0) {
         // Get server configurations to access tags
         const configManager = ConfigManager.getInstance();
         const transportConfig = configManager.getTransportConfig();

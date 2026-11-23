@@ -20,6 +20,7 @@ vi.mock('@src/transport/http/middlewares/scopeAuthMiddleware.js', () => ({
   getAuthInfo: vi.fn(),
   revalidateAuthInfo: vi.fn(async () => true),
   getTagFilterMode: () => 'none',
+  getRequestTagGrant: () => undefined,
   getValidatedTags: () => [],
   getTagExpression: () => undefined,
   getTagQuery: () => undefined,
