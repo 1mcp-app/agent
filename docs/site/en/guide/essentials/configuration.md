@@ -327,6 +327,10 @@ OAuth metadata, registration, and token responses are limited to 1 MiB and ten s
 
 Access tokens may be opaque. 1MCP binds the token exchange and Resource Indicator to validated authority; it does not decode arbitrary token claims and claim to verify their signatures. The protected resource remains responsible for cryptographic access-token validation.
 
+#### HTTPS root issuer with a trailing slash
+
+Set `oauth.allowRootIssuerSlash` to `true` on an upstream when its discovery documents disagree only on the trailing slash of an HTTPS root issuer, such as `https://accounts.google.com/` and `https://accounts.google.com`. The default is `false`. The same exception applies to the configured `oauth.issuer` during discovery. The scheme, host and port spelling must match exactly, and the issuer must have no query, fragment or non-root path. After discovery, the authorization server’s published issuer spelling applies to the callback `iss` parameter. Turning this setting on or off requires fresh authorization for that upstream.
+
 #### Explicit insecure metadata compatibility
 
 Prefer fixing the provider's metadata. If that is not possible, set `oauth.insecureAllowIncompleteMetadata: true` for that server. This **insecure**, default-off option works for both public and private providers. It fills an absent issuer from the authorization-server discovery context and resolves relative authorization, token, registration and JWKS endpoints against that issuer. It also permits same-origin authorization-server discovery when protected-resource metadata is unavailable. It does not replace an explicit mismatched issuer, invent missing required endpoints, accept cross-origin relative URLs, or disable resource, redirect, TLS or credential validation.

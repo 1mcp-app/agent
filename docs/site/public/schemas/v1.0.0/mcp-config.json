@@ -59,6 +59,10 @@
               "type": "string",
               "format": "uri"
             },
+            "allowRootIssuerSlash": {
+              "description": "Allow one trailing slash difference on an HTTPS root issuer during discovery; disabled by default",
+              "type": "boolean"
+            },
             "insecureAllowIncompleteMetadata": {
               "description": "INSECURE: infer a missing OAuth issuer and resolve same-origin relative endpoints; disabled by default",
               "type": "boolean"
@@ -587,6 +591,10 @@
                 "description": "Exact approved upstream authorization-server issuer",
                 "type": "string",
                 "format": "uri"
+              },
+              "allowRootIssuerSlash": {
+                "description": "Allow one trailing slash difference on an HTTPS root issuer during discovery; disabled by default",
+                "type": "boolean"
               },
               "insecureAllowIncompleteMetadata": {
                 "description": "INSECURE: infer a missing OAuth issuer and resolve same-origin relative endpoints; disabled by default",
@@ -1219,6 +1227,10 @@
                 "description": "Exact approved upstream authorization-server issuer",
                 "type": "string",
                 "format": "uri"
+              },
+              "allowRootIssuerSlash": {
+                "description": "Allow one trailing slash difference on an HTTPS root issuer during discovery; disabled by default",
+                "type": "boolean"
               },
               "insecureAllowIncompleteMetadata": {
                 "description": "INSECURE: infer a missing OAuth issuer and resolve same-origin relative endpoints; disabled by default",

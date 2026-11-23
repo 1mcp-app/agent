@@ -181,6 +181,58 @@ async function fixture(legacy: boolean, oauth: Partial<OAuthClientConfig> = {}, 
 
 for (const legacy of [true, false])
   describe(`${legacy ? 'legacy' : 'modern'} SDK challenge discovery`, () => {
+    it.each([
+      [true, undefined],
+      [true, true],
+      [true, false],
+      [false, undefined],
+      [false, true],
+      [false, false],
+    ] as const)(
+      'uses the published issuer with advertised slash=%s and pinned slash=%s',
+      async (advertisedSlash, pinnedSlash) => {
+        const discovery = await fixture(legacy, { allowRootIssuerSlash: true }, true);
+        const advertised = discovery.base + (advertisedSlash ? '/' : '');
+        const published = discovery.base + (advertisedSlash ? '' : '/');
+        discovery.shape.resourcePatch = { authorization_servers: [advertised] };
+        discovery.shape.serverPatch = { issuer: published, authorization_response_iss_parameter_supported: true };
+        const provider = await discovery.connect({
+          privateNetworkOrigins: [discovery.base],
+          issuer: pinnedSlash === undefined ? undefined : discovery.base + (pinnedSlash ? '/' : ''),
+        });
+        expect(provider.getAuthorizationUrl()).toBeDefined();
+        expect(provider.clientInformation()?.issuer).toBe(published);
+        const state = new URL(provider.getAuthorizationUrl()!).searchParams.get('state')!;
+        const callback = new URLSearchParams({ state, code: 'fixture-code' });
+        const finish = () => {
+          const options = {
+            serverUrl: discovery.base + '/mcp',
+            authorizationCode: 'fixture-code',
+            iss: callback.get('iss') ?? undefined,
+            fetchFn: provider.fetch,
+          };
+          return provider.withAuthorizationCallback(callback, () =>
+            legacy ? legacyAuth(provider, options) : modernAuth(provider as ModernProvider, options),
+          );
+        };
+        await expect(finish()).rejects.toThrow();
+        callback.set('iss', advertised);
+        await expect(finish()).rejects.toThrow();
+        callback.set('iss', published);
+        await expect(finish()).resolves.toBe('AUTHORIZED');
+        expect(provider.tokens()?.access_token).toBe('fixture-token');
+      },
+    );
+    it.each([{}, { allowRootIssuerSlash: false }, { insecureAllowIncompleteMetadata: true }])(
+      'rejects mismatched root issuer spellings under policy %j',
+      async (oauth) => {
+        const discovery = await fixture(legacy, oauth, true);
+        discovery.shape.resourcePatch = { authorization_servers: [discovery.base + '/'] };
+        const provider = await discovery.connect({ privateNetworkOrigins: [discovery.base] });
+        expect(provider.getAuthorizationUrl()).toBeUndefined();
+        expect(discovery.failures.at(-1)?.message).toContain('authority_mismatch');
+      },
+    );
     it('uses an explicit client identity when the provider does not support dynamic registration', async () => {
       const discovery = await fixture(legacy, {
         clientId: 'http://127.0.0.1:3050/',

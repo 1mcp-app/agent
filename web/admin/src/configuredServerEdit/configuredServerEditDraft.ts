@@ -50,7 +50,13 @@ export function buildPreviewEdit(
               ([name, entry]) => stableDisplayValue(entry) !== stableDisplayValue(previous[name]),
             ),
           );
-          for (const name of ['autoRegister', 'scopes', 'insecureAllowIncompleteMetadata', 'privateNetworkOrigins']) {
+          for (const name of [
+            'autoRegister',
+            'scopes',
+            'allowRootIssuerSlash',
+            'insecureAllowIncompleteMetadata',
+            'privateNetworkOrigins',
+          ]) {
             if (Object.hasOwn(previous, name) && !Object.hasOwn(current, name)) patch[name] = null;
           }
           transport.oauth = patch;

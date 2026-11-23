@@ -235,6 +235,10 @@ export interface StdioTransportConfig extends BaseTransportConfig {
  */
 export const oAuthConfigSchema = z.object({
   issuer: z.url().optional().describe('Exact approved upstream authorization-server issuer'),
+  allowRootIssuerSlash: z
+    .boolean()
+    .optional()
+    .describe('Allow one trailing slash difference on an HTTPS root issuer during discovery; disabled by default'),
   insecureAllowIncompleteMetadata: z
     .boolean()
     .optional()

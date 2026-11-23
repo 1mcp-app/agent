@@ -216,6 +216,8 @@ describe('TransportFactory', () => {
       const fingerprints: string[] = [];
       for (const oauth of [
         {},
+        { allowRootIssuerSlash: false },
+        { allowRootIssuerSlash: true },
         { insecureAllowIncompleteMetadata: true },
         { privateNetworkOrigins: ['https://private.example'] },
       ]) {
@@ -225,7 +227,8 @@ describe('TransportFactory', () => {
         const providerConfig = vi.mocked(SDKOAuthClientProvider).mock.calls.at(-1)![1];
         fingerprints.push(providerConfig.authority!.configuration);
       }
-      expect(new Set(fingerprints).size).toBe(3);
+      expect(fingerprints[0]).toBe(fingerprints[1]);
+      expect(new Set(fingerprints).size).toBe(4);
     });
 
     it('should create OAuth providers for HTTP-based transports', () => {

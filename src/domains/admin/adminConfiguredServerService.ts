@@ -3114,6 +3114,7 @@ function applyEditDraft(
         for (const name of [
           'autoRegister',
           'scopes',
+          'allowRootIssuerSlash',
           'insecureAllowIncompleteMetadata',
           'privateNetworkOrigins',
         ] as const) {
