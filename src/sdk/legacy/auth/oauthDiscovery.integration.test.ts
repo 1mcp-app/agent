@@ -14,8 +14,6 @@ import path from 'node:path';
 import { auth as legacyAuth } from '@modelcontextprotocol/sdk/client/auth.js';
 import { StreamableHTTPClientTransport as LegacyTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
-import { oauthDigest } from '@src/auth/oauthAuthority.js';
-
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { type OAuthClientConfig, SDKOAuthClientProvider } from './sdkOAuthClientProvider.js';
@@ -130,6 +128,7 @@ async function fixture(legacy: boolean, oauth: Partial<OAuthClientConfig> = {}, 
   cleanups.push(() => fs.rmSync(directory, { recursive: true, force: true }));
   const connect = async (overrides: Partial<OAuthClientConfig> = {}) => {
     resourceMetadataServed = false;
+    const allowRootIssuerSlash = overrides.allowRootIssuerSlash ?? oauth.allowRootIssuerSlash ?? false;
     const provider = new SDKOAuthClientProvider(
       'discovery-fixture',
       {
@@ -141,11 +140,7 @@ async function fixture(legacy: boolean, oauth: Partial<OAuthClientConfig> = {}, 
           owner: 'fixture-runtime',
           source: 'fixture-server',
           route: { kind: 'http', connectionKey: 'fixture-server', url: base + shape.route },
-          configuration: oauthDigest([
-            'discovery-fixture',
-            legacy,
-            overrides.allowRootIssuerSlash ?? oauth.allowRootIssuerSlash ?? false,
-          ]),
+          configuration: `discovery-fixture/${legacy ? 'legacy' : 'modern'}/${allowRootIssuerSlash ? 'root-slash' : 'strict'}`,
         },
       },
       directory,
