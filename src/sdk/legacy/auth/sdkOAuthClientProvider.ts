@@ -121,14 +121,13 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     this.context = config.authority;
     this.slot = this.context ? authoritySlot(this.context) : undefined;
     const restore = () => {
-      if (this.slot && this.context) {
-        const stored = this.sessionRepository.getBound(this.slot);
-        if (stored && matchesAuthorityContext(stored.authority, this.context)) {
-          if (!config.issuer || this.discoveryIssuersMatch(config.issuer, stored.authority.issuer))
-            this.record = stored;
-        }
+      if (!this.slot || !this.context) return null;
+      const generation = this.sessionRepository.getClaim(this.slot)?.generation ?? null;
+      const stored = this.sessionRepository.getBound(this.slot);
+      if (stored && stored.generation === generation && matchesAuthorityContext(stored.authority, this.context)) {
+        if (!config.issuer || this.discoveryIssuersMatch(config.issuer, stored.authority.issuer)) this.record = stored;
       }
-      return this.slot ? (this.sessionRepository.getClaim(this.slot)?.generation ?? null) : null;
+      return generation;
     };
     const alreadyReady = this.fileStorage.isReady();
     const observed = alreadyReady ? restore() : null;

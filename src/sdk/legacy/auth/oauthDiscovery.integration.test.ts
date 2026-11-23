@@ -129,6 +129,7 @@ async function fixture(legacy: boolean, oauth: Partial<OAuthClientConfig> = {}, 
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'oauth-discovery-'));
   cleanups.push(() => fs.rmSync(directory, { recursive: true, force: true }));
   const connect = async (overrides: Partial<OAuthClientConfig> = {}) => {
+    resourceMetadataServed = false;
     const provider = new SDKOAuthClientProvider(
       'discovery-fixture',
       {
@@ -140,7 +141,11 @@ async function fixture(legacy: boolean, oauth: Partial<OAuthClientConfig> = {}, 
           owner: 'fixture-runtime',
           source: 'fixture-server',
           route: { kind: 'http', connectionKey: 'fixture-server', url: base + shape.route },
-          configuration: oauthDigest(['discovery-fixture', legacy]),
+          configuration: oauthDigest([
+            'discovery-fixture',
+            legacy,
+            overrides.allowRootIssuerSlash ?? oauth.allowRootIssuerSlash ?? false,
+          ]),
         },
       },
       directory,
@@ -223,6 +228,36 @@ for (const legacy of [true, false])
         expect(provider.tokens()?.access_token).toBe('fixture-token');
       },
     );
+    it.each([true, false])('requires an exact issuer pin for multi-server selection (exact=%s)', async (exact) => {
+      const discovery = await fixture(legacy, { allowRootIssuerSlash: true }, true);
+      discovery.shape.resourcePatch = { authorization_servers: ['https://other.example', discovery.base + '/'] };
+      const provider = await discovery.connect({
+        issuer: discovery.base + (exact ? '/' : ''),
+        privateNetworkOrigins: [discovery.base],
+      });
+      if (exact) {
+        expect(provider.getAuthorizationUrl()).toBeDefined();
+        expect(provider.clientInformation()?.issuer).toBe(discovery.base);
+      } else {
+        expect(provider.getAuthorizationUrl()).toBeUndefined();
+        expect(discovery.failures.at(-1)?.message).toContain('authority_mismatch');
+      }
+    });
+    it('starts fresh authorization after strict discovery fails between compatible sessions', async () => {
+      const discovery = await fixture(legacy, {}, true);
+      discovery.shape.resourcePatch = { authorization_servers: [discovery.base + '/'] };
+      const connect = (allowRootIssuerSlash: boolean) =>
+        discovery.connect({ allowRootIssuerSlash, privateNetworkOrigins: [discovery.base] });
+      const first = await connect(true);
+      const firstState = new URL(first.getAuthorizationUrl()!).searchParams.get('state')!;
+      const strict = await connect(false);
+      expect(strict.getAuthorizationUrl()).toBeUndefined();
+      expect(discovery.failures.at(-1)?.message).toContain('authority_mismatch');
+      const fresh = await connect(true);
+      expect(fresh.getAuthorizationUrl()).toBeDefined();
+      expect(new URL(fresh.getAuthorizationUrl()!).searchParams.get('state')).not.toBe(firstState);
+      expect(discovery.requests.filter((request) => request.url === '/register')).toHaveLength(2);
+    });
     it.each([{}, { allowRootIssuerSlash: false }, { insecureAllowIncompleteMetadata: true }])(
       'rejects mismatched root issuer spellings under policy %j',
       async (oauth) => {

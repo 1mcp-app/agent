@@ -329,7 +329,7 @@ Access tokens may be opaque. 1MCP binds the token exchange and Resource Indicato
 
 #### HTTPS root issuer with a trailing slash
 
-Set `oauth.allowRootIssuerSlash` to `true` on an upstream when its discovery documents disagree only on the trailing slash of an HTTPS root issuer, such as `https://accounts.google.com/` and `https://accounts.google.com`. The default is `false`. The same exception applies to the configured `oauth.issuer` during discovery. The scheme, host and port spelling must match exactly, and the issuer must have no query, fragment or non-root path. After discovery, the authorization server’s published issuer spelling applies to the callback `iss` parameter. Turning this setting on or off requires fresh authorization for that upstream.
+Set `oauth.allowRootIssuerSlash` to `true` on an upstream when its discovery documents disagree only on the trailing slash of an HTTPS root issuer, such as `https://accounts.google.com/` and `https://accounts.google.com`. The default is `false`. When the resource advertises a single authorization server, the same exception applies to the configured `oauth.issuer`. When it advertises several, set `oauth.issuer` to the exact spelling of the entry you want to select. The scheme, host and port spelling must match exactly, and the issuer must have no query, fragment or non-root path. After discovery, the authorization server’s published issuer spelling applies to the callback `iss` parameter. Turning this setting on or off requires fresh authorization for that upstream.
 
 #### Explicit insecure metadata compatibility
 

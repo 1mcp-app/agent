@@ -324,7 +324,7 @@ OAuth 元数据、注册和令牌响应的大小上限为 1 MiB，总耗时上�
 
 #### HTTPS 根路径 issuer 的末尾斜杠
 
-如果同一上游的发现文档仅在 HTTPS 根路径 issuer 的末尾斜杠上存在差异，例如 `https://accounts.google.com/` 与 `https://accounts.google.com`，可为该上游设置 `oauth.allowRootIssuerSlash: true`。该选项默认为 `false`，在发现期间也适用于配置的 `oauth.issuer`。协议、主机名和端口的写法必须完全一致，issuer 不能含有查询字符串、片段或非根路径。发现完成后，回调参数 `iss` 必须与授权服务器发布的 issuer 写法完全一致。开启或关闭该选项后，均需重新授权该上游。
+如果同一上游的发现文档仅在 HTTPS 根路径 issuer 的末尾斜杠上存在差异，例如 `https://accounts.google.com/` 与 `https://accounts.google.com`，可为该上游设置 `oauth.allowRootIssuerSlash: true`。该选项默认为 `false`。当受保护资源只列出一个授权服务器时，配置的 `oauth.issuer` 也允许上述斜杠差异。当资源列出多个授权服务器时，请将 `oauth.issuer` 设置为所选条目的完整值，拼写须完全一致。协议、主机名和端口的写法必须完全一致，issuer 不能含有查询字符串、片段或非根路径。发现完成后，回调参数 `iss` 必须与授权服务器发布的 issuer 写法完全一致。开启或关闭该选项后，均需重新授权该上游。
 
 #### 显式启用不安全的元数据兼容模式
 
