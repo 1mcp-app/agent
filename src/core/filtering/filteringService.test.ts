@@ -87,6 +87,7 @@ describe('FilteringService', () => {
 
     it.each<[InboundConnectionConfig, string[]]>([
       [{ tagFilterMode: 'none', grantedTags: ['frontend'] }, ['web-server']],
+      [{ tagFilterMode: 'simple-or', tags: ['web'], grantedTags: ['Web'] }, []],
       [{ tagFilterMode: 'none', grantedTags: [] }, []],
       [{ tagFilterMode: 'simple-or', tags: ['backend'], grantedTags: ['api'] }, ['api-server']],
       [

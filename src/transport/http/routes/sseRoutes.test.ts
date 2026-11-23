@@ -385,6 +385,36 @@ describe('SSE Routes', () => {
       expect(mockTransport.handlePostMessage).toHaveBeenCalledWith(mockRequest, mockResponse, mockRequest.body);
     });
 
+    it('dispatches only messages admitted under the stream owner', async () => {
+      const bindings = await import('@src/transport/http/streamableSessionAuthorization.js');
+      const { LoggingSSEServerTransport } = await import('@src/transport/http/loggingSseTransport.js');
+      const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
+      const owner = { clientId: 'owner', scopes: ['tag:web', 'tag:files'], resource: 'https://example.org/' };
+      const binding = vi.spyOn(bindings, 'getRequestSessionBinding').mockReturnValue(owner);
+      const transport = { sessionId: 'test-session', handlePostMessage: vi.fn(), onclose: null as (() => void) | null };
+      Object.setPrototypeOf(transport, SSEServerTransport.prototype);
+      vi.mocked(LoggingSSEServerTransport).mockImplementation(function () {
+        return transport as any;
+      });
+      try {
+        await mockRouter.get.mock.calls[0][3](mockRequest, mockResponse);
+        mockServerManager.getTransport.mockReturnValue(transport);
+        mockRequest.query = { sessionId: transport.sessionId };
+        for (const requester of [null, undefined, { ...owner, clientId: 'other' }, { ...owner, scopes: ['tag:web'] }]) {
+          binding.mockReturnValue(requester);
+          await postHandler(mockRequest, mockResponse);
+          expect(mockResponse.status).toHaveBeenLastCalledWith(404);
+          expect(transport.handlePostMessage).not.toHaveBeenCalled();
+        }
+        binding.mockReturnValue({ ...owner, scopes: ['tag:files', 'tag:web'] });
+        await postHandler(mockRequest, mockResponse);
+        expect(transport.handlePostMessage).toHaveBeenCalledOnce();
+      } finally {
+        transport.onclose?.();
+        binding.mockRestore();
+      }
+    });
+
     it('should return 400 when sessionId is missing', async () => {
       mockRequest.query = {}; // No sessionId
 
