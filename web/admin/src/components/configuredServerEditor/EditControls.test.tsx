@@ -44,6 +44,7 @@ it('builds typed OAuth edits from the controls and preserves unrelated options',
     );
   }
   render(<Form />);
+  await user.click(screen.getByRole('switch', { name: /Allow a trailing slash/ }));
   await user.click(screen.getByRole('switch', { name: /Allow incomplete OAuth metadata/ }));
   await user.type(
     screen.getByRole('textbox', { name: 'Private-network HTTPS origins' }),
@@ -53,11 +54,13 @@ it('builds typed OAuth edits from the controls and preserves unrelated options',
   expect(submit).toHaveBeenLastCalledWith({
     transport: {
       oauth: {
+        allowRootIssuerSlash: true,
         insecureAllowIncompleteMetadata: true,
         privateNetworkOrigins: ['https://private.example', 'https://login.example'],
       },
     },
   });
+  await user.click(screen.getByRole('switch', { name: /Allow a trailing slash/ }));
   await user.click(screen.getByRole('switch', { name: /Allow incomplete OAuth metadata/ }));
   await user.click(screen.getByLabelText('Clear private-network origins'));
   await user.click(screen.getByRole('button', { name: 'Remove OAuth autoRegister' }));
@@ -66,6 +69,7 @@ it('builds typed OAuth edits from the controls and preserves unrelated options',
     transport: {
       oauth: {
         autoRegister: null,
+        allowRootIssuerSlash: false,
         insecureAllowIncompleteMetadata: false,
         privateNetworkOrigins: [],
       },

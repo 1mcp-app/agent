@@ -4520,6 +4520,7 @@ describe('AdminConfiguredServerService', () => {
 
   it.each([
     { insecureAllowIncompleteMetadata: false },
+    { allowRootIssuerSlash: true },
     { privateNetworkOrigins: ['https://new.example'] },
     { privateNetworkOrigins: [] },
   ])('applies nonsecret OAuth option edits while preserving credentials and other options: %j', async (oauthEdit) => {
