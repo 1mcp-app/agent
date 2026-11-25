@@ -32,7 +32,7 @@ import {
   type LegacyOutboundConnections,
   snapshotSupervision,
 } from './legacyOutboundConnection.js';
-import type { AuthProviderTransport } from './legacyTransport.js';
+import { type AuthProviderTransport, createTransportRegistry } from './legacyTransport.js';
 import { closeModernSubscriptions } from './modernSubscriptions.js';
 import { OAuthFlowHandler } from './oauthFlowHandler.js';
 import type { OutboundSdkClient } from './sdkClient.js';
@@ -86,7 +86,7 @@ function diagnosticServerName(name: string | undefined): string | undefined {
 export class ClientManager extends EventEmitter {
   private static instance: ClientManager;
   private outboundConns: LegacyOutboundConnections = new Map();
-  private transports: Record<string, AuthProviderTransport> = {};
+  private transports: Record<string, AuthProviderTransport> = createTransportRegistry();
   private connectionSemaphore: Map<string, Promise<void>> = new Map();
   private bulkConnectionOperations = new Set<Promise<unknown>>();
   // Backends currently running a session-loss recovery (see recoverFromSessionLoss).
@@ -858,7 +858,8 @@ export class ClientManager extends EventEmitter {
 
   public initializeClientsAsync(transports: Record<string, AuthProviderTransport>): OutboundConnections {
     this.assertActive();
-    this.transports = transports;
+    this.transports =
+      Object.getPrototypeOf(transports) === null ? transports : Object.assign(createTransportRegistry(), transports);
     this.outboundConns.clear();
     logger.info('clientManager.initialized.client.storage.for.transports.6bd3aa3d');
     writeLocalDiagnostic('info', 'backend.initialization.started', () => ({
@@ -868,7 +869,7 @@ export class ClientManager extends EventEmitter {
   }
 
   public getTransport(name: string): AuthProviderTransport | undefined {
-    return this.transports[name];
+    return Object.hasOwn(this.transports, name) ? this.transports[name] : undefined;
   }
 
   public getTransportNames(): string[] {
@@ -1144,7 +1145,7 @@ export class ClientManager extends EventEmitter {
     );
 
     this.outboundConns.clear();
-    this.transports = {};
+    this.transports = createTransportRegistry();
     this.connectionSemaphore.clear();
     this.bulkConnectionOperations.clear();
     this.backendAvailabilityHandler = undefined;

@@ -240,7 +240,7 @@ export class McpLoadingManager extends EventEmitter {
     let transport: AuthProviderTransport | undefined;
     try {
       const transports = createTransports({ [name]: config });
-      transport = transports[name];
+      transport = Object.hasOwn(transports, name) ? transports[name] : undefined;
     } catch (error) {
       const safeError = sanitizeRuntimeScopeError(error);
       logger.error('mcpLoadingManager.failed.to.create.transport.for.f5b1976f', { error: error });

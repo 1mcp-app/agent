@@ -1167,6 +1167,16 @@ describe('ClientManager (Integration)', () => {
   });
 
   describe('initializeClientsAsync', () => {
+    it('only exposes transports registered by the caller', () => {
+      const transports = Object.create({ inherited: mockTransport });
+      transports.registered = mockTransport;
+      clientManager.initializeClientsAsync(transports);
+
+      expect(clientManager.getTransportNames()).toEqual(['registered']);
+      expect(clientManager.getTransport('inherited')).toBeUndefined();
+      expect(clientManager.getTransport('registered')).toBe(mockTransport);
+    });
+
     it('should initialize client storage without connecting', () => {
       const transports: Record<string, AuthProviderTransport> = {
         'async-client': mockTransport as AuthProviderTransport,

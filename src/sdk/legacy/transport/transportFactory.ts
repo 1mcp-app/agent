@@ -38,7 +38,7 @@ import type { ContextData } from '@src/types/context.js';
 import { z, ZodError } from 'zod';
 
 import { bindCoordinatedOAuthTransport, createCoordinatedOAuthFetch } from '../auth/coordinatedOAuth.js';
-import type { AuthProviderTransport } from '../client/runtime/legacyTransport.js';
+import { type AuthProviderTransport, createTransportRegistry } from '../client/runtime/legacyTransport.js';
 
 type ValidatedTransport = z.infer<typeof transportConfigSchema>;
 
@@ -490,7 +490,7 @@ function assignTransport(
   transport.recreate = (options) => {
     const sessionId = (options?.preserveSessionId ?? true) ? transport.sessionId : undefined;
     const recreated = createSingleTransport(name, validatedTransport, backendLogSource, sessionId);
-    assignTransport({}, name, recreated, validatedTransport, backendLogSource);
+    assignTransport(createTransportRegistry(), name, recreated, validatedTransport, backendLogSource);
     return recreated;
   };
   if (transport.backendSleep) {
@@ -517,7 +517,7 @@ export function createTransports(
   config: Record<string, MCPServerParams>,
   options: TransportCreationOptions = {},
 ): Record<string, AuthProviderTransport> {
-  const transports: Record<string, AuthProviderTransport> = {};
+  const transports: Record<string, AuthProviderTransport> = createTransportRegistry();
 
   for (const [name, params] of Object.entries(config)) {
     registerConfiguredStdioSource(name, params, options);
@@ -557,7 +557,7 @@ export async function createTransportsWithContext(
   context?: ContextData,
   options: TransportCreationOptions = {},
 ): Promise<Record<string, AuthProviderTransport>> {
-  const transports: Record<string, AuthProviderTransport> = {};
+  const transports: Record<string, AuthProviderTransport> = createTransportRegistry();
 
   // Create template renderer if context is provided
   const templateRenderer = context ? new HandlebarsTemplateRenderer() : null;

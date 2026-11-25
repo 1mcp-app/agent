@@ -44,3 +44,7 @@ export interface AuthProviderTransport extends Transport {
     } | null;
   };
 }
+
+export function createTransportRegistry(): Record<string, AuthProviderTransport> {
+  return Object.create(null) as Record<string, AuthProviderTransport>;
+}
