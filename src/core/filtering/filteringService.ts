@@ -1,4 +1,4 @@
-import { ClientStatus } from '@src/core/types/client.js';
+import { isBackendDiscoverable } from '@src/core/types/client.js';
 import { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
 import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
@@ -34,12 +34,12 @@ export class FilteringService {
   ): OutboundConnections {
     debugIf(() => ({ message: 'filteringService.filteringservice.filtering.connections.0b15644d' }));
 
-    // Only include connected clients in filtering
+    // Apply caller grants before filtering discoverable backends.
     const connectedClients = new Map<string, OutboundConnection>();
     const allows = tagGrantAllows(config.grantedTags);
     for (const [name, connection] of connections) {
       if (!allows(connection.tags)) continue;
-      if (connection.status === ClientStatus.Connected) {
+      if (isBackendDiscoverable(connection)) {
         connectedClients.set(name, connection);
       }
     }
@@ -157,7 +157,7 @@ export class FilteringService {
 
       const filtered = new Map<string, OutboundConnection>();
       for (const [name, connection] of connections.entries()) {
-        if (connection.status !== ClientStatus.Connected) {
+        if (!isBackendDiscoverable(connection)) {
           continue;
         }
         const clientTags = connection.tags;

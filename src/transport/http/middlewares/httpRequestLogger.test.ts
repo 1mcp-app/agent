@@ -1,3 +1,5 @@
+import { createLoopbackListeners } from '@test/unit-utils/loopbackListeners.js';
+
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,8 +14,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { httpRequestBodyLogger, httpRequestLogger } from './httpRequestLogger.js';
 
+const listeners = createLoopbackListeners();
+
 const directories: string[] = [];
-afterEach(() => {
+afterEach(async () => {
+  await listeners.close();
+
   configureLogger({ transport: 'stdio' });
   vi.restoreAllMocks();
   for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
@@ -48,7 +54,7 @@ describe('local HTTP diagnostics', () => {
         cookie: 'cookie-canary',
       }),
     );
-    await request(app)
+    await request(await listeners.listen(app))
       .post('/mcp?code=query-code-canary')
       .send({
         method: 'tools/call',
@@ -90,7 +96,10 @@ describe('local HTTP diagnostics', () => {
   it('distinguishes concurrent requests and suppresses bodies at info level', async () => {
     const { app, read, entries } = setup('info');
     app.get('/health', (_req, res) => res.json({ diagnostic: 'body-canary' }));
-    await Promise.all([request(app).get('/health'), request(app).get('/health')]);
+    await Promise.all([
+      request(await listeners.listen(app)).get('/health'),
+      request(await listeners.listen(app)).get('/health'),
+    ]);
     await vi.waitFor(() => expect(entries()).toHaveLength(6));
     expect(new Set(entries().map((entry) => entry.requestId)).size).toBe(2);
     expect(read()).not.toContain('body-canary');
@@ -105,7 +114,7 @@ describe('local HTTP diagnostics', () => {
         res.json({ done: true });
       };
     });
-    const pending = request(app)
+    const pending = request(await listeners.listen(app))
       .post('/pending')
       .send({
         method: 'tools/call',
@@ -132,7 +141,9 @@ describe('local HTTP diagnostics', () => {
       res.write(Buffer.from('{"visible":'));
       res.end('22e7958c227d', 'hex', callback);
     });
-    const response = await request(app).get('/split').expect(200);
+    const response = await request(await listeners.listen(app))
+      .get('/split')
+      .expect(200);
     expect(response.body).toEqual({ visible: '界' });
     await vi.waitFor(() => expect(callback).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(entries()).toHaveLength(5));
@@ -149,8 +160,12 @@ describe('local HTTP diagnostics', () => {
       res.setHeader('content-type', 'text/event-stream');
       res.end('data: {"token":"stream-token-canary"}\n\n');
     });
-    await request(app).get('/large').expect(200);
-    await request(app).get('/stream').expect(200);
+    await request(await listeners.listen(app))
+      .get('/large')
+      .expect(200);
+    await request(await listeners.listen(app))
+      .get('/stream')
+      .expect(200);
     await vi.waitFor(() => expect(entries()).toHaveLength(10));
     expect(read()).not.toContain('large-canary');
     expect(read()).not.toContain('stream-token-canary');

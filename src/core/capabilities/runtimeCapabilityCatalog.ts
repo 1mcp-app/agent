@@ -5,12 +5,8 @@ import { requestLegacyAdapter } from '@src/core/client/legacyAdapterRequest.js';
 import { isSourceToolDisabled } from '@src/core/server/disabledTools.js';
 import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
 import { applySourceToolDescription } from '@src/core/server/toolDescriptionOverrides.js';
-import {
-  ClientStatus,
-  type MCPServerParams,
-  type OutboundConnection,
-  type OutboundConnections,
-} from '@src/core/types/index.js';
+import { isBackendDiscoverable } from '@src/core/types/client.js';
+import { type MCPServerParams, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 import { SchemaBoundaryError } from '@src/core/validation/schemaBoundary.js';
 import {
   admitToolSchemas,
@@ -193,7 +189,7 @@ function pruneResourceRoutes(scope: RuntimeScope, connections: OutboundConnectio
       !resourceRouteIsCurrent(scope, route) ||
       connections.get(key) !== route.connection ||
       route.connection.adapter !== route.adapter ||
-      route.connection.status !== ClientStatus.Connected
+      !isBackendDiscoverable(route.connection)
     ) {
       scope.resourceRoutes.delete(identity);
     } else retainedSources.add(key);
@@ -276,8 +272,7 @@ async function collectRuntimeCapabilityCatalog(
   }
   const captured = new Map(
     Array.from(connections).filter(
-      ([key, connection]) =>
-        connection.status === ClientStatus.Connected && (!visibility || visibility.serverCandidates.has(key)),
+      ([key, connection]) => isBackendDiscoverable(connection) && (!visibility || visibility.serverCandidates.has(key)),
     ),
   );
   const capturedAdapters = new Map(Array.from(captured, ([key, connection]) => [key, connection.adapter]));
@@ -375,7 +370,7 @@ async function collectRuntimeCapabilityCatalog(
       ([key, connection]) =>
         connections.get(key) === connection &&
         connection.adapter === capturedAdapters.get(key) &&
-        connection.status === ClientStatus.Connected,
+        isBackendDiscoverable(connection),
     );
   const assertCurrent = () => {
     if (!isCurrent()) {
@@ -492,7 +487,7 @@ async function collectRuntimeCapabilityCatalog(
   for (const [key, connection] of captured) {
     if (connections.get(key) !== connection || connection.adapter !== capturedAdapters.get(key))
       throw new RuntimeCatalogBackendChangedError();
-    if (connection.status !== ClientStatus.Connected) {
+    if (!isBackendDiscoverable(connection)) {
       disconnected.add(key);
       captured.delete(key);
       clearConfiguredToolSnapshot(connection);

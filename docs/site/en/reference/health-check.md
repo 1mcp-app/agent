@@ -49,7 +49,7 @@ export ONE_MCP_HEALTH_INFO_LEVEL=basic
 
 **Sanitization Features**:
 
-- Automatic error message sanitization for `/health` and serialized supervision fields
+- Automatic error message sanitization for `/health`; fixed failure codes for serialized backend supervision and sleep fields
 - Credential pattern removal (user:password@, tokens, keys)
 - URL and file path redaction
 - IP address anonymization
@@ -220,6 +220,8 @@ Readiness returns `503` while any supervised stdio backend is `restarting` or in
 
 These endpoints report MCP loading progress and supervised backend state when the loading manager is available. The collection endpoint includes loading summaries plus `backendSupervision`; the server-specific endpoint returns `503` for a supervised backend that is restarting or in crash-loop. Supervision output follows the same `minimal`, `basic`, and `full` disclosure policy described above.
 
+At `minimal` detail, the collection omits Backend Sleep snapshots; the server-specific endpoint still reports its lifecycle `state`. `mcp status` uses this endpoint for static servers whose aggregate status is omitted. At `basic` and `full` detail, sleep `failure` uses `backend_discovery_failed`, `backend_wake_failed`, or `backend_release_failed`, and supervision `lastError` uses `backend_supervision_failed` (or `null` when absent). These fields never contain backend error text. Detailed diagnostics remain available through runtime logs and authenticated Admin status.
+
 ## Health Status Logic
 
 ### Overall Status Determination
@@ -389,7 +391,7 @@ fi
 
 - Use `basic` or `minimal` for `/health`, and restrict access to diagnostic `/health/mcp` routes
 - `full` detail level recommended only for private networks
-- `/health` and serialized supervision fields sanitize errors; raw loading diagnostics require separate access restrictions
+- `/health` sanitizes errors; serialized backend supervision and sleep fields use fixed failure codes. Raw loading diagnostics require separate access restrictions
 
 **Example Security Configuration**:
 

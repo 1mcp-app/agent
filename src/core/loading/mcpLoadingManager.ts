@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 
 import { sanitizeRuntimeScopeError } from '@src/config/runtimeScopeEnv.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
+import { BackendReleaseError } from '@src/core/server/backendSleep.js';
 import { MCPServerParams, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { createTransports } from '@src/transport/transportFactory.js';
@@ -239,7 +240,7 @@ export class McpLoadingManager extends EventEmitter {
     let transport: AuthProviderTransport | undefined;
     try {
       const transports = createTransports({ [name]: config });
-      transport = transports[name];
+      transport = Object.hasOwn(transports, name) ? transports[name] : undefined;
     } catch (error) {
       const safeError = sanitizeRuntimeScopeError(error);
       logger.error('mcpLoadingManager.failed.to.create.transport.for.f5b1976f', { error: error });
@@ -287,6 +288,7 @@ export class McpLoadingManager extends EventEmitter {
     try {
       await this.clientManager.removeClient(name);
     } catch (_error) {
+      if (_error instanceof BackendReleaseError) throw _error;
       // Guard against: client not present / transport already closed; we still
       // want to clear tracker state below.
       debugIf(() => ({ message: 'mcpLoadingManager.unloadserver.removeclient.noop.err.022e4e54' }));

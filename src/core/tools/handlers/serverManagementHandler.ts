@@ -87,7 +87,15 @@ type OutboundOperationalSupervision = OperationalSupervision<OutboundSupervision
 interface EnhancedServerInfo extends Omit<MCPServerParams, 'env'> {
   name: string;
   status:
-    'enabled' | 'disabled' | 'connected' | 'disconnected' | 'error' | 'awaiting_oauth' | 'restarting' | 'crash-loop';
+    | 'enabled'
+    | 'disabled'
+    | 'connected'
+    | 'disconnected'
+    | 'error'
+    | 'awaiting_oauth'
+    | 'restarting'
+    | 'crash-loop'
+    | 'sleeping';
   configured: boolean;
   supervision?: BackendOperationalSupervision | OutboundOperationalSupervision;
   env?: Record<string, string>;

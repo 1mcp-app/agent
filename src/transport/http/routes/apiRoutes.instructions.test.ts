@@ -1,3 +1,4 @@
+import { createLoopbackListeners } from '@test/unit-utils/loopbackListeners.js';
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import { formatInstructionsOutput } from '@src/commands/instructions/instructionsUtils.js';
@@ -6,7 +7,7 @@ import { ClientStatus } from '@src/core/types/index.js';
 
 import express, { type RequestHandler } from 'express';
 import request from 'supertest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApiRoutes } from './apiRoutes.js';
 
@@ -43,6 +44,9 @@ vi.mock('./inspectRequestContext.js', () => ({
   registerHttpRequestContext: mockedRegisterHttpRequestContext,
 }));
 
+const listeners = createLoopbackListeners();
+afterEach(() => listeners.close());
+
 describe('apiRoutes /api/instructions', () => {
   const scopeAuthMiddleware: RequestHandler = (_req, res, next) => {
     res.locals.validatedTags = res.locals.tags ?? [];
@@ -71,7 +75,7 @@ describe('apiRoutes /api/instructions', () => {
       createApiRoutes(makeServerManager(new InstructionAggregator()) as never, scopeAuthMiddleware),
     );
 
-    const response = await request(app).get('/api/v1/instructions');
+    const response = await request(await listeners.listen(app)).get('/api/v1/instructions');
 
     expect(response.status).toBe(200);
     expect(response.body.rendered).toContain('1MCP CLI Instructions');
@@ -136,7 +140,7 @@ describe('apiRoutes /api/instructions', () => {
     const serverManager = makeServerManager(aggregator);
     const app = express().use('/api/v1', createApiRoutes(serverManager as never, scopeAuthMiddleware));
 
-    const response = await request(app).get('/api/v1/instructions?tags=coding');
+    const response = await request(await listeners.listen(app)).get('/api/v1/instructions?tags=coding');
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
@@ -197,7 +201,7 @@ describe('apiRoutes /api/instructions', () => {
     });
     const app = express().use('/api/v1', createApiRoutes(makeServerManager(aggregator) as never, scopeAuthMiddleware));
 
-    const response = await request(app).get('/api/v1/instructions');
+    const response = await request(await listeners.listen(app)).get('/api/v1/instructions');
 
     expect(response.status).toBe(200);
     expect(response.body.rendered).toBe(
@@ -242,7 +246,7 @@ describe('apiRoutes /api/instructions', () => {
     mockedGetRuntimeInstructionConfiguration.mockReturnValue(runtimeConfiguration);
     const app = express().use('/api/v1', createApiRoutes(makeServerManager(aggregator) as never, scopeAuthMiddleware));
 
-    const response = await request(app).get('/api/v1/instructions');
+    const response = await request(await listeners.listen(app)).get('/api/v1/instructions');
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
@@ -301,7 +305,7 @@ describe('apiRoutes /api/instructions', () => {
       ),
     );
 
-    const response = await request(app).get('/api/v1/instructions');
+    const response = await request(await listeners.listen(app)).get('/api/v1/instructions');
 
     expect(response.status).toBe(200);
     expect(response.body.rendered).toBe('mcpServers=static override;mcpTemplates=template override;');
@@ -349,7 +353,7 @@ describe('apiRoutes /api/instructions', () => {
         createApiRoutes(makeServerManager(aggregator, new Map()) as never, scopeAuthMiddleware),
       );
 
-      const response = await request(app).get('/api/v1/instructions');
+      const response = await request(await listeners.listen(app)).get('/api/v1/instructions');
 
       expect(response.status).toBe(200);
       expect(response.body.rendered).toBe(expected);
@@ -394,7 +398,7 @@ describe('apiRoutes /api/instructions', () => {
       createApiRoutes(makeServerManager(aggregator, clients) as never, scopeAuthMiddleware),
     );
 
-    const response = await request(app).get('/api/v1/instructions');
+    const response = await request(await listeners.listen(app)).get('/api/v1/instructions');
 
     expect(response.status).toBe(200);
     expect(response.body.rendered).toContain('OWN_SESSION_ONLY_INSTRUCTIONS');
@@ -428,7 +432,7 @@ describe('apiRoutes /api/instructions', () => {
       createApiRoutes(makeServerManager(aggregator, clients) as never, scopeAuthMiddleware),
     );
 
-    const response = await request(app).get('/api/v1/instructions');
+    const response = await request(await listeners.listen(app)).get('/api/v1/instructions');
 
     expect(response.status).toBe(200);
     expect(response.body.rendered).not.toContain('private');
@@ -462,7 +466,7 @@ describe('apiRoutes /api/instructions', () => {
       createApiRoutes(makeServerManager(aggregator, clients) as never, scopeAuthMiddleware),
     );
 
-    const response = await request(app).get('/api/v1/instructions');
+    const response = await request(await listeners.listen(app)).get('/api/v1/instructions');
 
     expect(response.status).toBe(200);
     expect(JSON.stringify(response.body)).not.toContain('FOREIGN_MANUAL');

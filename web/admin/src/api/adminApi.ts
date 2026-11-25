@@ -251,6 +251,14 @@ export interface ConfiguredServerSecretInput {
 }
 
 export interface ConfiguredServerReadModel {
+  sleep?: {
+    state: string;
+    lastActivityAt: number | null;
+    idleTimeoutMs: number;
+    blockers: string[];
+    failure?: string;
+    retryAt?: number;
+  };
   id: string;
   source: ConfiguredServerTargetIdentity['source'];
   target: {

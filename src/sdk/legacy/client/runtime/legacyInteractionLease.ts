@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+import { unwrapBackendSleepAdapter } from '@src/core/server/backendSleepAdapter.js';
 import { type LegacySdkAdapter, OneMcpProtocolError } from '@src/sdk/contracts/index.js';
 
 const ownerContext = new AsyncLocalStorage<{
@@ -19,6 +20,7 @@ export async function withLegacyInteractionLease<T>(
   capabilities?: unknown,
   assertCurrent?: () => void,
 ): Promise<T> {
+  adapter = unwrapBackendSleepAdapter(adapter);
   const owner = { signal, logLevel, capabilities, assertCurrent };
   // Modern MRTR has request-local frames and callbacks; negotiated legacy still
   // needs exclusive ownership because reverse requests have no parent id.

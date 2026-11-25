@@ -1,10 +1,13 @@
+import { once } from 'node:events';
+import type { Server } from 'node:http';
+
 import type { TemplateContextAuthorization } from '@src/core/context/templateContextTrust.js';
 import type { InboundConnectionConfig } from '@src/core/types/index.js';
 import type { ContextData } from '@src/types/context.js';
 
 import express from 'express';
 import request from 'supertest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setupModernHttpRoutes } from './modernHttpRoutes.js';
 
@@ -30,7 +33,15 @@ const meta = {
   'io.modelcontextprotocol/clientInfo': { name: 'test', version: '1' },
   'io.modelcontextprotocol/clientCapabilities': {},
 };
-function app(authenticated = false) {
+const listeners: Server[] = [];
+afterEach(async () => {
+  for (const listener of listeners.splice(0)) {
+    listener.closeAllConnections();
+    await new Promise<void>((resolve, reject) => listener.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+async function app(authenticated = false) {
   let expire!: (sessionId: string) => void;
   const prepare = vi.fn(async () => undefined);
   const release = vi.fn();
@@ -71,9 +82,14 @@ function app(authenticated = false) {
     allowsHost: () => true,
     allowsOrigin: () => true,
   });
-  return { instance, prepare, retain, release, createBridge, expire: (id: string) => expire(id) };
+  // Reserve the IPv4 address Supertest connects to, avoiding dual-stack port collisions.
+  const listener = instance.listen(0, '127.0.0.1');
+  listeners.push(listener);
+  await once(listener, 'listening');
+  expect(listener.address()).toMatchObject({ address: '127.0.0.1', family: 'IPv4' });
+  return { instance: listener, prepare, retain, release, createBridge, expire: (id: string) => expire(id) };
 }
-function post(instance: express.Express, method: string, suppliedContext: ContextData = context, extraMeta = {}) {
+function post(instance: Server, method: string, suppliedContext: ContextData = context, extraMeta = {}) {
   return request(instance)
     .post('/mcp')
     .set('MCP-Protocol-Version', '2026-07-28')
@@ -94,7 +110,7 @@ describe('modern HTTP template ingress', () => {
     );
   });
   it('prepares authorized logical templates before discovery emits their instructions', async () => {
-    const fixture = app();
+    const fixture = await app();
     const response = await post(fixture.instance, 'server/discover');
     expect(response.status).toBe(200);
     expect(fixture.prepare).toHaveBeenCalledWith(
@@ -108,7 +124,7 @@ describe('modern HTTP template ingress', () => {
     expect(fixture.createBridge).not.toHaveBeenCalled();
   });
   it('rechecks trust on every request and never lends existing membership to untrusted context', async () => {
-    const fixture = app();
+    const fixture = await app();
     const accepted = await post(fixture.instance, 'tools/list');
     expect(accepted.status, JSON.stringify(accepted.body)).toBe(200);
     expect(accepted.body.error, JSON.stringify(accepted.body)).toBeUndefined();
@@ -121,7 +137,7 @@ describe('modern HTTP template ingress', () => {
   });
 
   it('rejects changed effective inputs and preserves membership when only timestamps change', async () => {
-    const fixture = app();
+    const fixture = await app();
     await post(fixture.instance, 'tools/list');
     const later = await post(fixture.instance, 'tools/list', { ...context, timestamp: '2026-10-12T00:01:00Z' });
     expect(later.status).toBe(200);
@@ -135,7 +151,7 @@ describe('modern HTTP template ingress', () => {
   it.each([false, true])(
     'partitions resource ownership by logical proxy session with authenticated=%s',
     async (authenticated) => {
-      const fixture = app(authenticated);
+      const fixture = await app(authenticated);
       const first = await post(fixture.instance, 'resources/list');
       expect(first.status).toBe(200);
       expect(first.body.error, JSON.stringify(first.body)).toBeUndefined();
@@ -161,7 +177,7 @@ describe('modern HTTP template ingress', () => {
   );
 
   it('isolates selected checkout resource owners within one logical session', async () => {
-    const fixture = app();
+    const fixture = await app();
     const projects = [
       { label: 'a', path: '/project/a' },
       { label: 'b', path: '/project/b' },
@@ -183,7 +199,7 @@ describe('modern HTTP template ingress', () => {
   });
 
   it('strips raw context and proof before the outbound backend hop', async () => {
-    const fixture = app();
+    const fixture = await app();
     const response = await post(fixture.instance, 'tools/list', context, { caller: 'unsafe' });
     expect(response.status).toBe(200);
     const bridge = await fixture.createBridge.mock.results[0].value;

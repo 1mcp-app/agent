@@ -1,6 +1,7 @@
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import type { BackendSleepSnapshot } from '@src/core/server/backendSleep.js';
 import type { BackendSupervisionSnapshot, BackendSupervisionState } from '@src/core/server/backendStdioSupervisor.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundSupervisionSnapshot } from '@src/core/types/index.js';
@@ -153,6 +154,26 @@ export class HealthService {
   /**
    * Apply the configured health disclosure level to backend supervision facts.
    */
+  private backendSleepFailureCode(snapshot: BackendSleepSnapshot): string {
+    if (snapshot.blockers.includes('capability-discovery-failed')) return 'backend_discovery_failed';
+    if (snapshot.state === 'release-failed') return 'backend_release_failed';
+    return 'backend_wake_failed';
+  }
+
+  public serializeBackendSleep(snapshots: Record<string, BackendSleepSnapshot>): Record<string, BackendSleepSnapshot> {
+    if (this.agentConfig.get('health').detailLevel === 'minimal') return {};
+    return Object.fromEntries(
+      Object.entries(snapshots).map(([name, snapshot]) => [
+        name,
+        {
+          ...snapshot,
+          blockers: snapshot.blockers.map((blocker) => this.sanitizeErrorMessage(blocker) ?? ''),
+          ...(snapshot.failure ? { failure: this.backendSleepFailureCode(snapshot) } : {}),
+        },
+      ]),
+    );
+  }
+
   public serializeBackendSupervision(
     snapshots: Record<string, BackendSupervisionSnapshot | OutboundSupervisionSnapshot>,
   ): BackendSupervisionHealth {
@@ -180,7 +201,7 @@ export class HealthService {
 
     return Object.fromEntries(
       Object.entries(snapshots).map(([name, snapshot]) => {
-        const lastError = this.sanitizeErrorMessage(snapshot.lastError?.message) ?? null;
+        const lastError = snapshot.lastError ? 'backend_supervision_failed' : null;
         if (detailLevel === 'basic') {
           return [
             name,
@@ -344,7 +365,7 @@ export class HealthService {
       let unhealthyCount = 0;
 
       for (const [name, clientInfo] of clients.entries()) {
-        const isHealthy = clientInfo.status === ClientStatus.Connected;
+        const isHealthy = clientInfo.status === ClientStatus.Connected || clientInfo.sleep?.state === 'sleeping';
 
         if (isHealthy) {
           healthyCount++;

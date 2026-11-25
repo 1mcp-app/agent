@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
+import { isBackendDiscoverable } from '@src/core/types/client.js';
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { observeCatalogCoverageLoss } from '@src/sdk/contracts/catalogCoverageInvalidation.js';
 import {
@@ -339,6 +340,40 @@ async function pumpCapabilityNotifications(
   }
 }
 
+/** A fresh backend session changed retained discovery; sleep alone never calls this. */
+export async function notifyBackendCapabilityChanges(
+  connection: OutboundConnection,
+  methods: readonly string[],
+): Promise<void> {
+  const state = notificationStates.get(connection.adapter);
+  if (!state) return;
+  for (const method of methods) {
+    let kind: CapabilityKind;
+    let notificationMethod: CapabilityNotification['method'];
+    switch (method) {
+      case 'tools/list':
+        kind = 'tools';
+        notificationMethod = 'notifications/tools/list_changed';
+        break;
+      case 'prompts/list':
+        kind = 'prompts';
+        notificationMethod = 'notifications/prompts/list_changed';
+        break;
+      case 'resources/templates/list':
+        kind = 'resourceTemplates';
+        notificationMethod = 'notifications/resources/list_changed';
+        break;
+      default:
+        kind = 'resources';
+        notificationMethod = 'notifications/resources/list_changed';
+    }
+    if (kind === 'tools') clearConfiguredToolSnapshot(connection);
+    for (const connections of state.connections) advanceCapabilityPaginationGeneration(connections, kind);
+    const notification: CapabilityNotification = { method: notificationMethod };
+    await Promise.all(Array.from(state.forwarders.values(), (handler) => handler(notification)));
+  }
+}
+
 /** Preparation changed this exact provider while its read-only MCP process remained connected. */
 export async function invalidatePreparedToolProvider(connection: OutboundConnection): Promise<void> {
   clearConfiguredToolSnapshot(connection);
@@ -407,9 +442,9 @@ function observeGeneration(connections: OutboundConnections, kind: CapabilityKin
       .map(([id, connection]) => ({
         id,
         name: connection.name,
-        status: connection.status,
+        status: isBackendDiscoverable(connection) ? 'discoverable' : connection.status,
         clientId: getClientId(connection.adapter),
-        supervision: connection.supervision,
+        supervision: connection.sleep ? undefined : connection.supervision,
         capabilities: connection.capabilities?.[kind === 'resourceTemplates' ? 'resources' : kind],
         tags: connection.tags,
       }))

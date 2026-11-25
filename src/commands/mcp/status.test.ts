@@ -78,6 +78,116 @@ describe('statusCommand runtime supervision', () => {
     expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Current PID': 5678 });
   });
 
+  it('shows Backend Sleep facts without requiring crash supervision', async () => {
+    const config = { type: 'stdio' as const, command: 'node' };
+    vi.mocked(configUtils.getAllServerTargets).mockReturnValue({ worker: config });
+    vi.mocked(configUtils.getEffectiveServerTargetConfig).mockReturnValue(config);
+    vi.mocked(configUtils.resolveServerTarget).mockReturnValue({
+      serverName: 'worker',
+      source: 'mcpServers',
+      serverConfig: config,
+    });
+    const dependencies = runtimeDependencies({
+      ok: true,
+      status: 200,
+      data: {
+        backendSupervision: {},
+        backendSleep: {
+          worker: {
+            state: 'wake-failed',
+            lastActivityAt: 0,
+            idleTimeoutMs: 300000,
+            blockers: ['startup failed'],
+            failure: 'connection failed',
+            retryAt: 30000,
+          },
+        },
+      },
+    });
+    await statusCommand({}, dependencies);
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Sleep State': 'wake-failed' });
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Last Activity': '1970-01-01T00:00:00.000Z' });
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Idle Timeout': '300000 ms' });
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Sleep Blockers': 'startup failed' });
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Sleep Failure': 'connection failed' });
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Wake Retry After': '1970-01-01T00:00:30.000Z' });
+  });
+
+  it.each(['sleeping', 'wake-failed'])(
+    'shows %s from per-server health when aggregate detail is minimal',
+    async (state) => {
+      const config = { type: 'stdio' as const, command: 'node' };
+      vi.mocked(configUtils.getAllServerTargets).mockReturnValue({ worker: config });
+      vi.mocked(configUtils.getEffectiveServerTargetConfig).mockReturnValue(config);
+      vi.mocked(configUtils.resolveServerTarget).mockReturnValue({
+        serverName: 'worker',
+        source: 'mcpServers',
+        serverConfig: config,
+      });
+      const dependencies = runtimeDependencies({
+        ok: true,
+        status: 200,
+        data: {
+          backendSleep: {},
+          backendSupervision: { total: 0, connected: 0, restarting: 0, crashLoop: 0, stopped: 0 },
+        },
+      });
+      dependencies.apiGet
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          data: {
+            backendSleep: {},
+            backendSupervision: { total: 0, connected: 0, restarting: 0, crashLoop: 0, stopped: 0 },
+          },
+        })
+        .mockResolvedValueOnce({
+          ok: state === 'sleeping',
+          status: state === 'sleeping' ? 200 : 503,
+          data: { name: 'worker', state },
+        });
+
+      await statusCommand({}, dependencies);
+
+      expect(dependencies.apiGet).toHaveBeenCalledWith('/health/mcp/worker');
+      expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Runtime Status': state });
+      expect(printerMock.error).not.toHaveBeenCalled();
+    },
+  );
+
+  it('fetches per-server status when its name collides with a minimal health count', async () => {
+    const config = { type: 'stdio' as const, command: 'node' };
+    vi.mocked(configUtils.getAllServerTargets).mockReturnValue({ connected: config });
+    vi.mocked(configUtils.getEffectiveServerTargetConfig).mockReturnValue(config);
+    vi.mocked(configUtils.resolveServerTarget).mockReturnValue({
+      serverName: 'connected',
+      source: 'mcpServers',
+      serverConfig: config,
+    });
+    const dependencies = runtimeDependencies({
+      ok: true,
+      status: 200,
+      data: {
+        backendSleep: {},
+        backendSupervision: { total: 1, connected: 1, restarting: 0, crashLoop: 0, stopped: 0 },
+      },
+    });
+    dependencies.apiGet
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        data: {
+          backendSleep: {},
+          backendSupervision: { total: 1, connected: 1, restarting: 0, crashLoop: 0, stopped: 0 },
+        },
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, data: { name: 'connected', state: 'connected' } });
+    await statusCommand({}, dependencies);
+    expect(dependencies.apiGet).toHaveBeenCalledWith('/health/mcp/connected');
+    expect(printerMock.keyValue).toHaveBeenCalledWith({ 'Runtime Status': 'connected' });
+    expect(printerMock.keyValue).not.toHaveBeenCalledWith({ 'Runtime Status': undefined });
+  });
+
   it('queries aggregate health once and adds runtime facts to configured server summaries', async () => {
     const config = { type: 'stdio' as const, command: 'node' };
     vi.mocked(configUtils.getAllServerTargets).mockReturnValue({ worker: config });
@@ -167,6 +277,34 @@ describe('statusCommand runtime supervision', () => {
       'Instance States': 'connected=1, crash-loop=1',
     });
     expect(printerMock.subtitle).not.toHaveBeenCalledWith(expect.stringMatching(/^Instance /));
+    expect(dependencies.apiGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps template identities hidden when aggregate health is minimal', async () => {
+    const config = { type: 'stdio' as const, command: 'node' };
+    vi.mocked(configUtils.getAllServerTargets).mockReturnValue({ worker: config });
+    vi.mocked(configUtils.getEffectiveServerTargetConfig).mockReturnValue(config);
+    vi.mocked(configUtils.resolveServerTarget).mockReturnValue({
+      serverName: 'worker',
+      source: 'mcpTemplates',
+      serverConfig: config,
+    });
+    const dependencies = runtimeDependencies({
+      ok: true,
+      status: 200,
+      data: {
+        backendSleep: {},
+        backendSupervision: { total: 1, connected: 1, restarting: 0, crashLoop: 0, stopped: 0 },
+      },
+    });
+
+    await statusCommand({}, dependencies);
+
+    expect(dependencies.apiGet).toHaveBeenCalledTimes(1);
+    expect(printerMock.subtitle).not.toHaveBeenCalledWith(expect.stringMatching(/^Instance /));
+    expect(printerMock.keyValue).not.toHaveBeenCalledWith(
+      expect.objectContaining({ 'Active Instances': expect.anything() }),
+    );
   });
 
   it('summarizes a named template unless verbose output is requested', async () => {

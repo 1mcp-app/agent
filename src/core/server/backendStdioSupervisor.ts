@@ -78,6 +78,11 @@ export class BackendStdioSupervisor {
     this.currentPid = options.initialPid ?? null;
   }
 
+  /** Intentional release/replacement changes process identity without spending the crash budget. */
+  public recordIntentionalProcessChange(pid: number | null): void {
+    this.currentPid = pid;
+  }
+
   public snapshot(): BackendSupervisionSnapshot {
     return {
       backendId: this.backendId,

@@ -3,6 +3,7 @@ import {
   isIssuedRuntimeResourceEntry,
 } from '@src/core/capabilities/runtimeCapabilityCatalog.js';
 import { getRequestSession, resolveCapabilityVisibility } from '@src/core/protocol/requestHandlerUtils.js';
+import { BackendSleepAdapter } from '@src/core/server/backendSleepAdapter.js';
 import { InboundConnection } from '@src/core/types/index.js';
 import { createGatewayFailure } from '@src/gateway/contracts/gatewayFailure.js';
 import { withSelectedNativeInputResponses } from '@src/gateway/interactions/nativeInputResponses.js';
@@ -39,11 +40,14 @@ export function registerResourceHandlers(
 ): void {
   const handle = <T, Args extends readonly unknown[]>(work: (...args: Args) => Promise<T>, message: string) =>
     withErrorHandling(withInboundProjectAdmission(inboundConn, work), message);
-  const acquire = (cursor?: string, kind: 'resources' | 'resourceTemplates' = 'resources') =>
+  const acquire = (cursor?: string, kind: 'resources' | 'resourceTemplates' = 'resources', signal?: AbortSignal) =>
     acquireRuntimeCapabilityCatalog(
       outboundConns,
       resolveCapabilityVisibility(outboundConns, inboundConn, getRequestSession(inboundConn), 'resources'),
-      { continuation: cursor ? { kind, cursor, enablePagination: inboundConn.enablePagination ?? false } : undefined },
+      {
+        signal,
+        continuation: cursor ? { kind, cursor, enablePagination: inboundConn.enablePagination ?? false } : undefined,
+      },
     );
   const server = getLegacyInboundServer(inboundConn);
   server.setRequestHandler(
@@ -111,14 +115,23 @@ export function registerResourceHandlers(
   server.setRequestHandler(
     ReadResourceRequestSchema,
     handle(async (request, extra) => {
-      const snapshot = await acquire();
+      let snapshot = await acquire(undefined, 'resources', extra.signal);
       const route = resolveResourceRoute(snapshot, request.params.uri);
       const assertResourceCurrent = () => {
         // A private lease can wait past handle expiry or owner revocation.
         try {
+          const visibility = resolveCapabilityVisibility(
+            outboundConns,
+            inboundConn,
+            getRequestSession(inboundConn),
+            'resources',
+          );
+          if (!visibility.serverCandidates.has(route.entry.route.connectionKey))
+            throw new Error('Resource access lost');
           const current = resolveResourceRoute(snapshot, request.params.uri);
           if (
-            current.entry === route.entry &&
+            current.entry.route.kind === route.entry.route.kind &&
+            JSON.stringify(current.entry.sourceObject) === JSON.stringify(route.entry.sourceObject) &&
             current.connection === route.connection &&
             current.upstreamIdentity === route.upstreamIdentity
           )
@@ -135,8 +148,11 @@ export function registerResourceHandlers(
         route.entry,
         extra,
         request.params._meta?.progressToken,
-        () =>
-          withPrivateInteractionConnection(
+        async () => {
+          if (route.connection.adapter instanceof BackendSleepAdapter)
+            snapshot = await acquire(undefined, 'resources', extra.signal);
+          assertResourceCurrent();
+          return withPrivateInteractionConnection(
             route.connection,
             inboundConn,
             extra,
@@ -156,7 +172,8 @@ export function registerResourceHandlers(
               ),
             assertResourceCurrent,
             isIssuedRuntimeResourceEntry(route.entry) ? route.entry : undefined,
-          ),
+          );
+        },
         assertResourceCurrent,
       );
       return {

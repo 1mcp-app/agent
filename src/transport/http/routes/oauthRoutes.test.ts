@@ -1,9 +1,11 @@
+import { createLoopbackListeners } from '@test/unit-utils/loopbackListeners.js';
+
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { ClientStatus } from '@src/core/types/index.js';
 
 import express from 'express';
 import request from 'supertest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock all dependencies
 vi.mock('@src/logger/logger.js', () => ({
@@ -60,6 +62,9 @@ vi.mock('@src/utils/validation/sanitization.js', () => ({
 vi.mock('@src/utils/validation/scopeValidation.js', () => ({
   validateScopes: vi.fn(() => ({ isValid: true, validScopes: [], errors: [] })),
 }));
+
+const listeners = createLoopbackListeners();
+afterEach(() => listeners.close());
 
 describe('OAuth Routes', () => {
   let mockOAuthProvider: any;
@@ -183,7 +188,7 @@ describe('OAuth Routes', () => {
       const app = express();
       app.use('/oauth', createOAuthRoutes(mockOAuthProvider));
 
-      const response = await request(app).get('/oauth');
+      const response = await request(await listeners.listen(app)).get('/oauth');
 
       expect(response.status).toBe(302);
       expect(response.headers.location).toBe('/admin/oauth');
@@ -198,7 +203,7 @@ describe('OAuth Routes', () => {
       const app = express();
       app.use('/oauth', createOAuthRoutes(mockOAuthProvider));
 
-      const response = await request(app).get('/oauth/authorize/github');
+      const response = await request(await listeners.listen(app)).get('/oauth/authorize/github');
 
       expect(response.status).toBe(302);
       expect(response.headers.location).toBe('https://example.com/auth');

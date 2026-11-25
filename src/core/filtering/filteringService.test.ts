@@ -69,6 +69,16 @@ describe('FilteringService', () => {
   });
 
   describe('getFilteredConnections', () => {
+    it('keeps sleeping backends discoverable within the caller’s tag grant', () => {
+      const connection = createMockOutboundConnection({ tags: ['web'], status: ClientStatus.Sleeping });
+      const connections = new Map([['sleeping', connection]]);
+
+      expect(FilteringService.getFilteredConnections(connections, { grantedTags: ['web'] }).get('sleeping')).toBe(
+        connection,
+      );
+      expect(FilteringService.getFilteredConnections(connections, { grantedTags: ['api'] }).size).toBe(0);
+    });
+
     it('rechecks installation tags for an empty grant even when the tagged backend is disconnected', () => {
       const connection = createMockOutboundConnection({ name: 'plain', tags: [], status: ClientStatus.Connected });
       const connections = new Map([['plain', connection]]);

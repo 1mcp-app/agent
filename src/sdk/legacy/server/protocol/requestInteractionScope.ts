@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 
+import { unwrapBackendSleepAdapter } from '@src/core/server/backendSleepAdapter.js';
 import { type InboundConnection, type OutboundConnection, ServerStatus } from '@src/core/types/index.js';
 import { hasInteractionCapability } from '@src/gateway/interactions/interactionCapabilities.js';
 import { InteractionOwner } from '@src/gateway/interactions/interactionOwner.js';
@@ -33,6 +34,7 @@ type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 interface Scope {
   readonly inbound: InboundConnection;
   readonly adapter: OutboundConnection['adapter'];
+  readonly delegate: ReturnType<typeof unwrapBackendSleepAdapter>;
   readonly extra: Extra;
   readonly callbacks: { pending: number };
   readonly runTrace: ReturnType<typeof captureTraceContext>;
@@ -127,8 +129,8 @@ export async function withRequestInteractionScope<T>(
     signal: AbortSignal.any([extra.signal, abort.signal, ...(admission ? [admission.signal] : [])]),
   };
   try {
-    if (installed.get(connection) !== connection.adapter) {
-      const installedAdapter = connection.adapter;
+    const installedAdapter = unwrapBackendSleepAdapter(connection.adapter);
+    if (installed.get(connection) !== installedAdapter) {
       setOutboundRequestHandler(connection, PingRequestSchema, async () => ({}));
       const schemas = [
         [CreateMessageRequestSchema, CreateMessageResultSchema, 'sampling'],
@@ -143,8 +145,8 @@ export async function withRequestInteractionScope<T>(
             const scope = callbackScope(connection);
             if (
               !scope ||
-              scope.adapter !== installedAdapter ||
-              connection.adapter !== installedAdapter ||
+              scope.delegate !== installedAdapter ||
+              unwrapBackendSleepAdapter(connection.adapter) !== installedAdapter ||
               scope.extra.signal.aborted
             )
               throw new McpError(-32000, 'interaction_lost');
@@ -208,8 +210,8 @@ export async function withRequestInteractionScope<T>(
               if (
                 scope.extra.signal.aborted ||
                 !ownsScope(connection, scope) ||
-                connection.adapter !== installedAdapter ||
-                scope.adapter !== installedAdapter
+                unwrapBackendSleepAdapter(connection.adapter) !== installedAdapter ||
+                scope.delegate !== installedAdapter
               )
                 throw new McpError(-32000, 'interaction_lost');
               return stripBaggage(response);
@@ -228,7 +230,7 @@ export async function withRequestInteractionScope<T>(
             throw error;
         }
       }
-      installed.set(connection, connection.adapter);
+      installed.set(connection, installedAdapter);
     }
     return await withLegacyInteractionLease(
       connection.adapter,
@@ -237,6 +239,7 @@ export async function withRequestInteractionScope<T>(
           inbound,
           extra: scopedExtra,
           adapter: connection.adapter,
+          delegate: unwrapBackendSleepAdapter(connection.adapter),
           callbacks: { pending: 0 },
           runTrace: captureTraceContext(),
           abort,

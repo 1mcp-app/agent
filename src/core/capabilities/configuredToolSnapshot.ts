@@ -1,4 +1,5 @@
-import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
+import { isBackendDiscoverable } from '@src/core/types/client.js';
+import { type OutboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 import type { ListToolsResult, Tool } from '@src/sdk/contracts/index.js';
 
 const snapshots = new WeakMap<OutboundConnection, Tool[]>();
@@ -198,7 +199,7 @@ export function publishCompleteConfiguredToolTargetSnapshots(connections: Outbou
   const connectionsByTarget = new Map<string, OutboundConnection[]>();
 
   for (const connection of connections.values()) {
-    if (connection.status !== ClientStatus.Connected) continue;
+    if (!isBackendDiscoverable(connection)) continue;
     const existing = connectionsByTarget.get(connection.name);
     if (existing) existing.push(connection);
     else connectionsByTarget.set(connection.name, [connection]);

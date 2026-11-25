@@ -39,7 +39,7 @@ export ONE_MCP_HEALTH_INFO_LEVEL=basic
 
 **清理功能**：
 
-- 对 `/health` 和序列化后的监督字段自动清理错误消息
+- 对 `/health` 自动清理错误消息；序列化后的后端监督和休眠字段使用固定错误码
 - 删除凭据模式（user:password@、令牌、密钥）
 - URL 和文件路径编辑
 - IP 地址匿名化
@@ -210,6 +210,8 @@ X-Uptime-Seconds: 3600
 
 加载管理器可用时，这些端点会报告 MCP 加载进度和受监督后端状态。集合端点包含加载摘要和 `backendSupervision`；受监督后端正在重启或进入 crash-loop 时，服务器专用端点返回 `503`。监督输出遵循上述 `minimal`、`basic` 和 `full` 信息披露策略。
 
+在 `minimal` 级别下，集合端点不返回后端休眠快照，服务器专用端点仍会报告生命周期 `state`。静态服务器的聚合状态被省略时，`mcp status` 会查询该专用端点。在 `basic` 和 `full` 级别下，休眠 `failure` 使用 `backend_discovery_failed`、`backend_wake_failed` 或 `backend_release_failed`，监督 `lastError` 使用 `backend_supervision_failed`，没有错误时为 `null`。这些字段不会包含后端错误原文。详细诊断仍可通过运行时日志和需要认证的管理界面状态查看。
+
 ## 健康状态逻辑
 
 ### 整体状态确定
@@ -379,7 +381,7 @@ fi
 
 - 为 `/health` 使用 `basic` 或 `minimal`，并限制诊断用的 `/health/mcp` 路由访问
 - `full` 详细级别仅建议用于专用网络
-- `/health` 和序列化后的监督字段会清理错误；原始加载诊断需要单独的访问限制
+- `/health` 会清理错误；序列化后的后端监督和休眠字段使用固定错误码。原始加载诊断需要单独的访问限制
 
 **示例安全配置**：
 
