@@ -3,6 +3,7 @@ import {
   ProtocolError,
   SdkError,
   SdkErrorCode,
+  SdkHttpError,
   UnsupportedProtocolVersionError,
 } from '@modelcontextprotocol/client';
 
@@ -16,6 +17,7 @@ import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
 import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { isTransientBackendFailure, isTransientHttpStatus } from '@src/transport/backendRequestFailure.js';
 import { SseWireLimitError } from '@src/transport/sseWireLimit.js';
 import { ClientConnectionError, NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
@@ -44,6 +46,25 @@ function isNonRetryableOAuthError(error: unknown): error is OAuthError {
   }
 
   return !RETRYABLE_OAUTH_ERROR_CODES.has(error.errorCode);
+}
+
+/**
+ * The SDK reports every failed version negotiation probe as EraNegotiationFailed, including a
+ * backend that is not reachable yet or answered with a temporary HTTP error. Only affirmative
+ * transient evidence is retryable; unknown negotiation failures stay terminal.
+ */
+function isTransientNegotiationFailure(error: SdkError): boolean {
+  if (error.code !== SdkErrorCode.EraNegotiationFailed) return false;
+  if (error instanceof SdkHttpError) return isTransientHttpStatus(error.status);
+  return isTransientBackendFailure(error.cause);
+}
+
+function isTerminalConnectError(error: unknown): boolean {
+  if (isNonRetryableOAuthError(error)) return true;
+  if (error instanceof SseWireLimitError) return true;
+  if (error instanceof ProtocolError || error instanceof UnsupportedProtocolVersionError) return true;
+  if (!(error instanceof SdkError) || !TERMINAL_MODERN_CONNECT_ERRORS.has(error.code)) return false;
+  return !isTransientNegotiationFailure(error);
 }
 
 function diagnosticServerName(name: string | undefined): string | undefined {
@@ -117,7 +138,6 @@ export class ConnectionHandler {
           throw new OAuthRequiredError(name, currentClient, currentTransport as AuthProviderTransport);
         }
 
-        const nonRetryableOAuthError = isNonRetryableOAuthError(error);
         const safeError = sanitizeRuntimeScopeError(error);
         logger.error('connectionHandler.failed.to.connect.to.d9f2b821', { error: error });
         writeLocalDiagnostic('error', 'backend.connection.failed', () => ({
@@ -128,13 +148,7 @@ export class ConnectionHandler {
           error,
         }));
 
-        if (
-          nonRetryableOAuthError ||
-          error instanceof SseWireLimitError ||
-          error instanceof ProtocolError ||
-          error instanceof UnsupportedProtocolVersionError ||
-          (error instanceof SdkError && TERMINAL_MODERN_CONNECT_ERRORS.has(error.code))
-        ) {
+        if (isTerminalConnectError(error)) {
           if (ownsReplacementCandidate) {
             await this.disposeFailedCandidate(currentClient, currentTransport as AuthProviderTransport, name);
           }

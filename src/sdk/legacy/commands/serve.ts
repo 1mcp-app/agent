@@ -18,7 +18,7 @@ import {
 } from '@src/commands/serve/templateContextTrust.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { configureProductTelemetryBootstrap } from '@src/config/productTelemetryBootstrap.js';
-import { getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
+import { getDefaultInstructionsTemplatePath, HOST, HTTP_REQUEST_BODY_LIMIT, PORT } from '@src/constants.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import {
   TemplateContextCapabilityError,
@@ -81,6 +81,7 @@ export interface ServeOptions {
   'log-file'?: string;
   transport?: string;
   'inbound-http-era'?: 'dual' | 'legacy-only';
+  'http-body-limit'?: string;
   port?: number;
   host?: string;
   'external-url'?: string;
@@ -552,6 +553,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     serverConfigManager.updateConfig({
       inboundHttpEra: parsedArgv['inbound-http-era'] ?? appConfig.inboundHttpEra ?? 'dual',
+      httpBodyLimit: parsedArgv['http-body-limit'] ?? appConfig.httpBodyLimit ?? HTTP_REQUEST_BODY_LIMIT,
       host: effectiveHost,
       port: effectivePort,
       externalUrl: parsedArgv['external-url'],

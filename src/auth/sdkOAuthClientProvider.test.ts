@@ -45,6 +45,46 @@ function provider(changes: Partial<OAuthClientConfig> = {}, name = 'backend') {
   return result;
 }
 
+it.each([
+  ['http://issuer.example', 'http://issuer.example/'],
+  [issuer, 'http://issuer.example/'],
+  [issuer, 'HTTPS://issuer.example/'],
+  [issuer, 'https://ISSUER.example/'],
+  [issuer, 'https://issuer.example:443/'],
+  [issuer, 'https://other.example/'],
+  [issuer + '/tenant', issuer + '/tenant/'],
+  [issuer + '/', issuer + '//'],
+  [issuer + '?', issuer + '?/'],
+  [issuer + '#', issuer + '#/'],
+  [issuer + '?id=1', issuer + '?id=1/'],
+  [issuer + '#id', issuer + '#id/'],
+])(
+  'rejects discovery from %s with published issuer %s under root-slash compatibility',
+  async (advertised, published) => {
+    await expect(
+      provider({ allowRootIssuerSlash: true }).saveDiscoveryState({
+        ...discovery,
+        authorizationServerUrl: advertised,
+        resourceMetadata: { ...discovery.resourceMetadata, authorization_servers: [advertised] },
+        authorizationServerMetadata: { ...discovery.authorizationServerMetadata, issuer: published },
+      }),
+    ).rejects.toThrow('OAuth authority');
+  },
+);
+
+it('accepts identical HTTPS scheme and authority spelling on both sides of a root slash', async () => {
+  const advertised = 'HTTPS://ISSUER.example:443';
+  const published = advertised + '/';
+  await expect(
+    provider({ allowRootIssuerSlash: true }).saveDiscoveryState({
+      ...discovery,
+      authorizationServerUrl: advertised,
+      resourceMetadata: { ...discovery.resourceMetadata, authorization_servers: [advertised] },
+      authorizationServerMetadata: { ...discovery.authorizationServerMetadata, issuer: published },
+    }),
+  ).resolves.toBeUndefined();
+});
+
 it('retains the first endpoint failure through SDK fallback and clears it for a new operation', async () => {
   const target = provider();
   target.discoveryState();

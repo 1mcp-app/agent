@@ -14,10 +14,12 @@ describe('OAuth compatibility configuration', () => {
     expect(oAuthConfigSchema.parse({})).toEqual({});
     expect(
       oAuthConfigSchema.parse({
+        allowRootIssuerSlash: true,
         insecureAllowIncompleteMetadata: true,
         privateNetworkOrigins: ['https://ha.example/'],
       }),
     ).toEqual({
+      allowRootIssuerSlash: true,
       insecureAllowIncompleteMetadata: true,
       privateNetworkOrigins: ['https://ha.example/'],
     });
@@ -68,6 +70,8 @@ describe.each([
     for (const oauth of [
       { insecureAllowIncompleteMetadata: true, privateNetworkOrigins: ['https://private.example'] },
       { insecureAllowIncompleteMetadata: 'true' },
+      { allowRootIssuerSlash: 'true' },
+      { allowRootIssuerSlash: false },
       { privateNetworkOrigins: ['http://private.example'] },
       { privateNetworkOrigins: ['https://private.example/path'] },
       { privateNetworkOrigins: ['https://*.example'] },

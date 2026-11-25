@@ -45,6 +45,7 @@ function snapshotInboundConfig(
   context: NonNullable<InboundConnectionConfig['context']>,
 ): InboundConnectionConfig {
   return toJsonValue({
+    ...(opts.grantedTags !== undefined ? { grantedTags: opts.grantedTags } : {}),
     ...(opts.tags !== undefined ? { tags: opts.tags } : {}),
     ...(opts.tagExpression !== undefined ? { tagExpression: opts.tagExpression } : {}),
     ...(opts.tagQuery !== undefined ? { tagQuery: opts.tagQuery } : {}),

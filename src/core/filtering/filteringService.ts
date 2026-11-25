@@ -7,6 +7,8 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import type { ServerCapabilities } from '@src/sdk/contracts/index.js';
 import { normalizeTag } from '@src/utils/validation/sanitization.js';
 
+import { tagGrantAllows } from './tagGrant.js';
+
 /**
  * Type definition for client filter functions
  */
@@ -32,9 +34,11 @@ export class FilteringService {
   ): OutboundConnections {
     debugIf(() => ({ message: 'filteringService.filteringservice.filtering.connections.0b15644d' }));
 
-    // Only include connected clients in filtering
+    // Apply caller grants before filtering discoverable backends.
     const connectedClients = new Map<string, OutboundConnection>();
+    const allows = tagGrantAllows(config.grantedTags);
     for (const [name, connection] of connections) {
+      if (!allows(connection.tags)) continue;
       if (isBackendDiscoverable(connection)) {
         connectedClients.set(name, connection);
       }

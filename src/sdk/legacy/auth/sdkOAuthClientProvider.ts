@@ -37,6 +37,7 @@ export interface OAuthClientConfig {
   scopes?: string[];
   redirectUrl: string;
   issuer?: string;
+  allowRootIssuerSlash?: boolean;
   insecureAllowIncompleteMetadata?: boolean;
   privateNetworkOrigins?: string[];
   clientMetadataUrl?: string;
@@ -120,13 +121,13 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     this.context = config.authority;
     this.slot = this.context ? authoritySlot(this.context) : undefined;
     const restore = () => {
-      if (this.slot && this.context) {
-        const stored = this.sessionRepository.getBound(this.slot);
-        if (stored && matchesAuthorityContext(stored.authority, this.context)) {
-          if (!config.issuer || config.issuer === stored.authority.issuer) this.record = stored;
-        }
+      if (!this.slot || !this.context) return null;
+      const generation = this.sessionRepository.getClaim(this.slot)?.generation ?? null;
+      const stored = this.sessionRepository.getBound(this.slot);
+      if (stored && stored.generation === generation && matchesAuthorityContext(stored.authority, this.context)) {
+        if (!config.issuer || this.discoveryIssuersMatch(config.issuer, stored.authority.issuer)) this.record = stored;
       }
-      return this.slot ? (this.sessionRepository.getClaim(this.slot)?.generation ?? null) : null;
+      return generation;
     };
     const alreadyReady = this.fileStorage.isReady();
     const observed = alreadyReady ? restore() : null;
@@ -343,7 +344,8 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       !matchesAuthorityContext(current.authority, this.context)
     )
       throw oauthAuthorityError();
-    if (this.config.issuer && current.authority.issuer !== this.config.issuer) throw oauthAuthorityError();
+    if (this.config.issuer && !this.discoveryIssuersMatch(current.authority.issuer, this.config.issuer))
+      throw oauthAuthorityError();
     if (outcome.result === 'AUTHORIZED' && !current.tokens) throw oauthAuthorityError();
     this.record = current;
     this.claim = current.generation;
@@ -706,15 +708,13 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       if (ticket && (ticket.ambiguous || ticket.generation !== this.claim)) throw oauthAuthorityError();
       if (ticket) requestVersion = ticket.requestVersion;
     }
-    const issuer = state.authorizationServerUrl;
-    if (this.config.issuer && this.config.issuer !== issuer) throw oauthAuthorityError();
-    if (metadata?.issuer && metadata.issuer !== issuer) throw oauthAuthorityError();
-    const approved = this.record?.authority.issuer;
+    const discoveryIssuer = state.authorizationServerUrl;
+    const issuer = metadata?.issuer ?? discoveryIssuer;
+    if (this.config.issuer && !this.discoveryIssuersMatch(this.config.issuer, issuer)) throw oauthAuthorityError();
+    if (!this.discoveryIssuersMatch(discoveryIssuer, issuer)) throw oauthAuthorityError();
     const advertised = state.resourceMetadata?.authorization_servers;
     if (advertised?.length) {
-      const selected = this.config.issuer ?? (approved && advertised.includes(approved) ? approved : undefined);
-      if (selected ? selected !== issuer : advertised.length !== 1 || advertised[0] !== issuer)
-        throw oauthAuthorityError();
+      if (!this.discoveryIssuersMatch(this.selectDiscoveryIssuer(advertised), issuer)) throw oauthAuthorityError();
     } else if (!this.config.legacy && !this.config.issuer) {
       if (this.config.insecureAllowIncompleteMetadata !== true) throw oauthAuthorityError();
       if (!metadata) throw oauthAuthorityError();
@@ -759,7 +759,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     this.record = await this.sessionRepository.activate(
       this.slot,
       authority,
-      JSON.stringify(state),
+      JSON.stringify({ ...state, authorizationServerUrl: issuer }),
       this.claim!,
       requestVersion,
       this.shutdownSignal.signal,
@@ -786,6 +786,24 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     if (!current) throw oauthAuthorityError();
     return current;
   }
+
+  private selectDiscoveryIssuer(issuers: string[]): string {
+    const approved = this.config.issuer ?? this.record?.authority.issuer;
+    if (approved && issuers.includes(approved)) return approved;
+    if (issuers.length !== 1) throw oauthAuthorityError();
+    const [selected] = issuers;
+    if (this.config.issuer && !this.discoveryIssuersMatch(selected, this.config.issuer)) throw oauthAuthorityError();
+    return selected;
+  }
+
+  private discoveryIssuersMatch(left: string, right: string): boolean {
+    if (left === right) return true;
+    if (!this.config.allowRootIssuerSlash) return false;
+    const bare = left.endsWith('/') ? right : left;
+    const slashed = left.endsWith('/') ? left : right;
+    return isBareHttpsAuthority(bare) && slashed === bare + '/';
+  }
+
   private checkIssuer(ctx?: { issuer: string }): void {
     if (!ctx) return;
     const issuer = this.record?.authority.issuer ?? this.config.issuer;
@@ -805,29 +823,31 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     if (!discoveryIssuer) {
       OAuthProtectedResourceMetadataSchema.parse(value);
       if (!Array.isArray(value.authorization_servers)) throw oauthAuthorityError();
-      const issuers = value.authorization_servers;
-      if (!issuers.length || issuers.length > 16 || issuers.some((issuer) => typeof issuer !== 'string'))
-        throw oauthAuthorityError();
+      const issuers: unknown[] = value.authorization_servers;
+      if (!issuers.length || issuers.length > 16) throw oauthAuthorityError();
+      if (!issuers.every((issuer) => typeof issuer === 'string')) throw oauthAuthorityError();
       for (const issuer of issuers)
         validateOAuthEndpoint(
-          String(issuer),
+          issuer,
           this.context.route.url,
           undefined,
           this.config.issuer,
           this.config.privateNetworkOrigins,
         );
-      const approved = this.config.issuer ?? this.record?.authority.issuer;
-      let selected: string | undefined;
-      if (approved && issuers.includes(approved)) selected = approved;
-      else if (issuers.length === 1) selected = String(issuers[0]);
-      if (!selected || (this.config.issuer && selected !== this.config.issuer)) throw oauthAuthorityError();
+      const selected = this.selectDiscoveryIssuer(issuers);
       if (typeof value.resource !== 'string') throw oauthAuthorityError();
       this.selectResourceURL(this.context.route.url, value.resource);
       const operation = this.operations.getStore();
       if (operation) operation.discoveryIssuer = selected;
       return {
         ...value,
-        authorization_servers: [selected],
+        // The modern SDK accepts either published spelling when its discovery URL ends in a slash.
+        // Retain the advertised spelling in the operation for our own metadata validation.
+        authorization_servers: [
+          !this.config.legacy && this.config.allowRootIssuerSlash && isBareHttpsAuthority(selected)
+            ? selected + '/'
+            : selected,
+        ],
         ...(this.config.scopes ? { scopes_supported: this.config.scopes } : {}),
       };
     }
@@ -848,7 +868,8 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     }
     if (discoveryType === 'oidc') OpenIdProviderDiscoveryMetadataSchema.parse(value);
     else OAuthMetadataSchema.parse(value);
-    if (value.issuer !== discoveryIssuer) throw oauthAuthorityError();
+    if (typeof value.issuer !== 'string' || !this.discoveryIssuersMatch(value.issuer, discoveryIssuer))
+      throw oauthAuthorityError();
     const issuer = validateOAuthEndpoint(
       discoveryIssuer,
       this.context.route.url,
@@ -856,7 +877,10 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
       this.config.issuer,
       this.config.privateNetworkOrigins,
     );
-    if (issuer.origin !== url.origin || (this.config.issuer && discoveryIssuer !== this.config.issuer))
+    if (
+      issuer.origin !== url.origin ||
+      (this.config.issuer && !this.discoveryIssuersMatch(discoveryIssuer, this.config.issuer))
+    )
       throw oauthAuthorityError();
     for (const key of ['authorization_endpoint', 'token_endpoint']) {
       if (typeof value[key] !== 'string') throw oauthAuthorityError();
@@ -1027,4 +1051,8 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     this.fileStorage.shutdown();
     await this.migration.catch(() => undefined);
   }
+}
+
+function isBareHttpsAuthority(value: string): boolean {
+  return /^https:\/\/[^/?#@\\\s]+$/iu.test(value);
 }

@@ -14,6 +14,11 @@ export function setupInstructionsCommand(yargs: Argv): Argv {
           describe: 'Show only this server’s instructions; initialize the selected backend when needed',
           type: 'string',
         })
+        .option('compact', {
+          describe: 'Show a built-in server overview; preserve full custom or older-runtime instructions',
+          type: 'boolean',
+          default: false,
+        })
         .option('url', {
           alias: 'u',
           describe: 'Override auto-detected 1MCP server URL',

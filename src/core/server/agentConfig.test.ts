@@ -5,6 +5,7 @@ import { AgentConfigManager } from './agentConfig.js';
 // Mock constants
 vi.mock('@src/constants.js', () => ({
   HOST: 'localhost',
+  HTTP_REQUEST_BODY_LIMIT: '100kb',
   PORT: 3050,
   AUTH_CONFIG: {
     SERVER: {
@@ -61,6 +62,7 @@ describe('AgentConfigManager', () => {
         host: 'localhost',
         port: 3050,
         inboundHttpEra: 'dual',
+        httpBodyLimit: '100kb',
         trustProxy: 'loopback',
         admin: {
           enabled: true,

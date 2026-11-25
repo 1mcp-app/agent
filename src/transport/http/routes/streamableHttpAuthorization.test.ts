@@ -452,6 +452,9 @@ describe('authenticated legacy Streamable HTTP session ownership', () => {
       .send({ method: 'tools/list' });
     expect(response.status).toBe(200);
     expect(manager.connectTransport).toHaveBeenCalledTimes(2);
+    for (const args of manager.connectTransport.mock.calls) {
+      expect(args).toEqual(expect.arrayContaining([expect.objectContaining({ grantedTags: ['files'] })]));
+    }
   });
 
   it.each([false, true])('fails closed for unbound legacy sessions, restored=%s', async (restored) => {

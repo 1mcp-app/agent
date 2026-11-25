@@ -36,6 +36,7 @@ The `cli-setup` command installs lightweight bootstrap files that point Codex or
 - A managed `1MCP.md` bootstrap document
 - Managed `SessionStart` and `SubagentStart` bootstrap command hooks, plus `SessionEnd` caller cleanup
 - A startup file reference from `AGENTS.md` or `CLAUDE.md`
+- The `1mcp-cli` usage skill and its conditional operational references
 - The `1mcp-preparation-setup` skill and its backend references
 
 `cli-setup` does not replace [`instructions`](/commands/instructions). It makes sure the session is prepared to use `instructions`, `inspect`, and `run` in the right order.
@@ -82,7 +83,11 @@ Passing neither or both returns an error.
 - Repo hooks: `<repo>/.claude/settings.json`
 - Repo startup reference: `<repo>/CLAUDE.md`
 
-## Preparation setup skill
+## Installed skills
+
+`1mcp-cli` teaches everyday tool discovery and invocation. Its ownership, preparation operations, and recovery references are loaded only when relevant. It is installed beside `1mcp-preparation-setup` in each directory listed below. The preparation skill remains dedicated to configuring recipes.
+
+### Preparation setup skill
 
 Every `cli-setup` invocation installs the preparation skill in the selected client and scope:
 
@@ -97,7 +102,7 @@ Ask your agent to “Use the 1mcp-preparation-setup skill to configure preparati
 
 Installation works offline from an installed npm package or standalone binary. It does not enable preparation, install backend dependencies, or change `mcp.json`. See [Backend preparation](/guide/backend-preparation) for activation and verification.
 
-Rerun `cli-setup` to refresh the skill. Output reports `installed`, `updated`, `unchanged`, or `conflict`. A skill-local `.1mcp-managed.json` records managed file hashes. Unchanged managed files can be updated; local edits, removed managed files, unknown same-name installations, and symlink destinations are preserved and reported as conflicts. Other setup files still complete. To resolve a conflict, retain your custom skill separately and move the conflicting skill directory out of the install location before rerunning setup. Unrelated files are preserved.
+Rerun `cli-setup` to refresh the skill. Output reports `installed`, `updated`, `unchanged`, or `conflict`. A skill-local `.1mcp-managed.json` records managed file hashes. Unchanged managed files can be updated; local edits, removed managed files, unknown same-name installations, and symlink destinations are preserved and reported as conflicts. A `1mcp-cli` conflict preserves the existing managed guide, startup reference, and hooks for that target; the preparation skill is still processed independently. A preparation-skill conflict does not block usage setup. To resolve a conflict, retain your custom skill separately and move the conflicting skill directory out of the install location before rerunning setup. Unrelated files are preserved.
 
 An installation lock prevents concurrent writers. Interrupted upgrades retain a journal and can resume without treating installer-written bytes as local edits. A missing newly added file in that journal is reported as a conflict: setup cannot tell an interrupted write from a user deletion, so it preserves the missing file. If a terminated process leaves an `.install-lock` directory beside the skill, confirm that no installer is running before moving that lock aside and rerunning setup. Never remove an active installer’s lock.
 
@@ -129,7 +134,7 @@ When `--codex` is used, the command also prints a required `config.toml` snippet
 
 The managed startup docs tell the client to:
 
-1. Run `1mcp instructions` unless the current session already received those instructions from hooks
+1. Read `1mcp-cli` before tool use; if the skill is unavailable, read full `1mcp instructions` without `--compact`
 2. If the provider or tool is unknown, optionally use `1mcp inspect --search <query>` (or add a server target); skip discovery when the target is already known
 3. Run `1mcp instructions <server>` when its instructions are missing; read the applicable server instructions
 4. Run `1mcp inspect <server>/<tool>` when the schema is not already known
@@ -141,11 +146,11 @@ Rerun the same `cli-setup` command to refresh managed guidance in any scope. Rep
 
 ## Worker Bootstrap and Project Assignment
 
-`bootstrap` reads client hook JSON from stdin and returns `hookSpecificOutput.additionalContext` for the requested event. Both [Codex](https://learn.chatgpt.com/docs/hooks) and [Claude](https://code.claude.com/docs/en/hooks) support this format. Hook input is limited to 64 KiB with a one-second stdin deadline. Runtime rendering has a five-second deadline. Successfully fetched instructions are delivered in full, without a subprocess output cap or context-size cutoff. Invalid input and runtime failures still deliver the general playbook with a coverage gap rather than claiming complete project instructions.
+`bootstrap` reads client hook JSON from stdin and returns `hookSpecificOutput.additionalContext` for the requested event. Both [Codex](https://learn.chatgpt.com/docs/hooks) and [Claude](https://code.claude.com/docs/en/hooks) support this format. Hook input is limited to 64 KiB with a one-second stdin deadline. Runtime rendering has a five-second deadline. Successfully fetched instructions are delivered in full, without a subprocess output cap or context-size cutoff. Invalid input and runtime failures still deliver skill routing and full-instructions fallback with a coverage gap rather than claiming complete project instructions.
 
-When the rendered runtime instructions exceed 9,000 characters (JavaScript string length), bootstrap appends an advisory asking the agent to briefly inform the user and recommend a 1MCP preset to select fewer relevant MCP servers in future sessions, for example `1mcp instructions --preset <name>`. The threshold excludes the static playbook and serialized assignment. All instructions and valid assignments remain intact; the agent continues the current task without automatically changing configuration. Instructions at or below the threshold receive no advisory.
+Bootstrap requests `instructions --compact`. With the built-in template, it delivers a server overview and session-specific context rather than repeating the full operating guide and all server manuals. Read `1mcp instructions <server>` before using a server whose current instructions are missing. Custom CLI templates and older runtimes retain complete output; nothing is truncated and no size advisory is emitted.
 
-A `SessionStart` handler can fetch ordinary runtime instructions. A `SubagentStart` handler without an explicit assignment delivers the inspect-before-run playbook and reports unresolved project selection. It never chooses the parent checkout from hook cwd or session identity. The supported hook schemas do not provide a worker project assignment field.
+A `SessionStart` handler can fetch ordinary runtime instructions. A `SubagentStart` handler without an explicit assignment delivers skill routing and reports unresolved project selection. It never chooses the parent checkout from hook cwd or session identity. The supported hook schemas do not provide a worker project assignment field.
 
 Bootstrap parses its options from explicit CLI flags rather than inherited `ONE_MCP_*` options. Its instructions subprocess excludes inherited `ONE_MCP_PROJECT` and `ONE_MCP_PROJECT_SET`; other environment plumbing remains intact. A parent's environment selectors cannot assign an otherwise unassigned worker.
 

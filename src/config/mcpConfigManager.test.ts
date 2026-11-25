@@ -48,6 +48,7 @@ vi.mock('@src/constants.js', () => ({
   __esModule: true,
   DEFAULT_CONFIG: { serverDefaults: {}, mcpServers: {} },
   HOST: '127.0.0.1',
+  HTTP_REQUEST_BODY_LIMIT: '100kb',
   PORT: 3050,
   AUTH_CONFIG: {
     SERVER: {

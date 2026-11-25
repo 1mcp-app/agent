@@ -2,12 +2,10 @@ import { formatInstructionsOutput } from '@src/commands/instructions/instruction
 
 import { describe, expect, it } from 'vitest';
 
-import { renderManagedDocContent } from './instructionsDistribution.js';
 import { DEFAULT_CLI_INSTRUCTION_TEMPLATE } from './templateTypes.js';
 
 describe('preparation guidance delivery', () => {
   it.each([
-    ['managed bootstrap', renderManagedDocContent()],
     ['runtime template', DEFAULT_CLI_INSTRUCTION_TEMPLATE],
     ['standalone formatter', formatInstructionsOutput({ servers: [], details: [] })],
   ])('teaches authorized recovery through %s', (_surface, content) => {

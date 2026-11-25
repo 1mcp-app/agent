@@ -5,6 +5,8 @@
 // Server configuration
 export const PORT = 3050;
 export const HOST = '127.0.0.1';
+// Default HTTP request body size accepted by the inbound Express transport (body-parser default)
+export const HTTP_REQUEST_BODY_LIMIT = '100kb';
 
 // API versioning
 export const API_VERSION = 'v1';

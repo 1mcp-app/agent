@@ -83,6 +83,32 @@ describe('apiRoutes /api/instructions', () => {
     expect(mockedEnsureRequestContextInitialized).not.toHaveBeenCalled();
   });
 
+  it('retains unresolved project labels in compact delivery', async () => {
+    mockedBuildServerSummaries.mockResolvedValue([]);
+    mockedLoadDeclaredServerConfigs.mockReturnValue({ staticServers: {}, templateServers: {} });
+    mockedGetRuntimeInstructionConfiguration.mockReturnValue({
+      configuredTargets: { mcpServers: {}, mcpTemplates: {} },
+    });
+    const serverManager = makeServerManager(new InstructionAggregator());
+    const manager = serverManager.getTemplateServerManager();
+    serverManager.getTemplateServerManager.mockReturnValue({
+      ...manager,
+      getBindingContext: () => ({
+        projectSet: {
+          projects: [
+            { label: 'web', path: '/web' },
+            { label: 'api', path: '/api' },
+          ],
+        },
+      }),
+    } as typeof manager);
+    const app = express().use('/api/v1', createApiRoutes(serverManager as never, scopeAuthMiddleware));
+    const response = await request(app).get('/api/v1/instructions');
+    expect(response.status).toBe(200);
+    expect(response.body.compactRendered).toContain('Project Selection is unresolved');
+    expect(response.body.compactRendered).toContain('web, api');
+  });
+
   it('renders the active CLI variant with effective overrides and the selected filters', async () => {
     const aggregator = new InstructionAggregator();
     aggregator.setInstructions({ source: 'mcpServers', name: 'alpha' }, 'upstream alpha');
@@ -191,6 +217,9 @@ describe('apiRoutes /api/instructions', () => {
         ],
       }),
     );
+    expect(response.body.compactRendered).toContain('1MCP server overview');
+    expect(response.body.compactRendered).not.toContain('Alpha instructions');
+    expect(response.body.compactRendered).toContain('not initialized for this context');
     expect(response.body.formatting).toEqual({
       servers,
       details: [
@@ -227,6 +256,7 @@ describe('apiRoutes /api/instructions', () => {
       rendered: expect.stringContaining('1MCP CLI Instructions'),
       formatting: { servers: [], details: [] },
     });
+    expect(response.body.compactRendered).toContain('Instruction template broken failed to render');
     expect(JSON.stringify(response.body)).not.toContain('SECRET_MARKER_DO_NOT_EXPOSE');
     expect(response.body).not.toHaveProperty('instructionTemplates');
     expect(response.body).not.toHaveProperty('configuredTargets');

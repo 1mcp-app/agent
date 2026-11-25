@@ -107,6 +107,8 @@ export interface ApplicationConfig {
   readonly preparation?: Partial<z.infer<typeof PreparationOptionsSchema>>;
   readonly transport?: 'http' | 'sse' | 'stdio';
   readonly inboundHttpEra?: 'dual' | 'legacy-only';
+  /** Max HTTP request body size: bytes (number) or a size string like `"25mb"`. */
+  readonly httpBodyLimit?: number | string;
   readonly port?: number;
   readonly host?: string;
   /** @deprecated Use `logging.level`. Kept as an alias for backward compatibility. */
@@ -240,6 +242,10 @@ export interface StdioTransportConfig extends BaseTransportConfig {
  */
 export const oAuthConfigSchema = z.object({
   issuer: z.url().optional().describe('Exact approved upstream authorization-server issuer'),
+  allowRootIssuerSlash: z
+    .boolean()
+    .optional()
+    .describe('Allow one trailing slash difference on an HTTPS root issuer during discovery; disabled by default'),
   insecureAllowIncompleteMetadata: z
     .boolean()
     .optional()
@@ -454,6 +460,13 @@ export const applicationConfigSchema = z.object({
     .enum(['dual', 'legacy-only'])
     .optional()
     .describe('Inbound HTTP protocol eras; defaults to dual and does not change upstream protocolVersion'),
+  httpBodyLimit: z
+    .union([
+      z.number().int().positive(),
+      z.string().regex(/^\d+(?:\.\d+)?\s*([kmg])?b?$/i, 'Expected a byte size like "100kb" or "25mb"'),
+    ])
+    .optional()
+    .describe('Max HTTP request body size: bytes (number) or a size string like "100kb"/"25mb"'),
   port: z.number().int().min(1).max(65535).optional().describe('HTTP port to listen on'),
   host: z.string().optional().describe('HTTP host to listen on'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional().describe('Deprecated: use logging.level'),

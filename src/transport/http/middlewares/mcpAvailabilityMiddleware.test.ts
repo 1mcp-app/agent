@@ -22,6 +22,8 @@ vi.mock('@src/logger/logger.js', () => ({
 }));
 
 vi.mock('./scopeAuthMiddleware.js', () => ({
+  getRequestTagGrant: vi.fn(),
+  getTagFilterMode: vi.fn(),
   getValidatedTags: vi.fn(),
 }));
 

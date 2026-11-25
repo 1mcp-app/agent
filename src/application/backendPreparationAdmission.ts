@@ -114,6 +114,7 @@ export function createPreparationOwnerIdentity(
   const selection = {
     tags: filter.tags,
     tagExpression: filter.tagExpression,
+    grantedTags: filter.grantedTags,
     tagFilterMode: filter.tagFilterMode,
     tagQuery: filter.tagQuery,
     presetName: filter.presetName,

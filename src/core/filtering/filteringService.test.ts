@@ -1,5 +1,6 @@
 import { createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
+import * as configuredTargets from '@src/config/configuredServerTargets.js';
 import { ClientStatus } from '@src/core/types/client.js';
 import type { InboundConnectionConfig, OutboundConnections } from '@src/core/types/index.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
@@ -68,6 +69,53 @@ describe('FilteringService', () => {
   });
 
   describe('getFilteredConnections', () => {
+    it('keeps sleeping backends discoverable within the caller’s tag grant', () => {
+      const connection = createMockOutboundConnection({ tags: ['web'], status: ClientStatus.Sleeping });
+      const connections = new Map([['sleeping', connection]]);
+
+      expect(FilteringService.getFilteredConnections(connections, { grantedTags: ['web'] }).get('sleeping')).toBe(
+        connection,
+      );
+      expect(FilteringService.getFilteredConnections(connections, { grantedTags: ['api'] }).size).toBe(0);
+    });
+
+    it('rechecks installation tags for an empty grant even when the tagged backend is disconnected', () => {
+      const connection = createMockOutboundConnection({ name: 'plain', tags: [], status: ClientStatus.Connected });
+      const connections = new Map([['plain', connection]]);
+      const targets = vi.spyOn(configuredTargets, 'getConfiguredServerTargets');
+      try {
+        targets.mockReturnValue({});
+        expect([...FilteringService.getFilteredConnections(connections, { grantedTags: [] }).keys()]).toEqual([
+          'plain',
+        ]);
+        targets.mockReturnValue({ offline: { command: 'node', tags: ['private'] } });
+        expect(FilteringService.getFilteredConnections(connections, { grantedTags: [] }).size).toBe(0);
+      } finally {
+        targets.mockRestore();
+      }
+    });
+
+    it.each<[InboundConnectionConfig, string[]]>([
+      [{ tagFilterMode: 'none', grantedTags: ['frontend'] }, ['web-server']],
+      [{ tagFilterMode: 'simple-or', tags: ['web'], grantedTags: ['Web'] }, []],
+      [{ tagFilterMode: 'none', grantedTags: [] }, []],
+      [{ tagFilterMode: 'simple-or', tags: ['backend'], grantedTags: ['api'] }, ['api-server']],
+      [
+        {
+          tagFilterMode: 'advanced',
+          tagExpression: { type: 'not', children: [{ type: 'tag', value: 'api' }] },
+          grantedTags: ['api', 'web'],
+        },
+        ['web-server'],
+      ],
+      [
+        { tagFilterMode: 'preset', tagQuery: { $not: { tag: 'web' } }, grantedTags: ['backend', 'web'] },
+        ['database-server', 'api-server'],
+      ],
+    ])('intersects the selector with the OAuth grant', (config, expected) => {
+      expect([...FilteringService.getFilteredConnections(mockConnections, config).keys()]).toEqual(expected);
+    });
+
     it('should return all connected servers when no filter is specified', () => {
       const config: InboundConnectionConfig = {
         tagFilterMode: 'none',

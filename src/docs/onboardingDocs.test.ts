@@ -50,9 +50,11 @@ describe('onboarding documentation', () => {
     }
 
     for (const page of [enInstallation, zhInstallation]) {
-      expect(page).toContain('ONE_MCP_CONFIG=/usr/src/app/config/mcp.json');
+      expect(page).toContain('ONE_MCP_CONFIG=/config/mcp.json');
+      expect(page).toContain('ONE_MCP_CONFIG_DIR=/config');
       expect(page).toContain('127.0.0.1:3050:3050');
-      expect(page).toContain('1mcp-config:/usr/src/app/config');
+      expect(page).toContain('1mcp-config:/config');
+      expect(page).not.toContain(':/usr/src/app/config');
       expect(page).not.toContain('/usr/src/app/mcp.json:ro');
       expect(page).not.toContain('docker run -p 3050:3050');
     }

@@ -1,12 +1,12 @@
 # Product Usage Telemetry test suppression
 
-Issue [#676](https://github.com/1mcp-app/agent/issues/676) establishes test safety before producer hooks are introduced. It does not enable collection, implement installation storage, or change Operational Telemetry.
+Use this guide when adding a test launcher or changing environment propagation. Every ordinary test-owned CLI must suppress Product Usage Telemetry before accessing identity, state, or delivery. Operational Telemetry is a separate concern.
 
 ## Bootstrap contract
 
 Test launchers set `ONE_MCP_PRODUCT_TELEMETRY_TEST_SUPPRESSED=true` after merging custom environment overrides. The hidden global boolean `--product-telemetry-test-suppressed` enters the existing yargs configuration boundary and is available on typed `GlobalOptions` and `ServeOptions`. Launcher suppression dominates a command-line false. Generic `NODE_ENV`, `TEST_MODE`, CI, paths, process names, and clientInfo never infer suppression.
 
-`configureProductTelemetryBootstrap` records a monotonic process decision: once suppressed, later options or a replacement bootstrap cannot re-enable collection. `initializeProductTelemetry` fails closed before bootstrap and returns before invoking the supplied initializer when suppressed. All future product producers must enter through this boundary **before** reading installation identity/preferences, opening a queue, registering timers/hooks, or constructing delivery. Suppression is execution-local: do not store an opt-out, erase an existing queue, reset an identity, or mutate another process's preference. Later stored/default/process enablement and CI opt-in must be evaluated only inside this boundary. Explicit local control commands remain responsible for their requested local mutations.
+`configureProductTelemetryBootstrap` records a monotonic process decision: once suppressed, later options or a replacement bootstrap cannot re-enable collection. `initializeProductTelemetry` fails closed before bootstrap and returns before invoking the supplied initializer when suppressed. All product producers must enter through this boundary **before** reading installation identity/preferences, opening a queue, registering timers/hooks, or constructing delivery. Suppression is execution-local: do not store an opt-out, erase an existing queue, reset an identity, or mutate another process's preference. Stored/default/process enablement and CI opt-in must be evaluated only inside this boundary. Explicit local control commands remain responsible for their requested local mutations.
 
 Detached legacy supervisors materialize the typed flag into worker arguments. Cooperative supervisors/workers apply the private launch option as well as the ordinary parser decision. Frozen Runtime Scope environments cannot reverse an already suppressed decision. A suppressed proxy must not authorize collection in a remote runtime: ordinary tests select only test-owned Runtime Scopes and controlled fixture targets.
 
@@ -23,4 +23,16 @@ Use `createTestProcessEnvironment(overrides, base)` last at a new launch boundar
 
 Controlled unit/component fixtures may exercise an injected synthetic producer against controlled state/destinations separately from ordinary E2E. There is no telemetry-enabled E2E exception and no test may contact a real product collector. The bootstrap tests verify that suppressed initialization is never invoked and existing synthetic operator preference/identity/queue contents remain unchanged. The E2E process fixture exercises the built parser with CI and conflicting false flags; it stays outside the buildless unit lane. Existing lifecycle/protocol tests retain their own readiness, protocol stdout, and cleanup checks.
 
-Installation storage, actual outgoing payload validation, live preference/reset behavior, and collector compatibility remain acceptance work for later producer/service slices. Once those exist, extend this boundary fixture to their actual public initializer and controlled collector; do not infer these unimplemented behaviors from a passing suppression test.
+## Verify a launcher change
+
+Run the bootstrap checks, then build and exercise the affected launcher through its E2E lane:
+
+```bash
+pnpm test:unit src/config/productTelemetryBootstrap.test.ts
+pnpm build
+pnpm test:e2e test/e2e/commands/telemetry.test.ts
+```
+
+Expect suppression to survive custom overrides and conflicting false flags, with synthetic pre-existing identity/preferences/queue unchanged by suppressed initialization. Add coverage at the launch boundary you changed; the telemetry command test alone does not cover every process launcher.
+
+If collection initializes unexpectedly, inspect the environment after its final merge or cleanup, then verify that the child receives the typed suppression setting. If a test reaches ambient state or a remote target, fix scope/home/target isolation as well: suppression does not validate destinations. For producer behavior under controlled collection, use [producer development](product-telemetry-producer.md).

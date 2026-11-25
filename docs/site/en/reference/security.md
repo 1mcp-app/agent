@@ -23,6 +23,8 @@ This document outlines the comprehensive security features implemented in the MC
 
 Tags are mapped to OAuth 2.1 scopes using the format `tag:{tag-name}` (e.g., `tag:web`, `tag:db`). This provides fine-grained access control where clients can only access servers for which they have been explicitly granted scope permissions.
 
+With scope validation enabled, a token can discover and use backends carrying at least one of its granted tags. Request filters, including presets, can narrow that selection. A token with no granted tags can access untagged backends only when the installation has no configured backend tags.
+
 ### Security Benefits
 
 - **Fine-grained access control**: Clients only access authorized servers

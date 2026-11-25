@@ -10,7 +10,13 @@ import { getAllServerTargets, resolveServerTarget } from '@src/commands/shared/b
 import ConfigContext from '@src/config/configContext.js';
 import ConfigManager from '@src/config/configManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { getGlobalConfigDir, MCP_SERVER_VERSION, RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
+import {
+  getGlobalConfigDir,
+  HTTP_REQUEST_BODY_LIMIT,
+  MCP_SERVER_VERSION,
+  RATE_LIMIT_CONFIG,
+  STORAGE_SUBDIRS,
+} from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
@@ -32,6 +38,7 @@ import { getBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import logger from '@src/logger/logger.js';
+import { parseByteSize } from '@src/logger/loggingConfig.js';
 import { mcpAuthRouter } from '@src/sdk/legacy/server/auth/router.js';
 import { createModernInboundLegacyBridge } from '@src/sdk/legacy/transport/http/modernInboundLegacyBridge.js';
 import errorHandler from '@src/transport/http/middlewares/errorHandler.js';
@@ -273,6 +280,23 @@ export function createModernHttpRequestPolicy(configManager: AgentConfigManager)
  * expressServer.start(3050, 'localhost');
  * ```
  */
+/**
+ * Body parsers for the inbound HTTP transport.
+ *
+ * `body-parser` defaults to a 100 KB limit, which rejects large JSON-RPC payloads such as
+ * base64-encoded images or oversized tool arguments. The limit comes from configuration so a
+ * deployment can raise it without patching the package.
+ */
+export function createBodyParserMiddlewares(limit: number | string): express.RequestHandler[] {
+  const byteLimit = parseByteSize(limit);
+  if (byteLimit === undefined || !Number.isFinite(byteLimit)) {
+    throw new Error(
+      `Invalid httpBodyLimit '${String(limit)}': expected a byte count or a size string like "100kb" or "25mb"`,
+    );
+  }
+  return [bodyParser.json({ limit: byteLimit }), bodyParser.urlencoded({ extended: true, limit: byteLimit })];
+}
+
 export class ExpressServer {
   private app: express.Application;
   private serverManager: ServerManager;
@@ -366,8 +390,7 @@ export class ExpressServer {
         },
       }),
     );
-    this.app.use(bodyParser.json());
-    this.app.use(bodyParser.urlencoded({ extended: true }));
+    this.app.use(...createBodyParserMiddlewares(this.configManager.get('httpBodyLimit') ?? HTTP_REQUEST_BODY_LIMIT));
     this.app.use(httpRequestBodyLogger);
 
     // Add error handling middleware

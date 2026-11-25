@@ -11,7 +11,7 @@ docs/
 │   ├── en/              # English content, served from the root path
 │   ├── zh/              # Chinese content, served from /zh/
 │   └── public/          # Static assets, LLM indexes, published schemas
-├── development/         # Contributor notes and acceptance evidence
+├── development/         # Maintained contributor handbook
 ├── adr/                 # Architecture decisions
 ├── agents/              # Agent workflows
 ├── research/            # Research notes
@@ -148,10 +148,6 @@ Every user-facing docs change should aim for:
 
 The site is built from the existing docs tree. Preserve path stability unless there is a deliberate migration plan.
 
-## Repository development notes
+## Contributor handbook
 
-Contributor diagnostics and acceptance evidence live in `docs/development/`, outside the localized public site:
-
-- [Backend setup and preparation verification](development/backend-preparation-acceptance.md)
-- [CodeGraph and Code Review Graph diagnostics](development/preparation-native-acceptance.md)
-- [Serena diagnostics](development/preparation-serena-acceptance.md)
+Use the [development index](development/README.md) to find backend integration, telemetry, and protocol verification workflows. These guides explain how to change and diagnose the current system; run-specific results belong in PRs, issues, or CI artifacts. Follow [the documentation rules](AGENTS.md) when maintaining them.

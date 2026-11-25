@@ -68,13 +68,13 @@ Choose the command for your client:
 
 These commands install global bootstrap guidance and hooks. For repository-scoped setup, see [CLI setup](/commands/cli-setup). For Codex, apply the hook/sandbox configuration snippet printed by setup. Enable and trust the installed hooks in your client, then start a new session. Use [CLI mode](/guide/integrations/cli-mode) for this workflow and remove duplicate direct 1MCP MCP entries from the same client scope.
 
-Verify that startup delivers the 1MCP playbook and establishes session ownership. Hook files alone do not prove delivery. Resolve reported ownership or assignment gaps before project-specific calls; do not invent an owner file or copy a parent’s credential.
+Verify that startup delivers the 1MCP overview and establishes session ownership. Hook files alone do not prove delivery. Resolve reported ownership or assignment gaps before project-specific calls; do not invent an owner file or copy a parent’s credential.
 
 The commands below assume a supported Codex session with verified hooks. 1MCP automatically finds that session’s owner and assigned project. Normal calls need neither `--project-owner` nor `--project`; the cross-project examples retain target selectors because they deliberately query other checkouts. A per-call override never changes the assigned default.
 
 ### `bootstrap` and `instructions`: which one runs?
 
-The client hook runs `bootstrap`, which creates the caller's owner credential and fetches runtime guidance through `instructions`. Once the agent receives guidance for its target, it proceeds to `inspect` and `run`. It runs `instructions` only when guidance is missing or needs refreshing. Missing credentials require repairing hook delivery; `instructions` does not create them. See [CLI setup](/commands/cli-setup) for lifecycle events and manual bootstrap retries.
+The client hook runs `bootstrap`, which creates the caller's owner credential and fetches a server overview through `instructions --compact`. The agent reads the installed `1mcp-cli` skill and applicable `instructions <server>` before `inspect` and `run`. If the skill is unavailable, it reads full `instructions` without `--compact`. Compact output does not include server manuals; custom templates and older runtimes may still deliver full output. Missing credentials require repairing hook delivery; `instructions` does not create them. See [CLI setup](/commands/cli-setup) for lifecycle events and manual bootstrap retries.
 
 ### When is `--project-owner` needed?
 

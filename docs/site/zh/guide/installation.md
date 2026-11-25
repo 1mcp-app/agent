@@ -166,18 +166,22 @@ docker run -p 127.0.0.1:3050:3050 \
   -e ONE_MCP_HOST=0.0.0.0 \
   -e ONE_MCP_PORT=3050 \
   -e ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050 \
-  -e ONE_MCP_CONFIG=/usr/src/app/config/mcp.json \
-  -v "$(pwd)/1mcp-config:/usr/src/app/config" \
-  ghcr.io/1mcp-app/agent:latest
+  -e ONE_MCP_CONFIG=/config/mcp.json \
+  -e ONE_MCP_CONFIG_DIR=/config \
+  -v "$(pwd)/1mcp-config:/config" \
+  ghcr.io/1mcp-app/agent:latest \
+  sh -c 'exec node index.js serve --allow-unauthenticated-network'
 
 # 拉取并运行 (轻量级镜像) 带正确的网络配置
 docker run -p 127.0.0.1:3050:3050 \
   -e ONE_MCP_HOST=0.0.0.0 \
   -e ONE_MCP_PORT=3050 \
   -e ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050 \
-  -e ONE_MCP_CONFIG=/usr/src/app/config/mcp.json \
-  -v "$(pwd)/1mcp-config:/usr/src/app/config" \
-  ghcr.io/1mcp-app/agent:lite
+  -e ONE_MCP_CONFIG=/config/mcp.json \
+  -e ONE_MCP_CONFIG_DIR=/config \
+  -v "$(pwd)/1mcp-config:/config" \
+  ghcr.io/1mcp-app/agent:lite \
+  sh -c 'exec node index.js serve --allow-unauthenticated-network'
 
 # 中国用户 - 更快的包安装速度
 docker run -p 127.0.0.1:3050:3050 \
@@ -187,9 +191,11 @@ docker run -p 127.0.0.1:3050:3050 \
   -e npm_config_registry=https://registry.npmmirror.com \
   -e UV_INDEX=http://mirrors.aliyun.com/pypi/simple \
   -e UV_DEFAULT_INDEX=http://mirrors.aliyun.com/pypi/simple \
-  -e ONE_MCP_CONFIG=/usr/src/app/config/mcp.json \
-  -v "$(pwd)/1mcp-config:/usr/src/app/config" \
-  ghcr.io/1mcp-app/agent:latest
+  -e ONE_MCP_CONFIG=/config/mcp.json \
+  -e ONE_MCP_CONFIG_DIR=/config \
+  -v "$(pwd)/1mcp-config:/config" \
+  ghcr.io/1mcp-app/agent:latest \
+  sh -c 'exec node index.js serve --allow-unauthenticated-network'
 
 # 使用 docker-compose (推荐)
 cat > docker-compose.yml << 'EOF'
@@ -199,13 +205,15 @@ services:
     ports:
       - "127.0.0.1:3050:3050"
     volumes:
-      - ./1mcp-config:/usr/src/app/config
+      - ./1mcp-config:/config
     environment:
       - ONE_MCP_HOST=0.0.0.0
       - ONE_MCP_PORT=3050
       - ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050
+      - ONE_MCP_ALLOW_UNAUTHENTICATED_NETWORK=true
       - ONE_MCP_LOG_LEVEL=info
-      - ONE_MCP_CONFIG=/usr/src/app/config/mcp.json
+      - ONE_MCP_CONFIG=/config/mcp.json
+      - ONE_MCP_CONFIG_DIR=/config
       # 可选：中国大陆用户加速
       # - npm_config_registry=https://registry.npmmirror.com
       # - UV_INDEX=http://mirrors.aliyun.com/pypi/simple
@@ -218,7 +226,9 @@ EOF
 docker compose up -d
 ```
 
-这些示例只能从 Docker 宿主机访问。将 1MCP 发布到其他接口前，请在 `1mcp-config/config.toml` 中启用身份验证，将 `ONE_MCP_EXTERNAL_URL` 设置为公共 HTTPS URL，并遵循[身份验证指南](/zh/guide/advanced/authentication)。在未启用身份验证时绑定到回环接口以外的地址，会把 MCP 能力暴露给网络。
+关于 0.39 容器镜像的两点说明：镜像在 `/usr/src/app/config` 内自带运行时文件，因此配置目录应挂载到 `/config` 而非旧示例中的 `/usr/src/app/config`——继续按旧路径挂载会导致应用无法启动；此外运行时会对非环回监听的无鉴权 HTTP 拒绝启动，这就是示例以 `--allow-unauthenticated-network` 运行、同时保持仅发布回环端口的原因。
+
+这些示例仅在回环接口上发布宿主端口，但这并不能把访问限制在 Docker 宿主机内：接入同一 Docker bridge 的其他容器可以经由容器 IP 直接访问未鉴权的监听。示例默认网络中的对端是可信的；若与不受信任的容器共享网络，请在 `1mcp-config/config.toml` 中启用身份验证、将 `ONE_MCP_EXTERNAL_URL` 设置为公共 HTTPS URL 并遵循[身份验证指南](/zh/guide/advanced/authentication)，或将容器接入隔离网络。在未启用身份验证时把运行时暴露到 Docker bridge 之外，会把 MCP 能力暴露给网络。
 
 #### 可用标签
 

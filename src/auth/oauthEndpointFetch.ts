@@ -6,6 +6,11 @@ import { Readable, Transform } from 'node:stream';
 
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import { writeLocalDiagnostic } from '@src/logger/localDiagnostics.js';
+import {
+  BackendRequestError,
+  classifyBackendFailure,
+  isNegotiationProbeRequest,
+} from '@src/transport/backendRequestFailure.js';
 
 import { oauthAuthorityError } from './oauthAuthority.js';
 import { oauthDiagnosticMessage, type OAuthDiagnosticReason, readOAuthDiagnostic } from './oauthDiagnostics.js';
@@ -105,6 +110,11 @@ export function createOAuthEndpointFetch(options: {
     let resourceRequest = false;
     let reason: OAuthDiagnosticReason = 'authority_mismatch';
     let httpStatus: number | undefined;
+    // Set only while DNS lookup or the socket request is in flight, so that backend
+    // failures there get a structured category instead of an OAuth diagnostic.
+    let transportPhase = false;
+    let cancelled = () => false;
+    let deadlineExpired = () => false;
     const report = () => {
       const message = oauthDiagnosticMessage(reason, httpStatus);
       try {
@@ -135,6 +145,8 @@ export function createOAuthEndpointFetch(options: {
       const deadline = AbortSignal.timeout(OAUTH_FETCH_TIMEOUT_MS);
       const signal = init?.signal ?? request?.signal;
       const boundedSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+      cancelled = () => signal?.aborted === true;
+      deadlineExpired = () => deadline.aborted;
       const inputInit = request
         ? {
             method: request.method,
@@ -146,6 +158,7 @@ export function createOAuthEndpointFetch(options: {
       const safeInit = await options.beforeRequest(url, { ...inputInit, signal: isResource ? signal : boundedSignal });
       const hostname = url.hostname.replace(/^\[|\]$/g, '');
       reason = 'network_failure';
+      transportPhase = true;
       const addresses = isIP(hostname)
         ? [{ address: hostname, family: isIP(hostname) }]
         : await Promise.race([
@@ -154,6 +167,7 @@ export function createOAuthEndpointFetch(options: {
               boundedSignal.addEventListener('abort', () => reject(oauthAuthorityError()), { once: true }),
             ),
           ]);
+      transportPhase = false;
       const approvedPrivateOrigin = isApprovedPrivateOrigin(url, options.privateNetworkOrigins);
       const localException =
         isResource || approvedPrivateOrigin || isConfiguredLocalOrigin(url, options.resource, options.issuer);
@@ -175,6 +189,7 @@ export function createOAuthEndpointFetch(options: {
       if (body !== undefined && body !== null && typeof body !== 'string' && !(body instanceof URLSearchParams))
         throw oauthAuthorityError();
       reason = 'network_failure';
+      transportPhase = true;
       const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
         const outgoing = (url.protocol === 'https:' ? https : http).request(
           url,
@@ -194,7 +209,14 @@ export function createOAuthEndpointFetch(options: {
         if (!isResource) outgoing.setTimeout(OAUTH_FETCH_TIMEOUT_MS, () => outgoing.destroy(oauthAuthorityError()));
         outgoing.end(body?.toString());
       });
+      transportPhase = false;
       const status = response.statusCode ?? 500;
+      // The SDK reads a 408/429 probe reply without a JSON-RPC body as legacy-era evidence.
+      // Report it as a transient backend failure before the SDK can fall back.
+      if (isResource && (status === 408 || status === 429) && isNegotiationProbeRequest(safeInit.method, body)) {
+        response.destroy();
+        throw new BackendRequestError('http_status', status);
+      }
       if (status >= 300 && status < 400) {
         reason = 'authority_mismatch';
         response.destroy();
@@ -310,6 +332,16 @@ export function createOAuthEndpointFetch(options: {
       responseHeaders.delete('content-encoding');
       return new Response(status === 204 || status === 205 ? null : text, { status, headers: responseHeaders });
     } catch (error) {
+      if (resourceRequest && (transportPhase || error instanceof BackendRequestError)) {
+        // Backend traffic is not OAuth traffic: keep only a bounded category, never the raw chain.
+        options.onFailure(resourceRequest);
+        if (error instanceof BackendRequestError) throw error;
+        const category = classifyBackendFailure(error);
+        // The internal deadline bounds a hung DNS lookup; its rejection carries no error code.
+        throw new BackendRequestError(
+          cancelled() ? 'aborted' : category === 'unknown' && deadlineExpired() ? 'timeout' : category,
+        );
+      }
       const retained = error instanceof Error ? readOAuthDiagnostic(error.message) : undefined;
       const message = retained ? oauthDiagnosticMessage(retained.reason, retained.httpStatus) : report();
       options.onFailure(resourceRequest);

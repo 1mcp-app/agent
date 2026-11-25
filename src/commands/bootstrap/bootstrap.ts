@@ -17,7 +17,6 @@ import { z } from 'zod';
 import { bootstrapOwner, releaseSessionOwner } from './bootstrapOwnership.js';
 
 export const BOOTSTRAP_INPUT_LIMIT = 64 * 1024;
-export const BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD = 9000;
 export const BOOTSTRAP_DEADLINE_MS = 5000;
 
 const instructionsFailures = {
@@ -122,7 +121,7 @@ export async function readBootstrapInput(input: Readable, deadlineMs = 1000): Pr
 }
 
 export function buildInstructionsArguments(options: BootstrapCommandOptions): string[] {
-  const args = ['instructions'];
+  const args = ['instructions', '--compact'];
   for (const project of options.project ?? []) args.push(`--project=${project}`);
   for (const key of [
     'project-set',
@@ -235,9 +234,6 @@ export async function renderBootstrapContext(
   const prefix = `${playbook}\n${selection}`;
   try {
     const rendered = await renderInstructions(options);
-    if (rendered.length > BOOTSTRAP_INSTRUCTIONS_ADVISORY_THRESHOLD) {
-      return `${prefix}${rendered}\n\n=== PRESET ADVISORY FOR THE AGENT ===\nInform the user briefly that the 1MCP instructions are large. Recommend using a 1MCP preset to select fewer relevant MCP servers in future sessions, for example \`1mcp instructions --preset <name>\`. All instructions have been delivered; continue the current task. Do not change the user's configuration automatically.\n`;
-    }
     return `${prefix}${rendered}`;
   } catch (error) {
     const reason = error instanceof InstructionsProcessError ? error.code : 'instructions_failed';

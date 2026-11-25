@@ -1,3 +1,4 @@
+import type { StreamableSessionAuthorizationBinding } from '@src/auth/sessionTypes.js';
 import { MESSAGES_ENDPOINT, SSE_ENDPOINT } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
@@ -7,12 +8,14 @@ import { ErrorCode } from '@src/sdk/legacy/types.js';
 import { LoggingSSEServerTransport } from '@src/transport/http/loggingSseTransport.js';
 import {
   getPresetName,
+  getRequestTagGrant,
   getTagExpression,
   getTagFilterMode,
   getTagQuery,
   getValidatedTags,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
+import { getRequestSessionBinding, sessionBindingsMatch } from '@src/transport/http/streamableSessionAuthorization.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
 
@@ -24,6 +27,7 @@ export function setupSseRoutes(
   asyncOrchestrator?: AsyncLoadingOrchestrator,
   customTemplate?: string,
 ): void {
+  const owners = new WeakMap<SSEServerTransport, StreamableSessionAuthorizationBinding>();
   const middlewares = [tagsExtractor, authMiddleware];
 
   // Add availability middleware if provided
@@ -33,7 +37,14 @@ export function setupSseRoutes(
 
   router.get(SSE_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
     try {
+      const owner = getRequestSessionBinding(req);
+      if (owner === null) {
+        res.status(401).end();
+        return;
+      }
       const transport = new LoggingSSEServerTransport(MESSAGES_ENDPOINT, res);
+
+      if (owner) owners.set(transport, owner);
 
       // Use validated tags and tag expression from scope auth middleware
       const tags = getValidatedTags(res);
@@ -44,6 +55,7 @@ export function setupSseRoutes(
 
       // Connect the transport using the server manager
       await serverManager.connectTransport(transport, transport.sessionId, {
+        grantedTags: getRequestTagGrant(res),
         tags,
         tagExpression,
         tagFilterMode,
@@ -108,8 +120,13 @@ export function setupSseRoutes(
       const transport = serverManager.getTransport(sessionId);
 
       if (transport instanceof SSEServerTransport) {
-        await transport.handlePostMessage(req, res, req.body);
-        return;
+        const owner = owners.get(transport);
+        const requester = getRequestSessionBinding(req);
+        const anonymous = owner === undefined && requester === undefined;
+        if (anonymous || sessionBindingsMatch(owner, requester)) {
+          await transport.handlePostMessage(req, res, req.body);
+          return;
+        }
       }
 
       res.status(404).json({

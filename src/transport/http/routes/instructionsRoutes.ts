@@ -7,7 +7,10 @@ import {
   resolveEffectiveServerInstructions,
 } from '@src/core/instructions/effectiveServerInstructions.js';
 import type { InstructionRenderMetadata } from '@src/core/instructions/instructionAggregator.js';
-import { instructionsRenderResponseSchema } from '@src/core/instructions/instructionsDistribution.js';
+import {
+  instructionsRenderResponseSchema,
+  renderCompactInstructions,
+} from '@src/core/instructions/instructionsDistribution.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
@@ -110,20 +113,33 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
 
       let rendered = activeAggregator.renderInstructions('cli', filterConfig, connections, metadata);
       const projectSelection = projectContext ? resolveProjectSelection(projectContext) : undefined;
-      if (projectSelection?.kind === 'unresolved') {
-        rendered = `Project Selection is unresolved. Select --project <label> before checkout-specific calls. Available labels: ${projectSelection.availableLabels.join(', ') || '(none)'}\n\n${rendered}`;
-      }
+      const selectionWarning =
+        projectSelection?.kind === 'unresolved'
+          ? `Project Selection is unresolved. Select --project <label> before checkout-specific calls. Available labels: ${projectSelection.availableLabels.join(', ') || '(none)'}`
+          : '';
+      if (selectionWarning) rendered = `${selectionWarning}\n\n${rendered}`;
       const failure = activeAggregator.getRenderFailures().cli;
       const templateIdentity = activeAggregator.getActiveInstructionTemplate() ?? 'default';
+      const formatting =
+        templateIdentity === 'default' || failure
+          ? createFormattingPayload(summaries, declaredServers, presentations, activeAggregator, runtimeConfiguration)
+          : undefined;
+      const compactRendered = formatting
+        ? [
+            selectionWarning,
+            failure ? `Instruction template ${templateIdentity} failed to render; using built-in instructions.` : '',
+            renderCompactInstructions(formatting),
+          ]
+            .filter(Boolean)
+            .join('\n\n')
+        : undefined;
       const response = instructionsRenderResponseSchema.parse({
+        compactRendered,
         rendered,
         templateIdentity,
         fallback: Boolean(failure),
         fallbackReason: failure ? 'managed_template_render_failed' : undefined,
-        formatting:
-          templateIdentity === 'default' || failure
-            ? createFormattingPayload(summaries, declaredServers, presentations, activeAggregator, runtimeConfiguration)
-            : undefined,
+        formatting,
       });
       res.json(response);
     } catch (error) {

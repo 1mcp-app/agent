@@ -83,6 +83,7 @@ import {
   type AuthInfo,
   getAuthInfo,
   getPresetName,
+  getRequestTagGrant,
   getTagExpression,
   getTagFilterMode,
   getTagQuery,
@@ -135,6 +136,7 @@ export interface ModernHttpRequestPolicy {
 
 function buildConfig(req: Request, res: Response): InboundConnectionConfig {
   return {
+    grantedTags: getRequestTagGrant(res),
     tags: getValidatedTags(res),
     tagExpression: getTagExpression(res),
     tagFilterMode: getTagFilterMode(res),

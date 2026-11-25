@@ -1006,6 +1006,7 @@ export class TemplateServerManager {
     const preparationAuthority = getProjectPreparationAuthorityIdentity(authority, context);
     const policies = await resolveProjectPolicies(context, filterConfig);
     const bindingConfiguration = structuredClone({
+      grantedTags: filterConfig.grantedTags,
       tags: filterConfig.tags,
       tagExpression: filterConfig.tagExpression,
       tagQuery: filterConfig.tagQuery,

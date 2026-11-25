@@ -88,6 +88,30 @@ function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8' }).trim();
 }
 
+function readAttemptSummary(repository, run) {
+  const endpoint = `repos/${repository}/actions`;
+  const ids = gh([
+    'api',
+    '--paginate',
+    `${endpoint}/runs/${run.id}/artifacts?name=release-summary&per_page=100`,
+    '--jq',
+    '.artifacts[] | select(.name == "release-summary" and (.expired | not)) | .id',
+  ])
+    .split(/\s+/)
+    .filter(Boolean);
+  fs.mkdirSync('recovery-evidence', { recursive: true });
+  const archive = 'recovery-evidence/summary.zip';
+  const matches = [];
+  for (const id of ids) {
+    if (!/^\d+$/.test(id)) throw new Error('Invalid release summary artifact ID');
+    fs.writeFileSync(archive, execFileSync('gh', ['api', `${endpoint}/artifacts/${id}/zip`]));
+    const summary = JSON.parse(execFileSync('unzip', ['-p', archive, 'release-summary.json'], { encoding: 'utf8' }));
+    if (String(summary.attempt) === String(run.run_attempt)) matches.push(summary);
+  }
+  if (matches.length !== 1) throw new Error('Expected exactly one release summary for the selected run attempt');
+  return matches[0];
+}
+
 if (require.main === module) {
   try {
     const command = process.argv[2];
@@ -98,19 +122,7 @@ if (require.main === module) {
         (originalRunId) => {
           const repository = process.env.GITHUB_REPOSITORY;
           const run = JSON.parse(gh(['api', `repos/${repository}/actions/runs/${originalRunId}`]));
-          fs.mkdirSync('recovery-evidence', { recursive: true });
-          gh([
-            'run',
-            'download',
-            originalRunId,
-            '--repo',
-            repository,
-            '--name',
-            'release-summary',
-            '--dir',
-            'recovery-evidence',
-          ]);
-          const summary = JSON.parse(fs.readFileSync('recovery-evidence/release-summary.json', 'utf8'));
+          const summary = readAttemptSummary(repository, run);
           return verifyRecoveryRun(run, summary, repository, originalRunId);
         },
       );

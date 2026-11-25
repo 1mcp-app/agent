@@ -33,13 +33,13 @@ test('publication preserves signed dispatch identity when candidate preparation 
   assert.deepEqual(result.stdout.trim().split('\n'), [dispatchSha, 'refs/heads/main', candidateSha]);
 });
 
-function dispatch(t, inputs, summaryOverrides = {}) {
+function dispatch(t, inputs, summaryOverrides = {}, attempts = ['1'], runAttempt = 1) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-dispatch-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const output = path.join(directory, 'outputs');
   const run = {
     id: 123,
-    run_attempt: 1,
+    run_attempt: runAttempt,
     repository: { full_name: '1mcp-app/agent' },
     path: '.github/workflows/release-pipeline.yml',
     event: 'workflow_dispatch',
@@ -49,7 +49,7 @@ function dispatch(t, inputs, summaryOverrides = {}) {
   const summary = {
     runId: '123',
     artifactRunId: '123',
-    attempt: '1',
+    attempt: String(runAttempt),
     runUrl: 'https://github.com/1mcp-app/agent/actions/runs/123',
     sha: 'a'.repeat(40),
     version: '1.2.3-beta.1',
@@ -89,11 +89,13 @@ require('node:child_process').execFileSync = (command, args) => {
     error.status = 2;
     throw error;
   }
-  if (command === 'gh' && args[0] === 'api') return ${JSON.stringify(JSON.stringify(run))};
-  if (command === 'gh' && args[0] === 'run' && args[1] === 'download') {
-    fs.writeFileSync(path.join(args[args.indexOf('--dir') + 1], 'release-summary.json'), ${JSON.stringify(JSON.stringify(summary))});
-    return '';
+  if (command === 'gh' && args.includes('--paginate')) return ${JSON.stringify(attempts.map((_, index) => index + 1).join('\n'))};
+  if (command === 'gh' && args[1]?.endsWith('/zip')) return args[1].split('/').at(-2);
+  if (command === 'unzip') {
+    const index = Number(fs.readFileSync(args[1], 'utf8')) - 1;
+    return JSON.stringify({ ...${JSON.stringify(summary)}, attempt: ${JSON.stringify(attempts)}[index], ...${JSON.stringify(summaryOverrides)} });
   }
+  if (command === 'gh' && args[0] === 'api') return ${JSON.stringify(JSON.stringify(run))};
   throw new Error('Unexpected external command');
 };
 `,
@@ -153,6 +155,18 @@ test('invalid or historical recovery evidence emits no usable workflow outputs',
     const { result, outputs } = dispatch(t, { RECOVERY_RUN_ID: '123' }, overrides);
     assert.equal(result.status, 1);
     assert.deepEqual(outputs, {});
+  }
+});
+
+test('recovery selects the unique current attempt regardless of artifact order', (t) => {
+  for (const attempts of [
+    ['2', '3', '1'],
+    ['1', '2'],
+    ['3', '2', '3'],
+  ]) {
+    const { result, outputs } = dispatch(t, { RECOVERY_RUN_ID: '123' }, {}, attempts, 3);
+    assert.equal(result.status, attempts.filter((attempt) => attempt === '3').length === 1 ? 0 : 1, result.stderr);
+    if (result.status !== 0) assert.deepEqual(outputs, {});
   }
 });
 

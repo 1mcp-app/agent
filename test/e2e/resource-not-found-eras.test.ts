@@ -64,11 +64,13 @@ describe('resource misses across real gateway HTTP eras', () => {
   });
 
   it.each([
-    ['modern', false],
-    ['modern', true],
-    ['legacy', false],
-    ['legacy', true],
-  ] as const)('rejects unknown public URIs without upstream reads on %s with auth=%s', async (era, auth) => {
+    ['modern', false, false],
+    ['modern', true, false],
+    ['modern', true, true],
+    ['legacy', false, false],
+    ['legacy', true, false],
+    ['legacy', true, true],
+  ] as const)('routes authorized resources on %s with auth=%s, tagged=%s', async (era, auth, tagged) => {
     const directory = await mkdtemp(join(tmpdir(), '1mcp-resource-miss-'));
     const home = join(directory, 'home');
     await mkdir(home);
@@ -91,7 +93,12 @@ describe('resource misses across real gateway HTTP eras', () => {
       const upstreamOrigin = await listen(upstream);
       await writeFile(
         join(directory, 'mcp.json'),
-        JSON.stringify({ mcpServers: { owned_fixture: { type: 'streamableHttp', url: `${upstreamOrigin}/mcp` } } }),
+        JSON.stringify({
+          mcpServers: {
+            owned_fixture: { type: 'streamableHttp', url: `${upstreamOrigin}/mcp`, tags: tagged ? ['owned'] : [] },
+            ...(tagged ? { untagged_fixture: { type: 'streamableHttp', url: `${upstreamOrigin}/mcp` } } : {}),
+          },
+        }),
       );
       const reservation = createServer();
       const origin = await listen(reservation);
@@ -199,6 +206,7 @@ describe('resource misses across real gateway HTTP eras', () => {
         );
         const catalog = await legacy.listResources();
         expect(catalog.resources).toHaveLength(1);
+        expect(catalog.resources[0]._meta).toMatchObject({ 'app.1mcp/route': { server: 'owned_fixture' } });
         expect(await legacy.readResource({ uri: catalog.resources[0].uri })).toMatchObject({
           contents: [{ text: 'owned response' }],
         });
@@ -242,6 +250,7 @@ describe('resource misses across real gateway HTTP eras', () => {
         };
         const catalog = await request('resources/list', {});
         expect(catalog.result.resources).toHaveLength(1);
+        expect(catalog.result.resources[0]._meta).toMatchObject({ 'app.1mcp/route': { server: 'owned_fixture' } });
         expect(await request('resources/read', { uri: catalog.result.resources[0].uri })).toMatchObject({
           result: { contents: [{ text: 'owned response' }] },
         });

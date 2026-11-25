@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { installPreparationSkill } from './installPreparationSkill.js';
+import { installManagedSkill } from './installManagedSkill.js';
 
 const faults = vi.hoisted(() => ({ beforeRename: undefined as ((target: string) => Promise<void>) | undefined }));
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -18,16 +18,16 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   };
 });
 
-describe('managed preparation skill installation', () => {
+describe.each(['1mcp-preparation-setup', '1mcp-cli'])('managed %s skill installation', (skillName) => {
   let root: string;
   let destination: string;
   const initial = { 'SKILL.md': 'original\n', 'references/backend.md': 'backend v1\n' };
   const updated = { 'SKILL.md': 'updated\n', 'references/backend.md': 'backend v2\n', 'references/new.md': 'new\n' };
-  const install = (files = initial) => installPreparationSkill(root, '.agents/skills', files);
+  const install = (files = initial) => installManagedSkill(root, '.agents/skills', skillName, files);
 
   beforeEach(async () => {
     root = await mkdtemp(path.join(os.tmpdir(), '1mcp-skill-'));
-    destination = path.join(root, '.agents/skills/1mcp-preparation-setup');
+    destination = path.join(root, '.agents/skills', skillName);
   });
   afterEach(async () => {
     faults.beforeRename = undefined;
@@ -177,7 +177,7 @@ describe('managed preparation skill installation', () => {
   it('removes obsolete unchanged managed files while preserving unrelated files', async () => {
     await install();
     await writeFile(path.join(destination, 'custom.md'), 'keep');
-    await installPreparationSkill(root, '.agents/skills', { 'SKILL.md': 'v2' });
+    await installManagedSkill(root, '.agents/skills', skillName, { 'SKILL.md': 'v2' });
     await expect(readFile(path.join(destination, 'references/backend.md'))).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(path.join(destination, 'custom.md'), 'utf8')).toBe('keep');
   });
@@ -201,7 +201,7 @@ describe('managed preparation skill installation', () => {
 
   it.each([
     'not json',
-    JSON.stringify({ schemaVersion: 1, skill: '1mcp-preparation-setup', files: { '../outside': 'a'.repeat(64) } }),
+    JSON.stringify({ schemaVersion: 1, skill: skillName, files: { '../outside': 'a'.repeat(64) } }),
   ])('preserves files with invalid manifest %s', async (manifest) => {
     await install();
     await writeFile(path.join(destination, '.1mcp-managed.json'), manifest);
@@ -222,7 +222,7 @@ describe('managed preparation skill installation', () => {
     expect(await install(updated)).toMatchObject({ status: 'conflict', changed: false });
   });
 
-  it.each(['.agents', '.agents/skills', '.agents/skills/1mcp-preparation-setup'])(
+  it.each(['.agents', '.agents/skills', `.agents/skills/${skillName}`])(
     'preserves symlinked destination %s',
     async (relative) => {
       const outside = path.join(root, 'outside');
@@ -251,11 +251,13 @@ describe('managed preparation skill installation', () => {
     const alias = path.join(root, 'alias');
     await mkdir(real);
     await symlink(real, alias, 'junction');
-    expect(await installPreparationSkill(alias, '.agents/skills', initial)).toMatchObject({ status: 'installed' });
-    expect(await installPreparationSkill(real, '.agents/skills', initial)).toMatchObject({ status: 'unchanged' });
-    expect(await readFile(path.join(real, '.agents/skills/1mcp-preparation-setup/SKILL.md'), 'utf8')).toBe(
-      initial['SKILL.md'],
-    );
+    expect(await installManagedSkill(alias, '.agents/skills', skillName, initial)).toMatchObject({
+      status: 'installed',
+    });
+    expect(await installManagedSkill(real, '.agents/skills', skillName, initial)).toMatchObject({
+      status: 'unchanged',
+    });
+    expect(await readFile(path.join(real, '.agents/skills', skillName, 'SKILL.md'), 'utf8')).toBe(initial['SKILL.md']);
   });
 
   it('still rejects redirects beneath a selected scope-root alias', async () => {
@@ -266,8 +268,10 @@ describe('managed preparation skill installation', () => {
     await mkdir(other);
     await symlink(real, alias, 'junction');
     await symlink(other, path.join(real, '.agents'), 'junction');
-    expect(await installPreparationSkill(alias, '.agents/skills', initial)).toMatchObject({ status: 'conflict' });
-    await expect(readFile(path.join(other, 'skills/1mcp-preparation-setup/SKILL.md'))).rejects.toMatchObject({
+    expect(await installManagedSkill(alias, '.agents/skills', skillName, initial)).toMatchObject({
+      status: 'conflict',
+    });
+    await expect(readFile(path.join(other, 'skills', skillName, 'SKILL.md'))).rejects.toMatchObject({
       code: 'ENOENT',
     });
   });

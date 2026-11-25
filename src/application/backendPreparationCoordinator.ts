@@ -272,6 +272,7 @@ export class BackendPreparationCoordinator {
         tags: filter.tags,
         tagExpression: filter.tagExpression,
         tagQuery: filter.tagQuery,
+        grantedTags: filter.grantedTags,
         tagFilterMode: filter.tagFilterMode,
         presetName: filter.presetName,
         projectFilterMode: filter.projectFilterMode,

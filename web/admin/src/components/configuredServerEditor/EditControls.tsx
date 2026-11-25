@@ -126,9 +126,15 @@ function OAuthFieldDraft({
   value: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
 }) {
-  const { insecureAllowIncompleteMetadata, privateNetworkOrigins, ...other } = value;
+  const { allowRootIssuerSlash, insecureAllowIncompleteMetadata, privateNetworkOrigins, ...other } = value;
   return (
     <Stack gap="sm">
+      <Switch
+        label="Allow a trailing slash difference in HTTPS root issuers"
+        description="Applies during OAuth discovery. Changing this setting requires fresh authorization."
+        checked={allowRootIssuerSlash === true}
+        onChange={(event) => onChange({ ...value, allowRootIssuerSlash: event.currentTarget.checked })}
+      />
       <Switch
         label="Allow incomplete OAuth metadata (insecure)"
         description="Infer a missing issuer and resolve relative endpoints. Keep off for providers with complete metadata."
@@ -149,6 +155,7 @@ function OAuthFieldDraft({
         onChange={(next) =>
           onChange({
             ...next,
+            ...(allowRootIssuerSlash !== undefined ? { allowRootIssuerSlash } : {}),
             ...(insecureAllowIncompleteMetadata !== undefined ? { insecureAllowIncompleteMetadata } : {}),
             ...(privateNetworkOrigins !== undefined ? { privateNetworkOrigins } : {}),
           })
