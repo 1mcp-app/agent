@@ -12,6 +12,7 @@ import { getLegacyInboundServer } from '@src/sdk/legacy/server/runtime/legacyInb
 import { CompleteRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
+import { withCatalogBackendRetry } from './catalogRequestRetry.js';
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
 import { withInboundProjectAdmission } from './projectAdmission.js';
 import { withProviderRequestProgress } from './requestProviderProgress.js';
@@ -39,13 +40,15 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
         bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
           revalidateLegacyRequestAuthInfo(extra.authInfo),
         );
-      const result = await (
-        await acquire(request.params?.cursor)
-      ).list('prompts', {
-        cursor: request.params?.cursor,
-        enablePagination: inboundConn.enablePagination ?? false,
-        responseBudget: { limits: RESPONSE_JSON_VALUE_LIMITS },
-      });
+      const result = await withCatalogBackendRetry(
+        async () =>
+          (await acquire(request.params?.cursor)).list('prompts', {
+            cursor: request.params?.cursor,
+            enablePagination: inboundConn.enablePagination ?? false,
+            responseBudget: { limits: RESPONSE_JSON_VALUE_LIMITS },
+          }),
+        { cursor: request.params?.cursor, signal: extra?.signal },
+      );
       return {
         prompts: result.items,
         ...(result.nextCursor === undefined ? {} : { nextCursor: result.nextCursor }),

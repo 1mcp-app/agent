@@ -48,6 +48,7 @@ import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { MCPError } from '@src/utils/core/errorTypes.js';
 import { scopesToTags } from '@src/utils/validation/scopeValidation.js';
 
+import { withCatalogBackendRetry } from './catalogRequestRetry.js';
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
 import { withInboundProjectAdmission } from './projectAdmission.js';
 import { withProviderRequestProgress } from './requestProviderProgress.js';
@@ -106,17 +107,22 @@ export function registerToolHandlers(
           bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
             revalidateLegacyRequestAuthInfo(extra.authInfo),
           );
-        const { snapshot } = await acquire(request.params?.cursor, extra?.signal, { upstream: !lazy });
-        const result = await snapshot.list<Tool>('tools', {
-          cursor: request.params?.cursor,
-          enablePagination: inboundConn.enablePagination ?? false,
-          filterSelection: { lazy },
-          internalOnly: lazy,
-          responseBudget: {
-            limits: RESPONSE_JSON_VALUE_LIMITS,
-            ...(inboundConn.canonicalSchemaProjection ? {} : { project: projectLegacyTool }),
+        const result = await withCatalogBackendRetry(
+          async () => {
+            const { snapshot } = await acquire(request.params?.cursor, extra?.signal, { upstream: !lazy });
+            return snapshot.list<Tool>('tools', {
+              cursor: request.params?.cursor,
+              enablePagination: inboundConn.enablePagination ?? false,
+              filterSelection: { lazy },
+              internalOnly: lazy,
+              responseBudget: {
+                limits: RESPONSE_JSON_VALUE_LIMITS,
+                ...(inboundConn.canonicalSchemaProjection ? {} : { project: projectLegacyTool }),
+              },
+            });
           },
-        });
+          { cursor: request.params?.cursor, signal: extra?.signal },
+        );
         const listed = {
           tools: result.items,
           ...(result.nextCursor === undefined ? {} : { nextCursor: result.nextCursor }),
