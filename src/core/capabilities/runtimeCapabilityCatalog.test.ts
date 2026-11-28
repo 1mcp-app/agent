@@ -28,6 +28,7 @@ import {
   isIssuedRuntimeResourceEntry,
   pruneRuntimeResourceRoutes,
   RUNTIME_CATALOG_SCOPE_TTL_MS,
+  RuntimeCatalogBackendChangedError,
 } from './runtimeCapabilityCatalog.js';
 
 vi.mock('@src/productTelemetry/index.js', () => ({ observeProductRuntimeConfiguration: vi.fn() }));
@@ -1231,6 +1232,26 @@ describe('runtime capability catalog', () => {
       expect(connection.adapter.request).toHaveBeenCalledTimes(2);
     },
   );
+
+  it('reports a backend change when an adapter is replaced during enumeration', async () => {
+    const connections: OutboundConnections = new Map();
+    const replacement = fixture('backend');
+    const original = createMockOutboundConnection({
+      name: 'backend',
+      capabilities: { tools: {} },
+      adapter: {
+        request: vi.fn(async () => {
+          connections.set('backend', replacement);
+          return { tools: [tool('echo')] } as never;
+        }),
+      },
+    });
+    connections.set('backend', original);
+
+    await expect(acquireRuntimeCapabilityCatalog(connections)).rejects.toBeInstanceOf(
+      RuntimeCatalogBackendChangedError,
+    );
+  });
 
   it('bounds concurrent acquisitions of one scope and releases admission after completion', async () => {
     let finish!: (value: unknown) => void;

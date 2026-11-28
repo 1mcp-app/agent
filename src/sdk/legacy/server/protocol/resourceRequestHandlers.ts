@@ -23,6 +23,7 @@ import {
 } from '@src/sdk/legacy/types.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
+import { withCatalogBackendRetry } from './catalogRequestRetry.js';
 import { withPrivateInteractionConnection } from './privateInteractionConnection.js';
 import { withInboundProjectAdmission } from './projectAdmission.js';
 import { withProviderRequestProgress } from './requestProviderProgress.js';
@@ -49,17 +50,22 @@ export function registerResourceHandlers(
   server.setRequestHandler(
     ListResourcesRequestSchema,
     handle(async (request, extra) => {
-      bindOwnedCatalogConnections(outboundConns, inboundConn, 'resources');
       if (extra?.authInfo)
         bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
           revalidateLegacyRequestAuthInfo(extra.authInfo),
         );
-      const snapshot = await acquire(request.params?.cursor);
-      const result = await snapshot.list('resources', {
-        cursor: request.params?.cursor,
-        enablePagination: inboundConn.enablePagination ?? false,
-        responseBudget: { limits: RESPONSE_JSON_VALUE_LIMITS },
-      });
+      const result = await withCatalogBackendRetry(
+        async () => {
+          bindOwnedCatalogConnections(outboundConns, inboundConn, 'resources');
+          const snapshot = await acquire(request.params?.cursor);
+          return snapshot.list('resources', {
+            cursor: request.params?.cursor,
+            enablePagination: inboundConn.enablePagination ?? false,
+            responseBudget: { limits: RESPONSE_JSON_VALUE_LIMITS },
+          });
+        },
+        { cursor: request.params?.cursor, signal: extra?.signal },
+      );
       return {
         resources: result.items,
         ...(result.nextCursor === undefined ? {} : { nextCursor: result.nextCursor }),
@@ -70,17 +76,22 @@ export function registerResourceHandlers(
   server.setRequestHandler(
     ListResourceTemplatesRequestSchema,
     handle(async (request, extra) => {
-      bindOwnedCatalogConnections(outboundConns, inboundConn, 'resources');
       if (extra?.authInfo)
         bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
           revalidateLegacyRequestAuthInfo(extra.authInfo),
         );
-      const snapshot = await acquire(request.params?.cursor, 'resourceTemplates');
-      const result = await snapshot.list('resourceTemplates', {
-        cursor: request.params?.cursor,
-        enablePagination: inboundConn.enablePagination ?? false,
-        responseBudget: { limits: RESPONSE_JSON_VALUE_LIMITS },
-      });
+      const result = await withCatalogBackendRetry(
+        async () => {
+          bindOwnedCatalogConnections(outboundConns, inboundConn, 'resources');
+          const snapshot = await acquire(request.params?.cursor, 'resourceTemplates');
+          return snapshot.list('resourceTemplates', {
+            cursor: request.params?.cursor,
+            enablePagination: inboundConn.enablePagination ?? false,
+            responseBudget: { limits: RESPONSE_JSON_VALUE_LIMITS },
+          });
+        },
+        { cursor: request.params?.cursor, signal: extra?.signal },
+      );
       return {
         resourceTemplates: result.items,
         ...(result.nextCursor === undefined ? {} : { nextCursor: result.nextCursor }),
