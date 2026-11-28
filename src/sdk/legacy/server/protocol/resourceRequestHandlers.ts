@@ -50,13 +50,13 @@ export function registerResourceHandlers(
   server.setRequestHandler(
     ListResourcesRequestSchema,
     handle(async (request, extra) => {
-      bindOwnedCatalogConnections(outboundConns, inboundConn, 'resources');
       if (extra?.authInfo)
         bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
           revalidateLegacyRequestAuthInfo(extra.authInfo),
         );
       const result = await withCatalogBackendRetry(
         async () => {
+          bindOwnedCatalogConnections(outboundConns, inboundConn, 'resources');
           const snapshot = await acquire(request.params?.cursor);
           return snapshot.list('resources', {
             cursor: request.params?.cursor,
@@ -76,13 +76,13 @@ export function registerResourceHandlers(
   server.setRequestHandler(
     ListResourceTemplatesRequestSchema,
     handle(async (request, extra) => {
-      bindOwnedCatalogConnections(outboundConns, inboundConn, 'resources');
       if (extra?.authInfo)
         bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
           revalidateLegacyRequestAuthInfo(extra.authInfo),
         );
       const result = await withCatalogBackendRetry(
         async () => {
+          bindOwnedCatalogConnections(outboundConns, inboundConn, 'resources');
           const snapshot = await acquire(request.params?.cursor, 'resourceTemplates');
           return snapshot.list('resourceTemplates', {
             cursor: request.params?.cursor,

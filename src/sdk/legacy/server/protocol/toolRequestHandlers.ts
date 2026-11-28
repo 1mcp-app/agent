@@ -102,13 +102,13 @@ export function registerToolHandlers(
     ListToolsRequestSchema,
     withErrorHandling(
       admit(async (request, extra) => {
-        bindOwnedCatalogConnections(outboundConns, inboundConn, 'tools');
         if (extra?.authInfo)
           bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
             revalidateLegacyRequestAuthInfo(extra.authInfo),
           );
         const result = await withCatalogBackendRetry(
           async () => {
+            bindOwnedCatalogConnections(outboundConns, inboundConn, 'tools');
             const { snapshot } = await acquire(request.params?.cursor, extra?.signal, { upstream: !lazy });
             return snapshot.list<Tool>('tools', {
               cursor: request.params?.cursor,

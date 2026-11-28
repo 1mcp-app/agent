@@ -35,18 +35,19 @@ export function registerPromptHandlers(outboundConns: LegacyOutboundConnections,
   server.setRequestHandler(
     ListPromptsRequestSchema,
     handle(async (request, extra) => {
-      bindOwnedCatalogConnections(outboundConns, inboundConn, 'prompts');
       if (extra?.authInfo)
         bindOwnedNotificationAuthorization(outboundConns, inboundConn, () =>
           revalidateLegacyRequestAuthInfo(extra.authInfo),
         );
       const result = await withCatalogBackendRetry(
-        async () =>
-          (await acquire(request.params?.cursor)).list('prompts', {
+        async () => {
+          bindOwnedCatalogConnections(outboundConns, inboundConn, 'prompts');
+          return (await acquire(request.params?.cursor)).list('prompts', {
             cursor: request.params?.cursor,
             enablePagination: inboundConn.enablePagination ?? false,
             responseBudget: { limits: RESPONSE_JSON_VALUE_LIMITS },
-          }),
+          });
+        },
         { cursor: request.params?.cursor, signal: extra?.signal },
       );
       return {

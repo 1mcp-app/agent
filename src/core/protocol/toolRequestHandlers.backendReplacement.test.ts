@@ -15,6 +15,19 @@ vi.mock('@src/core/server/serverManager.js', () => ({
   },
 }));
 
+const catalogBinding = vi.hoisted(() => ({ connectionsPerAttempt: [] as unknown[][] }));
+
+vi.mock('@src/sdk/legacy/server/protocol/resourceSubscriptions.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@src/sdk/legacy/server/protocol/resourceSubscriptions.js')>();
+  return {
+    ...actual,
+    bindOwnedCatalogConnections: (...args: Parameters<typeof actual.bindOwnedCatalogConnections>) => {
+      catalogBinding.connectionsPerAttempt.push(Array.from(args[0].values()));
+      return actual.bindOwnedCatalogConnections(...args);
+    },
+  };
+});
+
 type ListToolsHandler = (request: { params: Record<string, unknown> }) => Promise<unknown>;
 
 const echo = { name: 'echo', inputSchema: { type: 'object' } };
@@ -60,6 +73,28 @@ describe('registerToolHandlers backend replacement', () => {
     const result = (await listTools({ params: {} })) as { tools: Array<{ name: string }> };
 
     expect(result.tools.map((tool) => tool.name)).toEqual(['backend_1mcp_echo']);
+  });
+
+  it('binds catalog coverage for the backend each attempt lists', async () => {
+    const connections: OutboundConnections = new Map();
+    const replacement = backend({ adapter: { request: vi.fn(async () => ({ tools: [echo] }) as never) } });
+    const original = backend({
+      adapter: {
+        request: vi.fn(async () => {
+          connections.set('backend', replacement);
+          return { tools: [echo] } as never;
+        }),
+      },
+    });
+    connections.set('backend', original);
+    catalogBinding.connectionsPerAttempt.length = 0;
+
+    await registerListTools(connections)({ params: {} });
+
+    expect(catalogBinding.connectionsPerAttempt).toHaveLength(2);
+    expect(catalogBinding.connectionsPerAttempt[0]).toContain(original);
+    expect(catalogBinding.connectionsPerAttempt[1]).toContain(replacement);
+    expect(catalogBinding.connectionsPerAttempt[1]).not.toContain(original);
   });
 
   it('surfaces a gateway error when the backend changes again on the retry', async () => {
